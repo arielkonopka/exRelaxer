@@ -3,6 +3,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include "audio.hpp"
 #include "layer.hpp"
 #include "spatial.hpp"
 
@@ -14,10 +15,13 @@ namespace exr {
 //   net.addLayer("eye", LayerSpec::Retina({{1, 200, 320}, Sampling::Spiral}));
 //   net.addLayer("v1", LayerSpec::Conv2D(16, Window2D::square(5, 1, 2)));
 //   net.addLayer("pool", LayerSpec::Pool2D(Window2D::square(2, 2)));
+//   net.addLayer("ear", LayerSpec::Cochlea({.sampleRate = 16000, .hop = 160, .bands = 40}));
+//   net.addLayer("spectrogram", LayerSpec::History(32));
 struct LayerSpec
 {
     LayerType type = LayerType::Dense;
-    size_t size = 0;             // Dense: neurons at construction; Conv2D, LocallyConnected2D: output channels
+    size_t size = 0;             // Dense: neurons at construction; Conv2D, LocallyConnected2D: output channels;
+                                 // History: ticks remembered
     bool hasHabituation = true;
     bool hasER = true;
     bool frozen = false;         // network::applyReward skips frozen layers (see network::freeze)
@@ -27,6 +31,7 @@ struct LayerSpec
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina
+    CochleaSpec cochlea = {};    // Cochlea
 
     static LayerSpec Dense(size_t size, bool hasHabituation = true, bool hasER = true)
     {
@@ -57,6 +62,16 @@ struct LayerSpec
         LayerSpec s{LayerType::Retina, 0, hasHabituation, hasER};
         s.retina = retina;
         return s;
+    }
+    static LayerSpec Cochlea(const CochleaSpec& cochlea, bool hasHabituation = true, bool hasER = true)
+    {
+        LayerSpec s{LayerType::Cochlea, 0, hasHabituation, hasER};
+        s.cochlea = cochlea;
+        return s;
+    }
+    static LayerSpec History(size_t length)
+    {
+        return {LayerType::History, length, false, false};
     }
 };
 

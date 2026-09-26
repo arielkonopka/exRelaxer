@@ -59,6 +59,11 @@ add_library(exrelaxer_core STATIC
     core/layers/pool2d.hpp
     core/layers/retina.cpp
     core/layers/retina.hpp
+    core/layers/audio.hpp
+    core/layers/cochlea.cpp
+    core/layers/cochlea.hpp
+    core/layers/history.cpp
+    core/layers/history.hpp
     core/layers/layer_factory.cpp
     core/layers/layer_factory.hpp
     core/network.cpp
@@ -141,6 +146,7 @@ add_executable(exrelaxer_tests
     tests/kernels.cpp
     tests/spatial.cpp
     tests/filters.cpp
+    tests/audio.cpp
 )
 
 target_link_libraries(exrelaxer_tests PRIVATE

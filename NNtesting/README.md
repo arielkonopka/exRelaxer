@@ -186,6 +186,7 @@ experiment. With `EXRELAXER_BUILD_PYTHON=ON`, the Python experiments tagged
 | `bar_orientation` | vision, learning, quick | frozen Gabor bank + frozen random mix + learned readout, vertical vs horizontal bars; accuracy 0.9875 (0.523 without learning) |
 | `gapped_pattern` | temporal, learning | A..B..C with gaps in a random stream, decoys; `topology` = `window_readout`, `window_mix` or `reservoir`; `er`, reward mode, sizes |
 | `dense_throughput` | performance, quick | ms per step and per step + reward, `n × n` dense layer |
+| `chirp_direction` | audio, learning, quick | cochlea → history (spectrogram) → frozen Gabor bank → pool → frozen random mix → learned readout, rising vs falling chirps; accuracy 0.998 (0.56 without learning) |
 | `vision_throughput` | performance, vision | ms per step, per step + reward and per layer of a 320 × 200 camera pipeline |
 | `bar_orientation_py` (Python file) | vision, learning, quick | `bar_orientation` written in Python; accuracy 0.9875 (0.514 without learning) |
 | `mnist_gabor` (Python folder) | vision, learning, dataset | MNIST (or `--set dataset=fashion_mnist`): frozen Gabor bank + pool + frozen random mix + one learned readout per class; accuracy 0.90 on 10 000 training images (0.08 without learning) |

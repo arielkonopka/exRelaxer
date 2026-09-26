@@ -12,7 +12,7 @@ automatically to every downstream layer.
 
 **Documentation:** [doc/](doc/README.md) has a detailed page for each class:
 [neuron](doc/neuron.md), [layer](doc/layer.md), [dense](doc/dense.md),
-[kernels](doc/kernels.md), [spatial](doc/spatial.md),
+[kernels](doc/kernels.md), [spatial](doc/spatial.md), [audio](doc/audio.md),
 [layer_factory](doc/layer_factory.md),
 [network](doc/network.md), and the
 test-support [pattern_benchmark](doc/pattern_benchmark.md). It also has
@@ -40,6 +40,11 @@ experiment so far.
   pipeline with about 2 million neurons steps in about 18 ms. Fixed filter
   banks (Gabor, centre-surround, Gaussian) turn a Conv2D into a frozen
   feature detector (see [doc/spatial.md](doc/spatial.md)).
+- **Audio layers** – `Cochlea` reads sound a hop of samples per tick and
+  splits it (Hann window, FFT) into mel or linear frequency bands, one
+  adapting neuron per band; `History` keeps the last ticks side by side, so
+  a cochlea's bands become a spectrogram the vision layers read like an
+  image (see [doc/audio.md](doc/audio.md)).
 - **Pluggable layer types** – layers are created by `layer_factory` from a
   `LayerSpec`; new types plug in by registering a creator.
 - **Dynamic topology** – layers can be joined, grown with feedback neurons,
@@ -231,6 +236,9 @@ core/
   layers/locally_connected2d.*   convolution geometry, own weights per position
   layers/pool2d.hpp/.cpp         max / average pooling
   layers/retina.hpp/.cpp         image input: grid or spiral sampling
+  layers/audio.hpp               CochleaSpec, frequency scales, compression
+  layers/cochlea.hpp/.cpp        sound input: FFT into frequency bands, one neuron per band
+  layers/history.hpp/.cpp        the last ticks of its sources side by side (spectrograms)
   filters.hpp/.cpp               fixed filter banks for Conv2D: Gaussian, difference of Gaussians, Gabor
   parallel.hpp                   splitting work between OpenMP threads
   binary_io.hpp                  binary stream I/O for serialization
@@ -245,6 +253,7 @@ tests/
   kernels.cpp                    SIMD kernels and dense layers bit-identical to scalar references
   regressions.cpp                one test per fixed bug; DISABLED_ tests for open ones
   spatial.cpp                    retina, Conv2D, LocallyConnected2D, Pool2D against scalar references
+  audio.cpp                      Cochlea against a double-precision DFT, History, save/load of a hearing network
   filters.cpp                    filter banks, and bar-orientation learning with frozen Gabor features
   er_scales.hpp                  test inputs and timings relative to the E-R constants
 EXrelaxer.py/                    Python package exrelaxer: nanobind bindings, experiment runner,
@@ -290,6 +299,32 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files from older format versions load as weights only.
 
 ## Changelog
+
+### 2026-09-27: audio layers
+
+- **`Cochlea`** (`LayerType::Cochlea = 5`): the entry point for sound. It
+  reads `hop` samples per tick, keeps the last `window`, and each tick takes
+  their power spectrum (Hann window, radix-2 FFT) and sums it into `bands`
+  triangular mel or linear bands, compressed as `log(1 + gain · energy)`.
+  One neuron per band, so habituation and E-R make a steady tone fade.
+- **`History`** (`LayerType::History = 6`): the last `length` ticks of its
+  sources side by side along the width; behind a cochlea, a bands × ticks
+  spectrogram for the spatial layers.
+- `LayerSpec` gains a `cochlea` field and the builders `Cochlea` and
+  `History`; network format version 8 saves the cochlea spec (older files
+  load as before).
+- Python: `CochleaSpec`, `FrequencyScale`, `Compression`,
+  `LayerSpec.cochlea` / `history`, `Network.cochlea_bands` /
+  `cochlea_power`, and `exrelaxer.audio` (WAV reading, test tones and
+  chirps, framing).
+- New quick experiment `chirp_direction`: rising vs falling chirps through
+  cochlea → history → frozen Gabor bank → pool → frozen mix → learned
+  readout, accuracy 0.998 (0.56 without learning).
+- Tests: `tests/audio.cpp` checks the spectrum and bands against a
+  double-precision DFT, tones landing in their band, History ordering and
+  growth, and a hearing network continuing bit-identically after save and
+  load; `EXrelaxer.py/tests/test_audio.py` checks against numpy's FFT.
+- Documentation: [doc/audio.md](doc/audio.md).
 
 ### 2026-09-27: Python package, Python experiments, build options
 

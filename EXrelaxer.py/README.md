@@ -109,11 +109,11 @@ describe the behaviour.
 | `run(inputs[T×N], rewards=None, learning_rate=0)` → `T×M` | a `step` loop in C++ |
 | `apply_reward_to(layer, reward, lr)` | one layer learns (unless frozen): a reward per readout |
 | `layer_output(id)` (C×H×W), `layer_shape`, `layer_size`, `layer_type`, `layer_spec`, `layer_name`, `find_layer`, `neuron_state(id)` (threshold, recovery, learning gain, alpha per neuron) | inspection |
-| `weights(id, neuron)`, `set_weights` (Dense); `kernel(id, channel)`, `set_kernel`, `load_filters(id, bank)` (Conv2D); `retina_points(id)`; `set_output(id, i, v)` | layer access |
+| `weights(id, neuron)`, `set_weights` (Dense); `kernel(id, channel)`, `set_kernel`, `load_filters(id, bank)` (Conv2D); `retina_points(id)`; `cochlea_bands(id)`, `cochlea_power(id)`; `set_output(id, i, v)` | layer access |
 | `edges`, `output_layers`, `update_order`, `inputs`, `input_count`, `layer_count`, `describe()` | the same |
 | `save(path)`, `Network.load(path, mode)`, `to_bytes()`, `Network.from_bytes(data, mode)` | `save`, `load` |
-| `LayerSpec.dense / conv2d / locally_connected2d / pool2d / retina(..., frozen=, recovery_jitter=, learning_jitter=, alpha_jitter=)` | `LayerSpec` builders |
-| `Shape`, `Window2D`, `RetinaSpec`, `Jitter` (`uniform`, `normal`, `*_relative`, `.around`, `.within`) | the same |
+| `LayerSpec.dense / conv2d / locally_connected2d / pool2d / retina / cochlea / history(..., frozen=, recovery_jitter=, learning_jitter=, alpha_jitter=)` | `LayerSpec` builders |
+| `Shape`, `Window2D`, `RetinaSpec`, `CochleaSpec` (`FrequencyScale`, `Compression`), `Jitter` (`uniform`, `normal`, `*_relative`, `.around`, `.within`) | the same |
 | `filters.gaussian`, `difference_of_gaussians`, `gabor`, `gabor_bank`, `centre_surround_bank` | `exr::filters` |
 | `constants.max_weight`, `baseline_threshold`, ... | `core/neuron.hpp` |
 | `threads()`, `set_threads(n)`, `build_info()` | OpenMP threads; compiler, build type, native, openmp |
@@ -133,5 +133,7 @@ must not be used from two threads at once.
 - the experiment runner: folder and file discovery, typed parameters, grids,
   seeding, checks, exit codes, and JSON Lines that `compare.py` reads;
 - `datasets.load`;
+- the audio layers against numpy's FFT, spectrogram save/load, and
+  `exrelaxer.audio` (framing, WAV reading at 8 to 32 bits);
 - the bar-orientation task learned from Python, at 0.97 to 1.0 accuracy
   against about 0.5 without learning.
