@@ -27,6 +27,10 @@ find_package(nanobind CONFIG REQUIRED)
 
 nanobind_add_module(_core NB_STATIC src/bindings.cpp)
 target_link_libraries(_core PRIVATE exrelaxer_core)
+# Our warnings, except -Wpedantic: nanobind's own headers trip it (a
+# zero-size array in nb_attr.h) in every file that includes them.
+list(REMOVE_ITEM EXRELAXER_WARNINGS -Wpedantic)
+target_compile_options(_core PRIVATE ${EXRELAXER_WARNINGS})
 if(EXRELAXER_NATIVE)
     set(exr_native 1)
 else()

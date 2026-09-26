@@ -17,6 +17,7 @@ target_include_directories(nntest PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 target_link_libraries(nntest PRIVATE exrelaxer_core)
+target_compile_options(nntest PRIVATE ${EXRELAXER_WARNINGS})
 
 # Git commit and build settings, regenerated on every build so each result
 # records exactly which code produced it.
@@ -40,6 +41,7 @@ add_test(NAME nntest_quick COMMAND nntest run tag:quick)
 # runs both on the same images and compares every value bit for bit.
 add_executable(retina_dump tools/retina_dump.cpp)
 target_link_libraries(retina_dump PRIVATE exrelaxer_core)
+target_compile_options(retina_dump PRIVATE ${EXRELAXER_WARNINGS})
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
     execute_process(COMMAND ${Python3_EXECUTABLE} -c "import numpy"
