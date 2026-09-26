@@ -2,18 +2,22 @@
 
 `core/neuron.hpp`, `core/neuron.cpp`
 
-A single unit: a weighted sum of its inputs, followed by two optional,
-independently switchable adaptation mechanisms, **habituation** and
-**excitation–relaxation (E-R)**, plus a reward-modulated learning rule.
+A single unit's **dynamics**: what happens to a weighted sum, through two
+optional, independently switchable adaptation mechanisms, **habituation** and
+**excitation–relaxation (E-R)**, plus the eligibility and step size of the
+reward-modulated learning rule. Everything is in `namespace exr`.
 
-Neurons are normally created and owned by a layer (`dense`); you rarely
-construct one yourself except in tests.
+A neuron does **not** own weights. Layers own them, laid out for fast SIMD
+weighted sums ([kernels](kernels.md)), compute each neuron's sum and hand it
+to `activate()`. Neurons are normally created and owned by a layer
+([neuron_layer](layer.md#neuron_layer)); you rarely construct one yourself
+except in tests and experiments, where `step()` and `learn()` run one neuron
+against weights you keep yourself.
 
 ## Construction
 
 ```cpp
-neuron(bool hasHabituation, bool hasER);               // alpha = 1.2
-neuron(bool hasHabituation, bool hasER, float alpha);
+explicit neuron(bool hasHabituation = true, bool hasER = true, float alpha = default_alpha);
 ```
 
 | Parameter | Meaning |
@@ -22,36 +26,34 @@ neuron(bool hasHabituation, bool hasER, float alpha);
 | `hasER` | enables excitation–relaxation (see below) |
 | `alpha` | E-R threshold growth rate on firing; higher means the threshold climbs faster after a strong signal |
 
-A new neuron has no weights, output `0`, threshold `baseline_threshold`, and
-its own spontaneous-firing random generator, seeded from a shared stream
-(see [Randomness](#randomness-and-reseed)).
+A new neuron has output `0`, threshold `baseline_threshold`, and its own
+spontaneous-firing random generator, seeded from a shared stream (see
+[Randomness](#randomness-and-reseed)).
 
-## One step: `step()`
+## One tick: `activate()`
 
 ```cpp
-float step(std::span<const float> inputs);
-float step(const std::vector<std::shared_ptr<float>>& inputs);  // convenience: copies values, then steps
+float activate(float weightedSum);   // returns the output
+float output() const;
+void setOutput(float value);         // drive the output by hand
 ```
 
-`inputs[i]` is multiplied by `weights[i]`; the caller must pass exactly as
-many inputs as the neuron has weights (layers guarantee this). The result is
-written to the neuron's shared output slot and returned.
+A layer computes the neuron's weighted sum, `Σ inputs[i] × weights[i]` summed
+in index order (so results are bit-reproducible, see
+[kernels](kernels.md#determinism)), and passes it to `activate()`, which
+runs these stages in order:
 
-The step runs these stages in order:
-
-1. **Weighted sum.** `sum = Σ inputs[i] × weights[i]`, summed in index order
-   (so results are bit-reproducible).
-2. **Output clamp.** `sum` is clamped to `[-max_output, max_output]` (±10).
+1. **Output clamp.** `sum` is clamped to `[-max_output, max_output]` (±10).
    Neurons have no other bounded activation; without the clamp, networks
    with feedback loops diverge within a few dozen ticks. The clamp is also
    the only non-adaptive nonlinearity, which is why hand-wired detectors use
    it (a high-gain neuron saturates at ±10).
-3. **Habituation** (if enabled). If `|sum − previous sum| ≤
+2. **Habituation** (if enabled). If `|sum − previous sum| ≤
    habituation_epsilon`, a streak counter increments, otherwise it resets to
    0. Once the streak reaches `habituation_steps` (100), `sum` is replaced by
    0 until the signal changes. The previous sum stored is the raw one, before
    suppression. The update is branchless.
-4. **E-R** (if enabled):
+3. **E-R** (if enabled):
    - if `|sum| > threshold`: the neuron **fires**. Output = `sum`, and the
      threshold is raised (see [E-R](#excitationrelaxation-e-r));
    - otherwise output = 0 and the threshold **relaxes**:
@@ -62,6 +64,9 @@ The step runs these stages in order:
      the threshold again through the same rule as a real firing.
 
 Without E-R the output is simply the (clamped, possibly habituated) sum.
+
+For one neuron with caller-owned weights, `step(inputs, weights)` is
+`activate(dot(inputs, weights))`.
 
 ## Excitation–relaxation (E-R)
 
@@ -90,14 +95,17 @@ With a small `baseline_threshold` (0.1) and inputs in a normal range, most
 neurons fire most of the time; E-R mainly adds refractoriness after strong
 firings and spontaneous activity after long silence.
 
-## Learning: `updateWeights()`
+## Learning
 
 ```cpp
-void updateWeights(std::span<const float> inputs, float reward, float learningRate);
-void updateWeights(const std::vector<std::shared_ptr<float>>& inputs, float reward, float learningRate);
+bool eligible() const;                                        // does this neuron learn now?
+float learningDelta(float reward, float learningRate) const;  // its step size, when eligible
+void learn(std::span<float> weights, std::span<const float> inputs,
+           float reward, float learningRate) const;           // one neuron, caller-owned weights
 ```
 
-Pass the same inputs the neuron stepped on (layers do this). The rule:
+Layers ask each neuron whether it is eligible and for its step size, then
+update all weights of a group at once with the SIMD kernel. The rule:
 
 ```
 weights[i] = clamp(weights[i] + learningRate × gain × reward × eligibility × sign(inputs[i]),
@@ -126,8 +134,10 @@ weights[i] = clamp(weights[i] + learningRate × gain × reward × eligibility ×
 - Each weight is clamped to `[-max_weight, max_weight]` (±10). There is no
   weight decay.
 
-The loop is vectorized at `-O3`; results are bit-identical to the scalar
-form.
+`learningDelta` is `learningRate × gain × reward × eligibility`; the kernel
+adds `delta × sign(inputs[i])` to each weight and clamps. Layers apply it
+against the inputs as they are when the reward arrives; call it right after
+the step.
 
 ## Per-neuron dynamics
 
@@ -136,9 +146,9 @@ jitter:
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| recovery (`getRecovery` / `setRecovery`) | `recovery_factor` (0.9) | per-tick E-R threshold decay while silent; larger means slower relaxation, i.e. a longer memory of past firing |
-| learning gain (`getLearningGain` / `setLearningGain`) | `default_learning_gain` (2.0) | multiplies this neuron's weight updates |
-| alpha (`getAlpha` / `setAlpha`) | `default_alpha` (1.2) | E-R threshold growth on firing; larger means a longer refractory period and a longer memory trace, ≥ 0 |
+| recovery (`recovery()` / `setRecovery`) | `recovery_factor` (0.9) | per-tick E-R threshold decay while silent; larger means slower relaxation, i.e. a longer memory of past firing |
+| learning gain (`learningGain()` / `setLearningGain`) | `default_learning_gain` (2.0) | multiplies this neuron's weight updates |
+| alpha (`alpha()` / `setAlpha`) | `default_alpha` (1.2) | E-R threshold growth on firing; larger means a longer refractory period and a longer memory trace, ≥ 0 |
 
 Each is drawn from a `Jitter`, a description of a random distribution:
 
@@ -208,31 +218,19 @@ Measured effects (gapped-pattern benchmark, 50 paired trials):
   15-tick delayed response (memory in unconnected E-R neurons) stayed at
   or slightly below the baseline (0.847; −0.008 to −0.082).
 
-## Weights
-
-| Method | Purpose |
-|--------|---------|
-| `initializeWeights(inputs)` | resize weights to `inputs.size()` and draw each from U(−1, 1). Called by the layer when a neuron is first wired. |
-| `growWeights(n)` | append `n` random weights (used when a source layer grows) |
-| `expandWeights(n)` | append `n` random weights (used when sensors are attached) |
-| `setWeights(w)` / `getWeights()` | direct access; `setWeights` is **not** clamped, so hand-wired neurons may use weights beyond ±10 |
-
-## Output
-
-`getOutput()` returns the `shared_ptr<float>` output slot itself. Layers copy
-the pointer, not the value, so every reader sees the live output.
-
 ## Randomness and `reseed`
 
 ```cpp
-static void neuron::reseed(std::uint32_t seed);
+void exr::reseed(std::uint32_t seed);   // core/random.hpp
 ```
 
-Four process-wide `mt19937` streams feed weight initialization, growth,
-expansion, and the seeds of new neurons' spontaneous-firing generators. Each
-neuron then draws spontaneous values from its **own** `minstd_rand`, so
-neurons can step in parallel without sharing state and results do not depend
-on thread count.
+Process-wide `mt19937` streams, one per purpose (`core/random.hpp`): a new
+group's initial weights, weights added by growth, weights for attached
+sensors, per-neuron jitter, and the seeds of new neurons' spontaneous-firing
+generators. Each draws U(−1, 1) weights row after row, so adding draws for
+one purpose never shifts another. Each neuron then draws spontaneous values
+from its **own** `minstd_rand`, so neurons can step in parallel without
+sharing state and results do not depend on thread count.
 
 Because the streams are shared, a network's initial weights depend on
 everything constructed before it in the process. Call `reseed` before
@@ -242,10 +240,13 @@ thread-safe with respect to concurrent network construction.
 ## Serialization
 
 ```cpp
-void serialize(std::ostream& os) const;
-void deserialize(std::istream& is, DeserializeMode mode = DeserializeMode::FullState);
+void serialize(std::ostream& os, std::span<const float> weights) const;
+std::vector<float> deserialize(std::istream& is, DeserializeMode mode = DeserializeMode::FullState,
+                               std::uint32_t format = NEURON_FORMAT_VERSION);   // returns the weights
 ```
 
+A record carries the neuron's weights, which the layer passes in and gets
+back, so the file layout is the same as when neurons owned their weights.
 Binary, native endianness, in this order:
 
 | Field | Type |
@@ -270,12 +271,13 @@ recovery or learning gain; they then keep their current values.
   `baseline_threshold`, habituation state and output to 0, and keeps the
   neuron's current (fresh) random generator.
 
-The output slot is kept (only its value changes), so wiring that points to
-it stays valid.
+Everything is read and checked before the neuron changes. A weight count
+above `max_serialized_weights` (2^26) or an impossible generator state throws
+`std::runtime_error` instead of allocating or corrupting state.
 
 ## Tunable constants
 
-Global constants in `neuron.hpp`, shared by all neurons:
+Constants in `neuron.hpp` (`inline constexpr`), shared by all neurons:
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
@@ -290,11 +292,10 @@ Global constants in `neuron.hpp`, shared by all neurons:
 | `max_output` | 10 | each weighted sum is clamped to ±this |
 | `default_learning_gain` | 2.0 | default per-neuron learning gain (multiplies every weight update) |
 | `default_alpha` | 1.2 | default E-R threshold growth rate on firing (`neuron` constructor) |
-| `default_threshold` | 0.1 | unused |
 
 ## Notes and pitfalls
 
-- `step` does not check that `inputs.size()` matches the weight count.
+- `step` and `learn` use the shorter of `inputs` and `weights`.
 - A neuron has **no bias term**. Use an input held at a constant value (e.g.
   a sensor at 1.0) when a threshold at a chosen value is needed.
 - With E-R on, a neuron may output exactly 0 on a tick simply because it is

@@ -13,7 +13,7 @@ class network {
   nodes : vector<Node>
   edges_ : vector<Edge>
   ops_ : vector<BuildOp>
-  inputs_ : vector<shared_ptr<float>>
+  inputs_ : vector<float>
   outputs_ : vector<LayerId>
   order_ : vector<LayerId>
 }
@@ -47,53 +47,61 @@ class LayerSpec {
 }
 
 abstract class layer {
-  listeners : vector<reference_wrapper<layer>>
+  output_ : vector<float>
+  readers_, sources_ : vector<reference_wrapper<layer>>
+}
+
+abstract class neuron_layer {
+  neurons_ : vector<neuron>
+  jitter settings
 }
 
 class dense {
-  neurons : deque<neuron>
-  output : vector<shared_ptr<float>>
-  groups : vector<WiringGroup>
+  groups_ : vector<Group>
+  group_of_ : vector<size_t>
 }
 
-class "dense::WiringGroup" as WiringGroup {
-  inputs : vector<shared_ptr<float>>
-  neuronIndices : vector<size_t>
-  source : reference_wrapper<layer>
+class "dense::Group" as Group {
+  inputs : vector<InputRange>
+  sources : vector<reference_wrapper<const layer>>
+  neurons : {first, count}
+  weights : weight_matrix
   values : vector<float>
 }
 
+class "kernels::weight_matrix" as weight_matrix {
+  data_ : blocks of 8 rows,\nlanes adjacent per input
+}
+
 class neuron {
-  weights : vector<float>
   threshold, previous_input
-  habituation_counter
-  spontaneous_rng : minstd_rand
+  habituation_counter, output
+  rng : minstd_rand
   recovery, learning_gain, alpha
 }
 
-class "float\n(output slot)" as Slot
-class "float\n(sensor)" as Sensor
+class "InputRange" as Range {
+  buffer : reference_wrapper<const vector<float>>
+  offset, count
+}
 
 network *-- "0..*" Node
 network *-- "0..*" Edge
 network *-- "0..*" BuildOp : construction history\n(replayed by load)
-network *-- "0..*" Sensor : shared_ptr
 network o.. layer_factory : const& (must outlive)
 Node *-- LayerSpec
 Node *-- "1" layer : unique_ptr
 
-layer <|-- dense
-layer o.. "0..*" layer : listeners\n(readers of my output)
+layer <|-- neuron_layer
+neuron_layer <|-- dense
+layer o.. "0..*" layer : readers\n(told when my output grows)
 
-dense *-- "0..*" neuron
-dense *-- "0..*" WiringGroup
-dense o-- "0..*" Slot : output\n(shared_ptr copies)
-neuron *-- "1" Slot : shared_ptr
-
-WiringGroup o.. layer : source
-WiringGroup o-- "0..*" Slot : inputs: another layer's\noutput slots
-WiringGroup o-- "0..*" Sensor : inputs: sensors\n(attachInputs)
-WiringGroup ..> neuron : neuronIndices
+neuron_layer *-- "0..*" neuron
+dense *-- "0..*" Group
+Group *-- "1" weight_matrix
+Group *-- "0..*" Range
+Range o.. layer : another layer's output_
+Range o.. network : sensors: inputs_\n(attachInputs)
 
 layer_factory ..> layer : creates
 layer_factory ..> LayerSpec : reads

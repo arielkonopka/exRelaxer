@@ -83,7 +83,7 @@ PatternScore runPatternTrial(const NetworkBuilder& build, std::uint32_t seed, bo
                              RewardMode mode = RewardMode::Target);
 ```
 
-1. `neuron::reseed(seed)`, build the network.
+1. `exr::reseed(seed)`, build the network.
 2. Train on stream `1000 + seed` for `trainTicks` ticks: `patternStep`,
    then `applyReward`. Positive ticks are rarer, so their reward is scaled by
    (negatives / positives) to balance the classes.
@@ -192,7 +192,7 @@ The input neurons bring in the current tick, the recurrent neurons carry
 the past forward. With `recurrentNeurons = 0` there is no recurrence at all,
 so any memory must come from the neurons' own state (E-R thresholds). Place
 the returned layer after `source` in the update order. Weights come from
-the neuron random streams, so `neuron::reseed` controls them.
+the library's random streams, so `exr::reseed` controls them.
 `recoveryJitter` spreads the neurons' E-R relaxation rates, i.e. their
 memory timescales.
 

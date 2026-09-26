@@ -5,6 +5,9 @@
 #include "../core/neuron.hpp"
 #include "er_scales.hpp"
 
+// A neuron does not own weights: layers do. These tests keep one neuron's
+// inputs and weights in plain vectors and use neuron::step / neuron::learn.
+
 // =============================================================================
 // Habituation tests
 // =============================================================================
@@ -14,26 +17,25 @@ TEST(NeuronTest, HabituationSuppressesRepeatedSignal)
     neuron n(true, false);
 
     // Constant-valued input
-    auto input_val = std::make_shared<float>(0.5f);
-    std::vector<std::shared_ptr<float>> inputs = { input_val };
-    n.initializeWeights(inputs);
+    std::vector<float> inputs = { 0.5f };
+    const std::vector<float> weights = { 0.8f };
 
     // For the first habituation_steps steps the signal should pass through (output != 0)
     float out;
     for (int i = 0; i < habituation_steps ; ++i)
     {
-        out = n.step(inputs);
+        out = n.step(inputs, weights);
         EXPECT_NE(out,0.0f);
     }
 
     // On the next step the signal should be suppressed
-    float habituated_out = n.step(inputs);
+    float habituated_out = n.step(inputs, weights);
     EXPECT_EQ(habituated_out, 0.0f);
-    EXPECT_EQ(*n.getOutput(), 0.0f);
+    EXPECT_EQ(n.output(), 0.0f);
 
     // Changing the signal by more than habituation_epsilon wakes the neuron up
-    *input_val = 0.8f;
-    float woken_out = n.step(inputs);
+    inputs[0] = 0.8f;
+    float woken_out = n.step(inputs, weights);
     EXPECT_NE(woken_out, 0.0f);
 }
 
@@ -45,9 +47,8 @@ TEST(NeuronTest, ExcitationRelaxationAndSpontaneousFiring)
     // neuron(hasHabituation = false, hasER = true)
     neuron n(false, true);
 
-    auto input_val = std::make_shared<float>(0.0f); // no external signal
-    std::vector<std::shared_ptr<float>> inputs = { input_val };
-    n.initializeWeights(inputs);
+    const std::vector<float> inputs = { 0.0f }; // no external signal
+    const std::vector<float> weights = { 0.8f };
 
     // Feed only zeros: the firing threshold should decay (x recovery_factor per
     // tick) until it drops below min_threshold and triggers a spontaneous
@@ -56,7 +57,7 @@ TEST(NeuronTest, ExcitationRelaxationAndSpontaneousFiring)
     const int max_steps = ticksUntilSpontaneousFiring(baseline_threshold) + 10;
     for (int step = 0; step < max_steps; ++step)
     {
-        float out = n.step(inputs);
+        float out = n.step(inputs, weights);
         if (out != 0.0f)
         {
             fired_spontaneously = true;
@@ -76,31 +77,30 @@ TEST(NeuronTest, RewardModulatedWeightUpdate)
 {
     neuron n(false, false); // E-R and habituation off, to test the weight update in isolation
 
-    auto input_val = std::make_shared<float>(1.0f);
-    std::vector<std::shared_ptr<float>> inputs = { input_val };
+    const std::vector<float> inputs = { 1.0f };
 
     // Known initial weight (0.5)
-    n.setWeights({ 0.5f });
+    std::vector<float> weights = { 0.5f };
 
-    // One step, so the neuron has a non-zero output (*output = 0.5)
-    n.step(inputs);
-    EXPECT_GT(std::abs(*n.getOutput()), firing_epsilon);
+    // One step, so the neuron has a non-zero output (0.5)
+    n.step(inputs, weights);
+    EXPECT_GT(std::abs(n.output()), firing_epsilon);
 
     // Apply a positive reward
     float reward = 1.0f;
     float learningRate = 0.1f;
-    n.updateWeights(inputs, reward, learningRate);
+    n.learn(weights, inputs, reward, learningRate);
 
     // New weight: 0.5 + learningRate * gain * reward * sign(input) = 0.5 + 0.1 * g * 1.0
     const float g = default_learning_gain;
-    EXPECT_FLOAT_EQ(n.getWeights()[0], 0.5f + 0.1f * g);
+    EXPECT_FLOAT_EQ(weights[0], 0.5f + 0.1f * g);
 
     // Apply a punishment (negative reward)
     reward = -2.0f;
-    n.updateWeights(inputs, reward, learningRate);
+    n.learn(weights, inputs, reward, learningRate);
 
     // New weight: previous + 0.1 * g * -2.0
-    EXPECT_FLOAT_EQ(n.getWeights()[0], 0.5f + 0.1f * g - 0.2f * g);
+    EXPECT_FLOAT_EQ(weights[0], 0.5f + 0.1f * g - 0.2f * g);
 }
 
 
@@ -109,29 +109,29 @@ TEST(NeuronTest, RewardModulatedWeightUpdate)
 // =============================================================================
 TEST(NeuronTest, SerializationFullStatePreservesExactBehavior) {
     neuron n_original(true, true);
-    auto input_val = std::make_shared<float>(0.5f);
-    std::vector<std::shared_ptr<float>> inputs = { input_val };
-    n_original.initializeWeights(inputs);
+    const std::vector<float> inputs = { 0.5f };
+    const std::vector<float> weights = { 0.8f };
 
     // Run 50 steps to change the internal state (habituation and E-R)
     for (int i = 0; i < 50; ++i) {
-        n_original.step(inputs);
+        n_original.step(inputs, weights);
     }
 
     // Save the state to an in-memory stream
     std::stringstream ss;
-    n_original.serialize(ss);
+    n_original.serialize(ss, weights);
 
     // Create a blank neuron and restore the full state (FullState)
     neuron n_restored(false, false);
-    n_restored.deserialize(ss, DeserializeMode::FullState);
+    const std::vector<float> restored_weights = n_restored.deserialize(ss, DeserializeMode::FullState);
+    EXPECT_EQ(restored_weights, weights);
 
     // Step 51 on the same input MUST give identical results in both neurons
-    float out_orig = n_original.step(inputs);
-    float out_rest = n_restored.step(inputs);
+    float out_orig = n_original.step(inputs, weights);
+    float out_rest = n_restored.step(inputs, restored_weights);
 
     EXPECT_FLOAT_EQ(out_orig, out_rest);
-    EXPECT_FLOAT_EQ(*n_original.getOutput(), *n_restored.getOutput());
+    EXPECT_FLOAT_EQ(n_original.output(), n_restored.output());
 }
 
 // =============================================================================
@@ -139,27 +139,26 @@ TEST(NeuronTest, SerializationFullStatePreservesExactBehavior) {
 // =============================================================================
 TEST(NeuronTest, SerializationWeightsOnlyResetsInternalCounters) {
     neuron n_original(true, true);
-    auto input_val = std::make_shared<float>(5.0f);
-    std::vector<std::shared_ptr<float>> inputs = { input_val };
-    n_original.initializeWeights(inputs);
+    const std::vector<float> inputs = { 5.0f };
+    const std::vector<float> weights = { 0.8f };
 
     // Bring the neuron to the edge of habituation (99 steps)
     for (int i = 0; i < 99; ++i) {
-        n_original.step(inputs);
+        n_original.step(inputs, weights);
     }
 
     std::stringstream ss;
-    n_original.serialize(ss);
+    n_original.serialize(ss, weights);
 
     // Deserialize in WeightsOnly mode
     neuron n_restored(false, false);
-    n_restored.deserialize(ss, DeserializeMode::WeightsOnly);
+    const std::vector<float> restored_weights = n_restored.deserialize(ss, DeserializeMode::WeightsOnly);
 
     // Weights must be identical
-    EXPECT_EQ(n_original.getWeights(), n_restored.getWeights());
+    EXPECT_EQ(weights, restored_weights);
 
     // Internal state was reset, so step 100 in n_restored must NOT trigger habituation
-    float out_rest = n_restored.step(inputs);
+    float out_rest = n_restored.step(inputs, restored_weights);
     EXPECT_NE(out_rest, 0.0f); // The restored neuron starts habituation from zero
 }
 
@@ -172,33 +171,33 @@ TEST(NeuronTest, SerializationWeightsOnlyResetsInternalCounters) {
 TEST(NeuronTest, DefaultsAndRandomizedDynamics)
 {
     neuron plain(false, true);
-    EXPECT_EQ(plain.getRecovery(), recovery_factor);
-    EXPECT_EQ(plain.getLearningGain(), default_learning_gain);
+    EXPECT_EQ(plain.recovery(), recovery_factor);
+    EXPECT_EQ(plain.learningGain(), default_learning_gain);
 
     plain.randomizeDynamics(Jitter::none(), Jitter::none());  // disabled: defaults, nothing drawn
-    EXPECT_EQ(plain.getRecovery(), recovery_factor);
-    EXPECT_EQ(plain.getLearningGain(), default_learning_gain);
+    EXPECT_EQ(plain.recovery(), recovery_factor);
+    EXPECT_EQ(plain.learningGain(), default_learning_gain);
 
-    neuron::reseed(1);
+    reseed(1);
     std::vector<float> recoveries, gains;
     for (int i = 0; i < 200; ++i) {
         neuron n(false, true);
         n.randomizeDynamics(Jitter::uniform(0.08f), Jitter::uniform(0.2f));
-        recoveries.push_back(n.getRecovery());
-        gains.push_back(n.getLearningGain());
-        EXPECT_GE(n.getRecovery(), recovery_factor - 0.08f);
-        EXPECT_LE(n.getRecovery(), recovery_factor + 0.08f);
-        EXPECT_GE(n.getLearningGain(), default_learning_gain - 0.2f);
-        EXPECT_LE(n.getLearningGain(), default_learning_gain + 0.2f);
+        recoveries.push_back(n.recovery());
+        gains.push_back(n.learningGain());
+        EXPECT_GE(n.recovery(), recovery_factor - 0.08f);
+        EXPECT_LE(n.recovery(), recovery_factor + 0.08f);
+        EXPECT_GE(n.learningGain(), default_learning_gain - 0.2f);
+        EXPECT_LE(n.learningGain(), default_learning_gain + 0.2f);
     }
-    EXPECT_GT(*std::max_element(recoveries.begin(), recoveries.end()) -
-              *std::min_element(recoveries.begin(), recoveries.end()), 0.1f);  // actually spread
+    const auto [lowest, highest] = std::ranges::minmax(recoveries);
+    EXPECT_GT(highest - lowest, 0.1f);  // actually spread
 
-    neuron::reseed(1);  // reproducible
+    reseed(1);  // reproducible
     neuron again(false, true);
     again.randomizeDynamics(Jitter::uniform(0.08f), Jitter::uniform(0.2f));
-    EXPECT_EQ(again.getRecovery(), recoveries[0]);
-    EXPECT_EQ(again.getLearningGain(), gains[0]);
+    EXPECT_EQ(again.recovery(), recoveries[0]);
+    EXPECT_EQ(again.learningGain(), gains[0]);
 }
 
 TEST(NeuronTest, RecoverySetsThresholdDecay)
@@ -208,13 +207,12 @@ TEST(NeuronTest, RecoverySetsThresholdDecay)
     auto silentTicksUntilRefire = [](float recovery) {
         neuron n(false, true);
         n.setRecovery(recovery);
-        auto x = std::make_shared<float>(5.0f);
-        std::vector<std::shared_ptr<float>> in = {x};
-        n.setWeights({1.0f});
-        n.step(in);            // fires, threshold jumps up
-        *x = 0.3f;             // a weak input fires again once the threshold decays below it
+        std::vector<float> in = {5.0f};
+        const std::vector<float> w = {1.0f};
+        n.step(in, w);         // fires, threshold jumps up
+        in[0] = 0.3f;          // a weak input fires again once the threshold decays below it
         for (int t = 1; t < 1000; ++t)
-            if (n.step(in) != 0.0f) return t;
+            if (n.step(in, w) != 0.0f) return t;
         return -1;
     };
     const int fast = silentTicksUntilRefire(0.8f);
@@ -225,14 +223,13 @@ TEST(NeuronTest, RecoverySetsThresholdDecay)
 
 TEST(NeuronTest, LearningGainScalesUpdates)
 {
-    auto input = std::make_shared<float>(1.0f);
-    std::vector<std::shared_ptr<float>> in = {input};
+    const std::vector<float> in = {1.0f};
+    std::vector<float> w = {0.5f};
     neuron n(false, false);
-    n.setWeights({0.5f});
     n.setLearningGain(2.0f);
-    n.step(in);
-    n.updateWeights(in, 1.0f, 0.1f);
-    EXPECT_FLOAT_EQ(n.getWeights()[0], 0.7f);  // 0.5 + 0.1 * 2.0 * 1.0
+    n.step(in, w);
+    n.learn(w, in, 1.0f, 0.1f);
+    EXPECT_FLOAT_EQ(w[0], 0.7f);  // 0.5 + 0.1 * 2.0 * 1.0
 }
 
 TEST(NeuronTest, SerializationKeepsDynamics)
@@ -241,13 +238,13 @@ TEST(NeuronTest, SerializationKeepsDynamics)
     n.setRecovery(0.95f);
     n.setLearningGain(1.3f);
     std::stringstream ss;
-    n.serialize(ss);
+    n.serialize(ss, {});
     for (DeserializeMode mode : {DeserializeMode::FullState, DeserializeMode::WeightsOnly}) {
         std::stringstream copy(ss.str());
         neuron r(false, false);
         r.deserialize(copy, mode);
-        EXPECT_EQ(r.getRecovery(), 0.95f);
-        EXPECT_EQ(r.getLearningGain(), 1.3f);
+        EXPECT_EQ(r.recovery(), 0.95f);
+        EXPECT_EQ(r.learningGain(), 1.3f);
     }
 }
 
@@ -258,7 +255,7 @@ TEST(NeuronTest, JitterDistributionsAreControlled)
         for (int i = 0; i < count; ++i) {
             neuron n(false, true);
             n.randomizeRecovery(recovery);
-            values.push_back(n.getRecovery());
+            values.push_back(n.recovery());
         }
         return values;
     };
@@ -268,7 +265,7 @@ TEST(NeuronTest, JitterDistributionsAreControlled)
         for (float x : v) s += (x - m) * (x - m);
         return std::sqrt(s / (v.size() - 1));
     };
-    neuron::reseed(3);
+    reseed(3);
 
     // Uniform around the default: mean recovery_factor, sd = halfWidth / sqrt(3)
     const auto u = sample(Jitter::uniform(0.05f), 4000);
@@ -298,37 +295,37 @@ TEST(NeuronTest, JitterDistributionsAreControlled)
 
 TEST(NeuronTest, RelativeJitterScalesWithTheParameter)
 {
-    neuron::reseed(4);
+    reseed(4);
     std::vector<float> gains, recoveries;
     for (int i = 0; i < 4000; ++i) {
         neuron n(false, true);
         n.randomizeLearningGain(Jitter::uniformRelative());  // +-50% of the gain
         n.randomizeRecovery(Jitter::uniformRelative());      // +-50% of 1 - recovery
-        gains.push_back(n.getLearningGain());
-        recoveries.push_back(n.getRecovery());
+        gains.push_back(n.learningGain());
+        recoveries.push_back(n.recovery());
     }
-    const auto [gmin, gmax] = std::minmax_element(gains.begin(), gains.end());
-    const auto [rmin, rmax] = std::minmax_element(recoveries.begin(), recoveries.end());
+    const auto [gmin, gmax] = std::ranges::minmax(gains);
+    const auto [rmin, rmax] = std::ranges::minmax(recoveries);
 
     // Gain: default_learning_gain * [0.5, 1.5] (e.g. 2 -> 1..3), filling the range
-    EXPECT_GE(*gmin, 0.5f * default_learning_gain);
-    EXPECT_LE(*gmax, 1.5f * default_learning_gain);
-    EXPECT_LT(*gmin, 0.52f * default_learning_gain);
-    EXPECT_GT(*gmax, 1.48f * default_learning_gain);
+    EXPECT_GE(gmin, 0.5f * default_learning_gain);
+    EXPECT_LE(gmax, 1.5f * default_learning_gain);
+    EXPECT_LT(gmin, 0.52f * default_learning_gain);
+    EXPECT_GT(gmax, 1.48f * default_learning_gain);
 
     // Recovery: 1 - (1 - recovery_factor) * [0.5, 1.5] (e.g. 0.9 -> 0.85..0.95)
     const float speed = 1.0f - recovery_factor;
-    EXPECT_GE(*rmin, 1.0f - 1.5f * speed - 1e-6f);
-    EXPECT_LE(*rmax, 1.0f - 0.5f * speed + 1e-6f);
-    EXPECT_LT(*rmin, 1.0f - 1.45f * speed);
-    EXPECT_GT(*rmax, 1.0f - 0.55f * speed);
+    EXPECT_GE(rmin, 1.0f - 1.5f * speed - 1e-6f);
+    EXPECT_LE(rmax, 1.0f - 0.5f * speed + 1e-6f);
+    EXPECT_LT(rmin, 1.0f - 1.45f * speed);
+    EXPECT_GT(rmax, 1.0f - 0.55f * speed);
 
     // Relative normal: sd is the fraction of the scale, around a custom centre
     std::vector<float> v;
     for (int i = 0; i < 4000; ++i) {
         neuron n(false, true);
         n.randomizeLearningGain(Jitter::normalRelative(0.1f).around(4.0f));  // sd 0.4
-        v.push_back(n.getLearningGain());
+        v.push_back(n.learningGain());
     }
     double m = 0, s = 0;
     for (float x : v) m += x;
@@ -341,30 +338,30 @@ TEST(NeuronTest, RelativeJitterScalesWithTheParameter)
 TEST(NeuronTest, AlphaJitter)
 {
     neuron plain(false, true);
-    EXPECT_EQ(plain.getAlpha(), default_alpha);
+    EXPECT_EQ(plain.alpha(), default_alpha);
     plain.randomizeAlpha(Jitter::none());  // disabled: default, nothing drawn
-    EXPECT_EQ(plain.getAlpha(), default_alpha);
+    EXPECT_EQ(plain.alpha(), default_alpha);
 
-    neuron::reseed(5);
+    reseed(5);
     std::vector<float> alphas;
     for (int i = 0; i < 4000; ++i) {
         neuron n(false, true);
         n.randomizeAlpha(Jitter::uniformRelative());  // +-50% of alpha (alpha 2 -> 1..3)
-        alphas.push_back(n.getAlpha());
-        EXPECT_EQ(n.getRecovery(), recovery_factor);  // other parameters untouched
-        EXPECT_EQ(n.getLearningGain(), default_learning_gain);
+        alphas.push_back(n.alpha());
+        EXPECT_EQ(n.recovery(), recovery_factor);  // other parameters untouched
+        EXPECT_EQ(n.learningGain(), default_learning_gain);
     }
-    const auto [amin, amax] = std::minmax_element(alphas.begin(), alphas.end());
-    EXPECT_GE(*amin, 0.5f * default_alpha);
-    EXPECT_LE(*amax, 1.5f * default_alpha);
-    EXPECT_LT(*amin, 0.52f * default_alpha);
-    EXPECT_GT(*amax, 1.48f * default_alpha);
+    const auto [amin, amax] = std::ranges::minmax(alphas);
+    EXPECT_GE(amin, 0.5f * default_alpha);
+    EXPECT_LE(amax, 1.5f * default_alpha);
+    EXPECT_LT(amin, 0.52f * default_alpha);
+    EXPECT_GT(amax, 1.48f * default_alpha);
 
     // Alpha stays >= 0 even when the distribution reaches below zero
     for (int i = 0; i < 500; ++i) {
         neuron n(false, true);
         n.randomizeAlpha(Jitter::uniform(3.0f).around(1.0f));
-        EXPECT_GE(n.getAlpha(), 0.0f);
+        EXPECT_GE(n.alpha(), 0.0f);
     }
 }
 
@@ -375,13 +372,12 @@ TEST(NeuronTest, AlphaSetsThresholdGrowth)
     auto ticksUntilRefire = [](float alpha) {
         neuron n(false, true);
         n.setAlpha(alpha);
-        auto x = std::make_shared<float>(5.0f);
-        std::vector<std::shared_ptr<float>> in = {x};
-        n.setWeights({1.0f});
-        n.step(in);
-        *x = 0.3f;
+        std::vector<float> in = {5.0f};
+        const std::vector<float> w = {1.0f};
+        n.step(in, w);
+        in[0] = 0.3f;
         for (int t = 1; t < 1000; ++t)
-            if (n.step(in) != 0.0f) return t;
+            if (n.step(in, w) != 0.0f) return t;
         return -1;
     };
     EXPECT_GT(ticksUntilRefire(3.0f), ticksUntilRefire(0.5f));

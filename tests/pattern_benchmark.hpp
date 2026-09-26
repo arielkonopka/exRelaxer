@@ -15,6 +15,8 @@
 #include "../core/network.hpp"
 #include "../core/layers/dense.hpp"
 
+using namespace exr;
+
 namespace pattern_benchmark {
 
 constexpr float PATTERN_A = 2.2f;
@@ -174,7 +176,7 @@ inline dense& asDense(network& net, network::LayerId id) { return dynamic_cast<d
 //   bands (4): per symbol, half the difference of its two ramps minus 5:
 //              +5 when |x - s| < h, -5 otherwise; plus a constant +5 (bias).
 //
-// Features are +-5 rather than 0/10 because updateWeights() only uses the
+// Features are +-5 rather than 0/10 because the learning rule only uses the
 // sign of each input, and a 0 input never teaches anything.
 // E-R and habituation are off: habituation would silence the constant.
 constexpr size_t BAND_FEATURES = 4;  // A, B, C, bias
@@ -200,24 +202,24 @@ inline ValueDetectors addSymbolDetectors(network& net, const std::vector<float>&
     net.addInputs(d.ramps, 2);  // x, bias
     net.connect(d.ramps, d.bands);
 
-    auto& ramps = asDense(net, d.ramps).getNeurons();
+    dense& ramps = asDense(net, d.ramps);
     for (size_t i = 0; i < n; ++i) {
-        ramps[2 * i].setWeights({k, -k * (symbols[i] - h)});
-        ramps[2 * i + 1].setWeights({k, -k * (symbols[i] + h)});
+        ramps.setWeights(2 * i, {k, -k * (symbols[i] - h)});
+        ramps.setWeights(2 * i + 1, {k, -k * (symbols[i] + h)});
     }
-    ramps[2 * n].setWeights({0.0f, 100.0f});  // constant +10
+    ramps.setWeights(2 * n, {0.0f, 100.0f});  // constant +10
 
-    auto& bands = asDense(net, d.bands).getNeurons();
+    dense& bands = asDense(net, d.bands);
     for (size_t i = 0; i < n; ++i) {
         std::vector<float> w(2 * n + 1, 0.0f);
         w[2 * i] = 0.5f;
         w[2 * i + 1] = -0.5f;
         w[2 * n] = -0.5f;
-        bands[i].setWeights(w);
+        bands.setWeights(i, w);
     }
     std::vector<float> bias(2 * n + 1, 0.0f);
     bias[2 * n] = 0.5f;
-    bands[n].setWeights(bias);  // constant +5
+    bands.setWeights(n, bias);  // constant +5
     return d;
 }
 
@@ -237,11 +239,11 @@ inline network::LayerId addDelayWindow(network& net, network::LayerId source, si
                                        std::vector<network::LayerId>& tapOrder)
 {
     auto identity = [&](network::LayerId id, size_t firstNeuron) {
-        auto& neurons = asDense(net, id).getNeurons();
+        dense& target = asDense(net, id);
         for (size_t i = 0; i < width; ++i) {
             std::vector<float> w(width, 0.0f);
             w[i] = 1.0f;
-            neurons[firstNeuron + i].setWeights(w);
+            target.setWeights(firstNeuron + i, w);
         }
     };
 
@@ -284,7 +286,7 @@ inline network::LayerId addDelayWindow(network& net, network::LayerId source, si
 // any memory then comes from the neurons' own state (E-R thresholds).
 // recoveryJitter spreads the neurons' E-R relaxation rates (see
 // neuron::randomizeDynamics), i.e. their memory timescales.
-// Weights come from the neuron random streams, so neuron::reseed controls them.
+// Weights come from the neuron random streams, so exr::reseed controls them.
 // The caller places the returned layer after `source` in the update order.
 inline network::LayerId addReservoir(network& net, network::LayerId source, size_t sourceWidth,
                                      size_t inputNeurons, size_t recurrentNeurons,
@@ -297,12 +299,15 @@ inline network::LayerId addReservoir(network& net, network::LayerId source, size
     if (recurrentNeurons > 0)
         net.addFeedback(res, res, recurrentNeurons);
 
-    auto& neurons = asDense(net, res).getNeurons();
+    dense& reservoir = asDense(net, res);
     const float in_factor = inputScale / std::sqrt(static_cast<float>(sourceWidth));
     const float rec_factor = recurrentScale / std::sqrt(static_cast<float>(inputNeurons + recurrentNeurons));
-    for (size_t i = 0; i < neurons.size(); ++i)
-        for (float& w : neurons[i].getWeights())
+    for (size_t i = 0; i < reservoir.size(); ++i) {
+        std::vector<float> weights = reservoir.weights(i);
+        for (float& w : weights)
             w *= i < inputNeurons ? in_factor : rec_factor;
+        reservoir.setWeights(i, weights);
+    }
     return res;
 }
 
@@ -325,7 +330,7 @@ inline PatternScore runPatternTrial(const NetworkBuilder& build, std::uint32_t s
                                     float learningRate, size_t trainTicks = PATTERN_TRAIN_TICKS,
                                     RewardMode mode = RewardMode::Target)
 {
-    neuron::reseed(seed);
+    reseed(seed);
     const std::unique_ptr<network> net = build(hasER);
 
     // The reward is the desired sign of the response (see the Pavlovian test).
@@ -526,7 +531,7 @@ inline std::string topologySummary(const network& net)
 // Builds one instance of the topology and prints its full description.
 inline void printTopology(const NetworkBuilder& build, bool hasER)
 {
-    neuron::reseed(0);
+    reseed(0);
     const std::unique_ptr<network> net = build(hasER);
     std::cout << " Topology:\n";
     net->describe(std::cout);

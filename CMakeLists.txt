@@ -31,11 +31,32 @@ endif()
 # Core library
 # -----------------------------------------------------------------------------
 add_library(exrelaxer_core STATIC
+    core/random.cpp
+    core/random.hpp
+    core/kernels.cpp
+    core/kernels.hpp
+    core/parallel.hpp
+    core/binary_io.hpp
     core/neuron.cpp
     core/neuron.hpp
+    core/layers/layer.cpp
     core/layers/layer.hpp
+    core/layers/neuron_layer.cpp
+    core/layers/neuron_layer.hpp
     core/layers/dense.cpp
     core/layers/dense.hpp
+    core/layers/spatial.cpp
+    core/layers/spatial.hpp
+    core/layers/spatial_neuron_layer.cpp
+    core/layers/spatial_neuron_layer.hpp
+    core/layers/conv2d.cpp
+    core/layers/conv2d.hpp
+    core/layers/locally_connected2d.cpp
+    core/layers/locally_connected2d.hpp
+    core/layers/pool2d.cpp
+    core/layers/pool2d.hpp
+    core/layers/retina.cpp
+    core/layers/retina.hpp
     core/layers/layer_factory.cpp
     core/layers/layer_factory.hpp
     core/network.cpp
@@ -49,7 +70,20 @@ target_include_directories(exrelaxer_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/core
 )
 
-# Optional: dense::forward() steps large groups of neurons in parallel with
+# Results must not depend on the compiler's choice to fuse a multiply and an
+# add into one FMA instruction (different rounding), so contraction is off.
+if(NOT MSVC)
+    target_compile_options(exrelaxer_core PRIVATE -ffp-contract=off)
+endif()
+
+# Optional: build for this machine's CPU (e.g. AVX2). Results are the same;
+# the binary may not run on older CPUs.
+option(EXRELAXER_NATIVE "Optimize for the CPU of the build machine" OFF)
+if(EXRELAXER_NATIVE AND NOT MSVC)
+    target_compile_options(exrelaxer_core PRIVATE -march=native)
+endif()
+
+# Optional: large groups of neurons are stepped (and learn) in parallel with
 # OpenMP. Without it the same code runs serially.
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
@@ -64,6 +98,7 @@ include(FetchContent)
 FetchContent_Declare(
     googletest
     URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
 # Prevents GTest from overriding the global MSVC CRT settings
@@ -80,6 +115,9 @@ add_executable(exrelaxer_tests
     tests/neuron.cpp
     tests/dense.cpp
     tests/network.cpp
+    tests/regressions.cpp
+    tests/kernels.cpp
+    tests/spatial.cpp
 )
 
 target_link_libraries(exrelaxer_tests PRIVATE

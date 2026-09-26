@@ -8,11 +8,12 @@ title One tick: setInputs, step, outputs, applyReward
 actor Caller
 participant network
 participant "layer (dense)" as L
-participant "WiringGroup" as G
+participant "Group" as G
+participant "weight_matrix" as W
 participant neuron
 
 Caller -> network : setInputs(values)
-note right : writes the values into the\nnetwork-owned sensor floats
+note right : copies the values into the\nnetwork-owned sensor buffer
 
 Caller -> network : step()
 network -> network : updateOrder()
@@ -24,36 +25,34 @@ end note
 
 loop each layer in update order
   network -> L : forward()
-  loop each wiring group, in creation order
+  loop each group, in creation order
     L -> G : gather()
     note right
-      copy *inputs[i] into values[]:
-      reads source slots as they are NOW
+      memcpy each input range into values[]:
+      reads source outputs as they are NOW
       (already updated this tick or not)
     end note
-    alt neurons x inputs >= 32768 (OpenMP)
-      L -> neuron : step(values)  [parallel]
-    else
-      L -> neuron : step(values)  [serial]
-    end
-    neuron -> neuron : sum, clamp +-10,\nhabituation, E-R
-    neuron --> L : writes own output slot
+    L -> W : multiply(values, sums)\n8 neurons per SIMD pass,\nthreads by work (OpenMP)
+    L -> neuron : activate(sums[i])
+    neuron -> neuron : clamp +-10,\nhabituation, E-R
+    neuron --> L : output, written to the layer's output buffer
   end
 end
 
 Caller -> network : outputs()
-network --> Caller : output layers' slot values
+network --> Caller : output layers' values
 
 Caller -> network : applyReward(reward, rate)
 loop each layer that is not frozen
   network -> L : applyReward(reward, rate)
-  loop each wiring group
-    L -> G : gather()
-    L -> neuron : updateWeights(values, reward, rate)
+  loop each group
+    L -> G : gather(), then sign of each input
+    L -> neuron : eligible()? learningDelta(reward, rate)
+    L -> W : learn(signs, deltas, eligible)
     note right
-      if eligible:
-      w += rate x reward x eligibility x sign(x)
-      clamp +-10
+      eligible rows:
+      w += delta x sign(x), clamp +-10
+      (same thread split as forward)
     end note
   end
 end

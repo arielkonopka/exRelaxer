@@ -1,11 +1,16 @@
 #include "network.hpp"
+#include "binary_io.hpp"
+#include <algorithm>
 #include <cmath>
-#include <cstring>
+#include <array>
 #include <functional>
 #include <iomanip>
 #include <sstream>
 #include <queue>
 #include <stdexcept>
+#include <string_view>
+
+namespace exr {
 
 network::network(const layer_factory& factory)
     : factory(factory)
@@ -41,9 +46,7 @@ void network::connect(LayerId from, LayerId to)
             throw std::logic_error("network: '" + this->nodes[from].name + "' -> '" +
                                    this->nodes[to].name + "' is already connected");
 
-    if (!this->nodes[to].impl->join(*this->nodes[from].impl))
-        throw std::runtime_error("network: joining '" + this->nodes[to].name + "' to '" +
-                                 this->nodes[from].name + "' failed");
+    this->nodes[to].impl->join(*this->nodes[from].impl);
     this->edges_.push_back({from, to, EdgeKind::Forward, 0});
     this->ops_.push_back({OpKind::Connect, from, to, 0});
     this->orderValid = false;
@@ -53,11 +56,14 @@ void network::addFeedback(LayerId from, LayerId to, size_t width)
 {
     checkId(from);
     checkId(to);
-    if (!this->nodes[from].impl->addFeedback(*this->nodes[to].impl, width))
-        throw std::runtime_error("network: feedback '" + this->nodes[from].name + "' -> '" +
-                                 this->nodes[to].name + "' failed");
+    this->nodes[to].impl->addNeurons(width, *this->nodes[from].impl);
     this->edges_.push_back({from, to, EdgeKind::Feedback, width});
     this->ops_.push_back({OpKind::Feedback, from, to, width});
+}
+
+size_t network::addInputs(LayerId target, const Shape& image)
+{
+    return addInputs(target, image.size());
 }
 
 size_t network::addInputs(LayerId target, size_t count)
@@ -66,14 +72,16 @@ size_t network::addInputs(LayerId target, size_t count)
     if (count == 0)
         throw std::invalid_argument("network: addInputs needs at least one input");
 
-    std::vector<std::shared_ptr<float>> sensors;
-    for (size_t i = 0; i < count; ++i)
-        sensors.push_back(std::make_shared<float>(0.0f));
-    if (!this->nodes[target].impl->attachInputs(sensors))
-        throw std::runtime_error("network: attaching inputs to '" + this->nodes[target].name + "' failed");
-
+    // The layer keeps a range of inputs_ (the vector object, not its data),
+    // so later sensors may reallocate it.
     const size_t first = this->inputs_.size();
-    this->inputs_.insert(this->inputs_.end(), sensors.begin(), sensors.end());
+    this->inputs_.resize(first + count, 0.0f);
+    try {
+        this->nodes[target].impl->attachInputs(InputRange(this->inputs_, first, count));
+    } catch (...) {
+        this->inputs_.resize(first);
+        throw;
+    }
     this->ops_.push_back({OpKind::Inputs, target, 0, count});
     return first;
 }
@@ -102,25 +110,31 @@ bool network::isFrozen(LayerId id) const
     return this->nodes[id].spec.frozen;
 }
 
-void network::setRecoveryJitter(LayerId id, const Jitter& jitter)
+neuron_layer& network::neuronLayer(LayerId id)
 {
     checkId(id);
+    layer& target = *this->nodes[id].impl;
+    if (!target.hasNeurons())
+        throw std::invalid_argument("network: layer '" + this->nodes[id].name + "' has no neurons");
+    return dynamic_cast<neuron_layer&>(target);
+}
+
+void network::setRecoveryJitter(LayerId id, const Jitter& jitter)
+{
+    neuronLayer(id).setRecoveryJitter(jitter);
     this->nodes[id].spec.recoveryJitter = jitter;
-    this->nodes[id].impl->setRecoveryJitter(jitter);
 }
 
 void network::setLearningJitter(LayerId id, const Jitter& jitter)
 {
-    checkId(id);
+    neuronLayer(id).setLearningJitter(jitter);
     this->nodes[id].spec.learningJitter = jitter;
-    this->nodes[id].impl->setLearningJitter(jitter);
 }
 
 void network::setAlphaJitter(LayerId id, const Jitter& jitter)
 {
-    checkId(id);
+    neuronLayer(id).setAlphaJitter(jitter);
     this->nodes[id].spec.alphaJitter = jitter;
-    this->nodes[id].impl->setAlphaJitter(jitter);
 }
 
 void network::setUpdateOrder(std::vector<LayerId> order)
@@ -206,7 +220,7 @@ void network::setInput(size_t index, float value)
 {
     if (index >= this->inputs_.size())
         throw std::out_of_range("network: no input with index " + std::to_string(index));
-    *this->inputs_[index] = value;
+    this->inputs_[index] = value;
 }
 
 void network::setInputs(std::span<const float> values)
@@ -214,8 +228,7 @@ void network::setInputs(std::span<const float> values)
     if (values.size() != this->inputs_.size())
         throw std::invalid_argument("network: expected " + std::to_string(this->inputs_.size()) +
                                     " input values, got " + std::to_string(values.size()));
-    for (size_t i = 0; i < values.size(); ++i)
-        *this->inputs_[i] = values[i];
+    std::copy(values.begin(), values.end(), this->inputs_.begin());
 }
 
 void network::setInputs(std::initializer_list<float> values)
@@ -239,9 +252,10 @@ void network::applyReward(float reward, float learningRate)
 std::vector<float> network::outputs() const
 {
     std::vector<float> values;
-    for (LayerId id : this->outputs_)
-        for (const auto& v : this->nodes[id].impl->getOutput())
-            values.push_back(*v);
+    for (LayerId id : this->outputs_) {
+        const std::span<const float> out = this->nodes[id].impl->output();
+        values.insert(values.end(), out.begin(), out.end());
+    }
     return values;
 }
 
@@ -282,7 +296,7 @@ namespace {
 // "0.9" without jitter; "0.9 U+-0.05", "0.95 N(sd 0.02) in [0.8, 0.99]",
 // "2 U+-50%", "0.9 U+-50% of 1-r" with. `scaleName` names the scale of a
 // relative spread ("" = the value itself).
-std::string describeJitter(float defaultValue, const Jitter& jitter, const char* scaleName = "")
+std::string describeJitter(float defaultValue, const Jitter& jitter, std::string_view scaleName = "")
 {
     std::ostringstream text;
     text << jitter.mean.value_or(defaultValue);
@@ -291,7 +305,7 @@ std::string describeJitter(float defaultValue, const Jitter& jitter, const char*
     std::ostringstream spread;
     if (jitter.relative) {
         spread << jitter.spread * 100.0f << "%";
-        if (*scaleName) spread << " of " << scaleName;
+        if (!scaleName.empty()) spread << " of " << scaleName;
     } else {
         spread << jitter.spread;
     }
@@ -302,6 +316,18 @@ std::string describeJitter(float defaultValue, const Jitter& jitter, const char*
     if (std::isfinite(jitter.min) || std::isfinite(jitter.max))
         text << " in [" << jitter.min << ", " << jitter.max << "]";
     return text.str();
+}
+
+} // namespace
+
+namespace {
+
+// "channels x height x width" for spatial layers, "-" for flat ones.
+std::string describeShape(const Shape& shape)
+{
+    if (shape.height == 1 && shape.width == 1)
+        return "-";
+    return std::to_string(shape.channels) + "x" + std::to_string(shape.height) + "x" + std::to_string(shape.width);
 }
 
 } // namespace
@@ -323,16 +349,20 @@ void network::describe(std::ostream& os) const
 
     os << "  layers (" << this->nodes.size() << "):\n"
        << "    " << std::left << std::setw(4) << "id" << std::setw(name_col) << "name"
-       << std::setw(9) << "neurons" << std::setw(6) << "hab" << std::setw(6) << "E-R" << std::setw(8) << "learns"
+       << std::setw(9) << "outputs" << std::setw(14) << "shape" << std::setw(6) << "hab" << std::setw(6) << "E-R" << std::setw(8) << "learns"
        << std::setw(recovery_col) << "recovery" << std::setw(learning_col) << "learning gain" << "alpha\n";
     for (LayerId id = 0; id < this->nodes.size(); ++id)
     {
         const Node& node = this->nodes[id];
         os << "    " << std::setw(4) << id << std::setw(name_col) << node.name
-           << std::setw(9) << node.impl->size()
-           << std::setw(6) << (node.spec.hasHabituation ? "on" : "-")
-           << std::setw(6) << (node.spec.hasER ? "on" : "-")
-           << std::setw(8) << (node.spec.frozen ? "frozen" : "yes");
+           << std::setw(9) << node.impl->size() << std::setw(14) << describeShape(node.impl->shape())
+           << std::setw(6) << (node.impl->hasNeurons() && node.spec.hasHabituation ? "on" : "-")
+           << std::setw(6) << (node.impl->hasNeurons() && node.spec.hasER ? "on" : "-")
+           << std::setw(8) << (!node.impl->learns() ? "-" : node.spec.frozen ? "frozen" : "yes");
+        if (!node.impl->hasNeurons()) {
+            os << "\n";  // no neurons: no per-neuron dynamics
+            continue;
+        }
         os << std::setw(recovery_col) << describeJitter(recovery_factor, node.spec.recoveryJitter, "1-r")
            << std::setw(learning_col) << describeJitter(default_learning_gain, node.spec.learningJitter)
            << describeJitter(default_alpha, node.spec.alphaJitter) << "\n";
@@ -383,8 +413,13 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //   4  jitter as a full distribution (Jitter)
 //   5  + relative-spread flag per jitter
 //   6  + alpha jitter per layer
+//   7  + spatial parameters per layer (window, pooling mode, retina)
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 6;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 7;
+// Files from this version on carry the full state; older ones load as
+// weights only. (Version 7 only added parameters of layer types that did
+// not exist before, whose defaults are right for version 6 files.)
+constexpr std::uint32_t FIRST_FULL_STATE_VERSION = 6;
 
 // Upper bounds for counts read from a stream, so corrupt data fails with an
 // error instead of an enormous allocation.
@@ -394,14 +429,13 @@ constexpr std::uint64_t MAX_COUNT = std::uint64_t{1} << 26;
 template <typename T>
 void writeValue(std::ostream& os, T value)
 {
-    os.write(reinterpret_cast<const char*>(&value), sizeof(value));
+    binary_io::write(os, value);
 }
 
 template <typename T>
 T readValue(std::istream& is)
 {
-    T value{};
-    is.read(reinterpret_cast<char*>(&value), sizeof(value));
+    const T value = binary_io::read<T>(is);
     if (!is)
         throw std::runtime_error("network::load: unexpected end of data");
     return value;
@@ -422,12 +456,49 @@ void writeJitter(std::ostream& os, const Jitter& jitter)
 
 Jitter readJitter(std::istream& is, std::uint32_t version);
 
-size_t readCount(std::istream& is, const char* what)
+void writeSpatial(std::ostream& os, const LayerSpec& spec)
+{
+    for (size_t v : {spec.window.kernelHeight, spec.window.kernelWidth, spec.window.strideY, spec.window.strideX,
+                     spec.window.padY, spec.window.padX})
+        writeCount(os, v);
+    writeValue(os, static_cast<std::uint8_t>(spec.pool));
+    writeCount(os, spec.retina.input.channels);
+    writeCount(os, spec.retina.input.height);
+    writeCount(os, spec.retina.input.width);
+    writeValue(os, static_cast<std::uint8_t>(spec.retina.sampling));
+    writeValue(os, spec.retina.spacing);
+    writeValue(os, spec.retina.radius);
+}
+
+void readSpatial(std::istream& is, LayerSpec& spec);
+
+size_t readCount(std::istream& is, std::string_view what)
 {
     const auto value = readValue<std::uint64_t>(is);
     if (value > MAX_COUNT)
-        throw std::runtime_error(std::string("network::load: implausible ") + what + " " + std::to_string(value));
+        throw std::runtime_error("network::load: implausible " + std::string(what) + " " + std::to_string(value));
     return static_cast<size_t>(value);
+}
+
+void readSpatial(std::istream& is, LayerSpec& spec)
+{
+    Window2D& w = spec.window;
+    for (size_t& v : {std::ref(w.kernelHeight), std::ref(w.kernelWidth), std::ref(w.strideY), std::ref(w.strideX),
+                      std::ref(w.padY), std::ref(w.padX)})
+        v = readCount(is, "window size");
+    const auto pool = readValue<std::uint8_t>(is);
+    if (pool > static_cast<std::uint8_t>(PoolMode::Average))
+        throw std::runtime_error("network::load: unknown pooling mode " + std::to_string(pool));
+    spec.pool = static_cast<PoolMode>(pool);
+    spec.retina.input.channels = readCount(is, "image channels");
+    spec.retina.input.height = readCount(is, "image height");
+    spec.retina.input.width = readCount(is, "image width");
+    const auto sampling = readValue<std::uint8_t>(is);
+    if (sampling > static_cast<std::uint8_t>(Sampling::Spiral))
+        throw std::runtime_error("network::load: unknown retina sampling " + std::to_string(sampling));
+    spec.retina.sampling = static_cast<Sampling>(sampling);
+    spec.retina.spacing = readValue<float>(is);
+    spec.retina.radius = readValue<float>(is);
 }
 
 Jitter readJitter(std::istream& is, std::uint32_t version)
@@ -453,7 +524,7 @@ Jitter readJitter(std::istream& is, std::uint32_t version)
 
 void network::save(std::ostream& os) const
 {
-    os.write(NETWORK_MAGIC, sizeof(NETWORK_MAGIC));
+    binary_io::write(os, std::span<const char>(NETWORK_MAGIC));
     writeValue(os, NETWORK_FORMAT_VERSION);
 
     // 1. Construction history
@@ -466,7 +537,7 @@ void network::save(std::ostream& os) const
         case OpKind::AddLayer: {
             const Node& node = this->nodes[op.a];
             writeCount(os, node.name.size());
-            os.write(node.name.data(), static_cast<std::streamsize>(node.name.size()));
+            binary_io::writeChars(os, node.name);
             writeValue(os, static_cast<std::uint8_t>(node.spec.type));
             writeCount(os, node.spec.size);
             writeValue<std::uint8_t>(os, node.spec.hasHabituation);
@@ -475,6 +546,7 @@ void network::save(std::ostream& os) const
             writeJitter(os, node.spec.recoveryJitter);  // current settings, like frozen
             writeJitter(os, node.spec.learningJitter);
             writeJitter(os, node.spec.alphaJitter);
+            writeSpatial(os, node.spec);
             break;
         }
         case OpKind::Connect:
@@ -507,8 +579,8 @@ void network::save(std::ostream& os) const
 
     // 3. Input values
     writeCount(os, this->inputs_.size());
-    for (const auto& input : this->inputs_)
-        writeValue(os, *input);
+    for (float input : this->inputs_)
+        writeValue(os, input);
 
     // 4. Layer states, in id order
     for (const Node& node : this->nodes)
@@ -520,9 +592,9 @@ void network::save(std::ostream& os) const
 
 std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, const layer_factory& factory)
 {
-    char magic[sizeof(NETWORK_MAGIC)] = {};
-    is.read(magic, sizeof(magic));
-    if (!is || std::memcmp(magic, NETWORK_MAGIC, sizeof(magic)) != 0)
+    std::array<char, sizeof(NETWORK_MAGIC)> magic{};
+    binary_io::read(is, std::span<char>(magic));
+    if (!is || !std::ranges::equal(magic, NETWORK_MAGIC))
         throw std::runtime_error("network::load: not a network stream");
     const auto version = readValue<std::uint32_t>(is);
     if (version < 1 || version > NETWORK_FORMAT_VERSION)
@@ -530,7 +602,7 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
 
     // Older files: topology, frozen flags and weights only. Their state and
     // dynamics parameters are not restored.
-    const bool legacy = version < NETWORK_FORMAT_VERSION;
+    const bool legacy = version < FIRST_FULL_STATE_VERSION;
     if (legacy)
         mode = DeserializeMode::WeightsOnly;
     const std::uint32_t neuron_format = version <= 2 ? 1 : 2;
@@ -550,7 +622,7 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
             if (name_length > MAX_NAME_LENGTH)
                 throw std::runtime_error("network::load: implausible layer name length");
             std::string name(static_cast<size_t>(name_length), '\0');
-            is.read(name.data(), static_cast<std::streamsize>(name.size()));
+            binary_io::readChars(is, name);
             LayerSpec spec;
             spec.type = static_cast<LayerType>(readValue<std::uint8_t>(is));
             spec.size = readCount(is, "layer size");
@@ -574,6 +646,8 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                     spec.alphaJitter = Jitter::none();
                 }
             }
+            if (version >= 7)
+                readSpatial(is, spec);
             net->addLayer(name, spec);
             break;
         }
@@ -622,7 +696,7 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
     {
         const float value = readValue<float>(is);
         if (mode == DeserializeMode::FullState)
-            *net->inputs_[i] = value;
+            net->inputs_[i] = value;
     }
 
     // 4. Layer states. The replayed layers have the same neurons and wiring
@@ -635,13 +709,16 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
             throw std::runtime_error("network::load: unexpected end of data in layer '" + node.name + "'");
         if (node.impl->size() != expected_size)
             throw std::runtime_error("network::load: layer '" + node.name + "' does not match its saved state");
-        if (legacy) {
+        if (legacy && node.impl->hasNeurons()) {
             // Version 3 layer data carries per-neuron recovery / gain: reset
             // them to the defaults, like the (unrestored) jitter settings.
-            node.impl->setRecoveryJitter(Jitter::none());
-            node.impl->setLearningJitter(Jitter::none());
-            node.impl->setAlphaJitter(Jitter::none());
+            auto& neurons = dynamic_cast<neuron_layer&>(*node.impl);
+            neurons.setRecoveryJitter(Jitter::none());
+            neurons.setLearningJitter(Jitter::none());
+            neurons.setAlphaJitter(Jitter::none());
         }
     }
     return net;
 }
+
+} // namespace exr
