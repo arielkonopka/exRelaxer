@@ -20,11 +20,13 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Compiler options (warning flags)
+# Warning flags for this project's own targets only (each adds them with
+# target_compile_options), so third-party code built in the same tree
+# (GoogleTest, nanobind) does not flood the build with its warnings.
 if(MSVC)
-    add_compile_options(/W4)
+    set(EXRELAXER_WARNINGS /W4)
 else()
-    add_compile_options(-Wall -Wextra -Wpedantic)
+    set(EXRELAXER_WARNINGS -Wall -Wextra -Wpedantic)
 endif()
 
 include(GNUInstallDirs)
@@ -89,6 +91,7 @@ set_target_properties(exrelaxer_core PROPERTIES EXPORT_NAME core)
 if(NOT MSVC)
     target_compile_options(exrelaxer_core PRIVATE -ffp-contract=off)
 endif()
+target_compile_options(exrelaxer_core PRIVATE ${EXRELAXER_WARNINGS})
 
 # Optional: build for this machine's CPU (e.g. AVX2). Results are the same;
 # the binary may not run on older CPUs.
@@ -164,6 +167,7 @@ target_link_libraries(exrelaxer_tests PRIVATE
     exrelaxer_core
     GTest::gtest_main
 )
+target_compile_options(exrelaxer_tests PRIVATE ${EXRELAXER_WARNINGS})
 
 # Task code shared with the benchmark harness (NNtesting/tasks).
 target_include_directories(exrelaxer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/NNtesting/tasks)
