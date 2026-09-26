@@ -27,7 +27,7 @@ Python tools need numpy and Pillow: `pip install -r NNtesting/requirements.txt`.
 `EXRELAXER_BUILD_NNTESTING`, on by default):
 
 ```bash
-cmake --build build -j
+./build.sh                                        # from the repository root: builds and tests everything
 ./build/NNtesting/nntest list                     # every experiment
 ./build/NNtesting/nntest describe bar_orientation # its parameters, defaults, checks
 ./build/NNtesting/nntest run bar_orientation

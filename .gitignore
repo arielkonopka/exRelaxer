@@ -430,3 +430,6 @@ FodyWeavers.xsd
 
 # CMake build trees
 build*/
+
+# ./build.sh installs here by default
+/install/

@@ -69,10 +69,36 @@ Both adaptation mechanisms can be toggled independently per layer.
 
 ## Building and testing
 
+One command builds everything, runs every test and installs the library:
+
+```bash
+./build.sh                   # library, unit tests, nntest; runs ctest; installs into ./install
+./build.sh --python          # ... and the Python package, with its tests and quick experiments
+./build.sh --help            # --prefix DIR, --debug, --native, --no-tests, --no-install, --clean, -j N
+```
+
+It configures `build/` (Release), builds, runs `ctest` (the unit tests, the
+quick experiments' checks, a program built against the installed package,
+and with `--python` the pytest suite) and installs into `./install`
+(`--prefix` to change). Afterwards:
+
+| To | Use |
+|----|-----|
+| run the unit tests again | `./build/exrelaxer_tests` or `ctest --test-dir build` |
+| run experiments | `./build/NNtesting/nntest list` (also `install/bin/nntest`) |
+| run Python experiments (`--python`) | `PYTHONPATH=build/EXrelaxer.py/package NNtesting/nntest.py list` |
+| use the library in another C++ program | `find_package(exrelaxer)` with `-DCMAKE_PREFIX_PATH=install` (see [below](#using-the-library)) |
+
+Arguments after `--` go to CMake, e.g.
+`./build.sh -- -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`
+to build offline. On Windows run it from Git Bash, or use the plain CMake
+steps it runs:
+
 ```bash
 cmake -S . -B build          # Release by default; add -DCMAKE_BUILD_TYPE=Debug to debug
 cmake --build build -j
 cd build && ctest --output-on-failure
+cmake --install build --prefix install
 ```
 
 | Target              | Description                          |
@@ -94,6 +120,7 @@ results are the same either way.
 | `EXRELAXER_BUILD_TESTS` | on when top-level | the GoogleTest unit tests (fetches GoogleTest) |
 | `EXRELAXER_BUILD_NNTESTING` | on when top-level | the `nntest` benchmark harness |
 | `EXRELAXER_BUILD_PYTHON` | off | the Python extension, tested by CTest as `python_tests` |
+| `EXRELAXER_INSTALL` | on when top-level | install rules: library, headers, CMake package, `nntest` |
 
 A project that adds exrelaxer with `add_subdirectory` gets only the library.
 
@@ -124,14 +151,29 @@ NNtesting/datasets/fetch.py get mnist
 NNtesting/nntest.py run mnist_gabor       # MNIST from Python: 0.90 accuracy
 ```
 
-## Quick start
+## Using the library
 
-Link against `exrelaxer_core`; its public include directory is `core/`:
+Either install it (`./build.sh --prefix DIR`) and find the package:
 
 ```cmake
-add_subdirectory(exrelaxer)
-target_link_libraries(my_app PRIVATE exrelaxer_core)
+find_package(exrelaxer 1.0 REQUIRED)       # configure with -DCMAKE_PREFIX_PATH=DIR
+target_link_libraries(my_app PRIVATE exrelaxer::core)
 ```
+
+or build it inside your project:
+
+```cmake
+add_subdirectory(exrelaxer)                # just the library, no tests
+target_link_libraries(my_app PRIVATE exrelaxer::core)
+```
+
+Either way headers are included as `"network.hpp"`, `"layers/cochlea.hpp"`,
+... (installed, they are in `DIR/include/exrelaxer`), and OpenMP comes along
+when the library was built with it. [examples/consumer](examples/consumer)
+is a complete program; the CTest test `installed_package_example` installs
+the build and compiles it against the package.
+
+## Quick start
 
 ```cpp
 #include "network.hpp"
@@ -256,6 +298,9 @@ tests/
   audio.cpp                      Cochlea against a double-precision DFT, History, save/load of a hearing network
   filters.cpp                    filter banks, and bar-orientation learning with frozen Gabor features
   er_scales.hpp                  test inputs and timings relative to the E-R constants
+build.sh                         one command: build everything, run the tests, install
+cmake/                           package config template, the installed-package test
+examples/consumer/               a separate program using the installed library (find_package)
 EXrelaxer.py/                    Python package exrelaxer: nanobind bindings, experiment runner,
                                  dataset loader, pytest suite
 NNtesting/                       benchmark harness nntest (see NNtesting/README.md)
@@ -325,6 +370,18 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   growth, and a hearing network continuing bit-identically after save and
   load; `EXrelaxer.py/tests/test_audio.py` checks against numpy's FFT.
 - Documentation: [doc/audio.md](doc/audio.md).
+
+### 2026-09-27: one build command, installable package
+
+- `./build.sh` builds the library, unit tests and `nntest` (and with
+  `--python` the Python package), runs every test and installs the library.
+- `cmake --install` installs `libexrelaxer_core`, its headers
+  (`include/exrelaxer`), a CMake package (`find_package(exrelaxer)`, target
+  `exrelaxer::core`) and `nntest`; the option `EXRELAXER_INSTALL` (on when
+  top-level) controls it. `exrelaxer::core` also works after
+  `add_subdirectory`. GoogleTest is no longer installed along with it.
+- `examples/consumer`: a separate program built against the installed
+  package, as the CTest test `installed_package_example`.
 
 ### 2026-09-27: Python package, Python experiments, build options
 

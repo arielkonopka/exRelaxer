@@ -27,6 +27,8 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+include(GNUInstallDirs)
+
 # -----------------------------------------------------------------------------
 # Core library
 # -----------------------------------------------------------------------------
@@ -72,10 +74,15 @@ add_library(exrelaxer_core STATIC
 
 # Expose the core directory as an include directory, so both test files and
 # code inside layers can write either #include "neuron.hpp"
-# or #include "layers/dense.hpp"
+# or #include "layers/dense.hpp". Installed, the same headers are in
+# include/exrelaxer, so a program includes them the same way.
 target_include_directories(exrelaxer_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/core
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/core>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/exrelaxer>
 )
+# The name other projects use, with add_subdirectory or find_package alike.
+add_library(exrelaxer::core ALIAS exrelaxer_core)
+set_target_properties(exrelaxer_core PROPERTIES EXPORT_NAME core)
 
 # Results must not depend on the compiler's choice to fuse a multiply and an
 # add into one FMA instruction (different rounding), so contraction is off.
@@ -112,6 +119,7 @@ endif()
 option(EXRELAXER_BUILD_TESTS "Build the GoogleTest unit tests" ${EXRELAXER_TOP_LEVEL})
 option(EXRELAXER_BUILD_NNTESTING "Build the nntest benchmark harness" ${EXRELAXER_TOP_LEVEL})
 option(EXRELAXER_BUILD_PYTHON "Build the Python extension (EXrelaxer.py/, needs nanobind)" OFF)
+option(EXRELAXER_INSTALL "Install the library as a CMake package (find_package(exrelaxer))" ${EXRELAXER_TOP_LEVEL})
 
 if(EXRELAXER_BUILD_TESTS OR EXRELAXER_BUILD_NNTESTING)
     enable_testing()
@@ -131,6 +139,8 @@ FetchContent_Declare(
 
 # Prevents GTest from overriding the global MSVC CRT settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+# GoogleTest is only for our tests: not part of an install.
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(googletest)
 
@@ -175,4 +185,53 @@ endif()
 # -----------------------------------------------------------------------------
 if(EXRELAXER_BUILD_PYTHON)
     add_subdirectory(EXrelaxer.py)
+endif()
+
+# -----------------------------------------------------------------------------
+# Install: the library, its headers and a CMake package, so another program
+# can use it with
+#   find_package(exrelaxer REQUIRED)
+#   target_link_libraries(my_app PRIVATE exrelaxer::core)
+# (cmake --install build --prefix DIR; then -DCMAKE_PREFIX_PATH=DIR there).
+# nntest is installed too, when built.
+# -----------------------------------------------------------------------------
+if(EXRELAXER_INSTALL)
+    include(CMakePackageConfigHelpers)
+    set(EXRELAXER_CMAKE_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/exrelaxer)
+
+    install(TARGETS exrelaxer_core EXPORT exrelaxerTargets
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/exrelaxer)
+    install(DIRECTORY core/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/exrelaxer
+            FILES_MATCHING PATTERN "*.hpp")
+    install(EXPORT exrelaxerTargets NAMESPACE exrelaxer:: DESTINATION ${EXRELAXER_CMAKE_DIR})
+
+    set(EXRELAXER_WITH_OPENMP ${OpenMP_CXX_FOUND})
+    configure_package_config_file(cmake/exrelaxerConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/exrelaxerConfig.cmake
+        INSTALL_DESTINATION ${EXRELAXER_CMAKE_DIR})
+    write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/exrelaxerConfigVersion.cmake
+        COMPATIBILITY SameMajorVersion)
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/exrelaxerConfig.cmake
+                  ${CMAKE_CURRENT_BINARY_DIR}/exrelaxerConfigVersion.cmake
+            DESTINATION ${EXRELAXER_CMAKE_DIR})
+
+    if(EXRELAXER_BUILD_NNTESTING)
+        install(TARGETS nntest RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
+
+    # A separate program (examples/consumer) built against an install of
+    # this build: checks that the installed package works.
+    if(EXRELAXER_BUILD_TESTS)
+        add_test(NAME installed_package_example
+                 COMMAND ${CMAKE_COMMAND}
+                     -DBUILD_DIR=${CMAKE_BINARY_DIR}
+                     -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/examples/consumer
+                     -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/installed_package_example
+                     -DCONFIG=$<CONFIG>
+                     -DGENERATOR=${CMAKE_GENERATOR}
+                     -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_installed_package.cmake)
+    endif()
 endif()

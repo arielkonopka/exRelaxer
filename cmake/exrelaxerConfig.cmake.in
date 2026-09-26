@@ -1,0 +1,12 @@
+# exrelaxer CMake package: find_package(exrelaxer) gives the target
+# exrelaxer::core (static library; headers included as "network.hpp",
+# "layers/dense.hpp", ...).
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+if(@EXRELAXER_WITH_OPENMP@)
+    find_dependency(OpenMP COMPONENTS CXX)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/exrelaxerTargets.cmake")
+check_required_components(exrelaxer)
