@@ -45,6 +45,8 @@ add_library(exrelaxer_core STATIC
     core/binary_io.hpp
     core/neuron.cpp
     core/neuron.hpp
+    core/learning.cpp
+    core/learning.hpp
     core/layers/layer.cpp
     core/layers/layer.hpp
     core/layers/neuron_layer.cpp

@@ -31,7 +31,13 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
         if (node.name == name)
             throw std::invalid_argument("network: duplicate layer name '" + name + "'");
 
-    this->nodes.push_back({name, spec, this->factory.create(spec)});
+    std::unique_ptr<layer> impl = this->factory.create(spec);
+    if (spec.learningRule != LearningRule{}) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a learning rule");
+        dynamic_cast<neuron_layer&>(*impl).setLearningRule(spec.learningRule);
+    }
+    this->nodes.push_back({name, spec, std::move(impl)});
     this->ops_.push_back({OpKind::AddLayer, this->nodes.size() - 1, 0, 0});
     this->orderValid = false;
     return this->nodes.size() - 1;
@@ -135,6 +141,12 @@ void network::setAlphaJitter(LayerId id, const Jitter& jitter)
 {
     neuronLayer(id).setAlphaJitter(jitter);
     this->nodes[id].spec.alphaJitter = jitter;
+}
+
+void network::setLearningRule(LayerId id, const LearningRule& rule)
+{
+    neuronLayer(id).setLearningRule(rule);
+    this->nodes[id].spec.learningRule = rule;
 }
 
 void network::setUpdateOrder(std::vector<LayerId> order)
@@ -249,6 +261,49 @@ void network::applyReward(float reward, float learningRate)
             node.impl->applyReward(reward, learningRate);
 }
 
+void network::applyError(std::span<const float> errors, float learningRate)
+{
+    size_t total = 0;
+    for (LayerId id : this->outputs_)
+        total += this->nodes[id].impl->size();
+    if (errors.size() != total)
+        throw std::invalid_argument("network::applyError: " + std::to_string(total) + " outputs, got " +
+                                    std::to_string(errors.size()) + " errors");
+    float squared = 0.0f;
+    for (float e : errors)
+        squared += e * e;
+
+    for (LayerId id = 0; id < this->nodes.size(); ++id) {
+        Node& node = this->nodes[id];
+        if (node.spec.frozen || !node.impl->learns() || !node.impl->hasNeurons())
+            continue;
+        auto& target = dynamic_cast<neuron_layer&>(*node.impl);
+        const LearningRule& rule = target.learningRule();
+        if (rule.unsupervised()) {
+            target.applyReward(0.0f, learningRate);
+            continue;
+        }
+        if (rule.type == LearningRuleType::Perturbation) {
+            target.applyReward(-0.5f * squared, learningRate);
+            continue;
+        }
+        // The layer's own errors when it is an output layer.
+        size_t offset = 0;
+        bool is_output = false;
+        for (LayerId out : this->outputs_) {
+            if (out == id) {
+                is_output = true;
+                break;
+            }
+            offset += this->nodes[out].impl->size();
+        }
+        if (is_output)
+            target.applyModulators(errors.subspan(offset, target.size()), learningRate);
+        else if (rule.type == LearningRuleType::FeedbackAlignment)
+            target.applyFeedback(errors, learningRate);
+    }
+}
+
 std::vector<float> network::outputs() const
 {
     std::vector<float> values;
@@ -346,11 +401,15 @@ void network::describe(std::ostream& os) const
     for (const Node& node : this->nodes)
         learning_width = std::max(learning_width, describeJitter(default_learning_gain, node.spec.learningJitter).size());
     const auto learning_col = static_cast<int>(learning_width) + 2;
+    size_t alpha_width = 5;
+    for (const Node& node : this->nodes)
+        alpha_width = std::max(alpha_width, describeJitter(default_alpha, node.spec.alphaJitter).size());
+    const auto alpha_col = static_cast<int>(alpha_width) + 2;
 
     os << "  layers (" << this->nodes.size() << "):\n"
        << "    " << std::left << std::setw(4) << "id" << std::setw(name_col) << "name"
        << std::setw(9) << "outputs" << std::setw(14) << "shape" << std::setw(6) << "hab" << std::setw(6) << "E-R" << std::setw(8) << "learns"
-       << std::setw(recovery_col) << "recovery" << std::setw(learning_col) << "learning gain" << "alpha\n";
+       << std::setw(recovery_col) << "recovery" << std::setw(learning_col) << "learning gain" << std::setw(alpha_col) << "alpha" << "rule\n";
     for (LayerId id = 0; id < this->nodes.size(); ++id)
     {
         const Node& node = this->nodes[id];
@@ -365,7 +424,8 @@ void network::describe(std::ostream& os) const
         }
         os << std::setw(recovery_col) << describeJitter(recovery_factor, node.spec.recoveryJitter, "1-r")
            << std::setw(learning_col) << describeJitter(default_learning_gain, node.spec.learningJitter)
-           << describeJitter(default_alpha, node.spec.alphaJitter) << "\n";
+           << std::setw(alpha_col) << describeJitter(default_alpha, node.spec.alphaJitter)
+           << (node.impl->learns() ? describeLearningRule(node.spec.learningRule) : "-") << "\n";
     }
     os << std::right;
 
@@ -415,8 +475,10 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //   6  + alpha jitter per layer
 //   7  + spatial parameters per layer (window, pooling mode, retina)
 //   8  + audio parameters per layer (cochlea)
+//   9  + learning rule per layer; layers of neurons append the rule's state
+//        (neuron format 3)
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 8;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 9;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7 and 8 only added parameters of layer types that
 // did not exist before, whose defaults are right for older files.)
@@ -488,6 +550,37 @@ void writeAudio(std::ostream& os, const LayerSpec& spec)
 }
 
 void readAudio(std::istream& is, LayerSpec& spec);
+
+void writeLearningRule(std::ostream& os, const LearningRule& rule)
+{
+    writeValue(os, static_cast<std::uint8_t>(rule.type));
+    writeValue<std::uint8_t>(os, rule.bias);
+    writeValue(os, rule.decay);
+    writeValue(os, rule.trace);
+    writeValue(os, rule.baseline);
+    writeValue(os, rule.noise);
+    writeValue(os, rule.bcmRate);
+    writeValue(os, rule.winners);
+}
+
+LearningRule readLearningRule(std::istream& is)
+{
+    LearningRule rule;
+    rule.type = static_cast<LearningRuleType>(readValue<std::uint8_t>(is));
+    rule.bias = readValue<std::uint8_t>(is) != 0;
+    rule.decay = readValue<float>(is);
+    rule.trace = readValue<float>(is);
+    rule.baseline = readValue<float>(is);
+    rule.noise = readValue<float>(is);
+    rule.bcmRate = readValue<float>(is);
+    rule.winners = readValue<std::uint32_t>(is);
+    try {
+        rule.validate();
+    } catch (const std::invalid_argument& e) {
+        throw std::runtime_error(std::string("network::load: ") + e.what());
+    }
+    return rule;
+}
 
 size_t readCount(std::istream& is, std::string_view what)
 {
@@ -585,6 +678,7 @@ void network::save(std::ostream& os) const
             writeJitter(os, node.spec.alphaJitter);
             writeSpatial(os, node.spec);
             writeAudio(os, node.spec);
+            writeLearningRule(os, node.spec.learningRule);
             break;
         }
         case OpKind::Connect:
@@ -643,7 +737,7 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
     const bool legacy = version < FIRST_FULL_STATE_VERSION;
     if (legacy)
         mode = DeserializeMode::WeightsOnly;
-    const std::uint32_t neuron_format = version <= 2 ? 1 : 2;
+    const std::uint32_t neuron_format = version <= 2 ? 1 : version <= 8 ? 2 : 3;
 
     auto net = std::make_unique<network>(factory);
 
@@ -688,6 +782,8 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 readSpatial(is, spec);
             if (version >= 8)
                 readAudio(is, spec);
+            if (version >= 9)
+                spec.learningRule = readLearningRule(is);
             net->addLayer(name, spec);
             break;
         }

@@ -109,6 +109,12 @@ public:
     void setLearningJitter(LayerId id, const Jitter& jitter);
     void setAlphaJitter(LayerId id, const Jitter& jitter);
 
+    // The layer's learning rule (see learning.hpp), normally chosen through
+    // LayerSpec::learningRule. Resets the rule's state; weights are kept.
+    // Throws std::invalid_argument for a layer without neurons, or a rule
+    // other than Sign on a layer that does not learn.
+    void setLearningRule(LayerId id, const LearningRule& rule);
+
     // Replaces the default update order. Must list every layer exactly once;
     // adding a layer afterwards requires setting it again.
     void setUpdateOrder(std::vector<LayerId> order);
@@ -121,6 +127,17 @@ public:
 
     void step();                                     // forward() on every layer, in update order
     void applyReward(float reward, float learningRate);  // every layer that is not frozen
+    // Learning from an error per output (errors.size() == outputs().size();
+    // error = desired output - output, the direction to move it). Every
+    // unfrozen layer that learns gets, by its rule:
+    //   Oja, BCM              an unsupervised update (the error is ignored)
+    //   Perturbation          the scalar reward -0.5 * sum of squared errors
+    //   an output layer       its own errors, one per neuron (the first time
+    //                         it is marked as output)
+    //   FeedbackAlignment     (hidden) its fixed random projection of the errors
+    //   Sign, Trace (hidden)  nothing: they need a scalar reward
+    // Throws std::invalid_argument on a size mismatch.
+    void applyError(std::span<const float> errors, float learningRate);
     std::vector<float> outputs() const;
 
     // --- Inspection -----------------------------------------------------

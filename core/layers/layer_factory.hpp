@@ -1,4 +1,5 @@
 #pragma once
+#include "../learning.hpp"
 #include <cstddef>
 #include <functional>
 #include <map>
@@ -28,6 +29,7 @@ struct LayerSpec
     Jitter recoveryJitter = {};  // per-neuron E-R recovery (default: none, all recovery_factor)
     Jitter learningJitter = {};  // per-neuron learning gain (default: none, all default_learning_gain)
     Jitter alphaJitter = {};     // per-neuron E-R alpha (default: none, all default_alpha)
+    LearningRule learningRule = {};  // how the layer learns (layers with weights; see learning.hpp)
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina

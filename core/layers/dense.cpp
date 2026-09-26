@@ -162,43 +162,92 @@ void dense::forward()
 {
     // Groups run one after another; a later group of this layer sees the
     // outputs earlier groups just wrote.
+    beginForward();
     for (Group& group : groups_) {
         const std::span<const float> x = group.gather();
+        if (tracesInputs())
+            traceInputs(group.trace, x);
         group.scratch.resize(group.weights.paddedRows());
         const size_t first = group.neurons.first, count = group.neurons.count;
         parallelChunks(group.weights.blocks(), kernels::threadsFor(count * x.size()), [&](size_t b0, size_t b1) {
             group.weights.multiply(x, group.scratch, b0, b1);
             const size_t end = std::min(b1 * kernels::weight_matrix::lanes, count);
             for (size_t r = b0 * kernels::weight_matrix::lanes; r < end; ++r)
-                output_[first + r] = neurons_[first + r].activate(group.scratch[r]);
+                output_[first + r] = fire(first + r, group.scratch[r]);
         });
     }
 }
 
-void dense::applyReward(float reward, float learningRate)
+void dense::updateWeights()
 {
+    const bool scaled = scaledUpdates();
     for (Group& group : groups_) {
-        // The inputs as they are now; only their signs matter.
-        group.gather();
-        kernels::signs(group.values, group.values);
-        const size_t first = group.neurons.first, count = group.neurons.count;
-        group.scratch.assign(group.weights.paddedRows(), 0.0f);
-        group.active.assign(group.weights.paddedRows(), 0);
+        const size_t first = group.neurons.first, count = group.neurons.count, padded = group.weights.paddedRows();
+        group.scratch.assign(padded, 0.0f);
+        group.active.assign(padded, 0);
         bool any = false;
-        for (size_t r = 0; r < count; ++r) {
-            const neuron& n = neurons_[first + r];
-            if (n.eligible()) {
+        for (size_t r = 0; r < count; ++r)
+            if (step_active_[first + r]) {
                 group.active[r] = 1;
-                group.scratch[r] = n.learningDelta(reward, learningRate);
+                group.scratch[r] = step_delta_[first + r];
                 any = true;
             }
-        }
         if (!any)
             continue;
-        parallelChunks(group.weights.blocks(), kernels::threadsFor(count * group.values.size()), [&](size_t b0, size_t b1) {
-            group.weights.learn(group.values, group.scratch, group.active, max_weight, b0, b1);
+        std::span<const float> pre;
+        if (learnsFromSigns()) {
+            // The inputs as they are now; only their signs matter.
+            group.gather();
+            kernels::signs(group.values, group.values);
+            pre = group.values;
+        } else {
+            if (group.trace.size() != group.weights.cols())
+                group.trace.resize(group.weights.cols(), 0.0f);  // grew since the last forward()
+            pre = group.trace;
+        }
+        if (scaled) {
+            group.keep.assign(padded, 1.0f);
+            std::copy_n(step_keep_.begin() + static_cast<std::ptrdiff_t>(first), count, group.keep.begin());
+        }
+        parallelChunks(group.weights.blocks(), kernels::threadsFor(count * pre.size()), [&](size_t b0, size_t b1) {
+            if (scaled)
+                group.weights.learnScaled(pre, group.scratch, group.keep, group.active, max_weight, b0, b1);
+            else
+                group.weights.learn(pre, group.scratch, group.active, max_weight, b0, b1);
         });
     }
+}
+
+void dense::copyInputTraces(std::vector<float>& out) const
+{
+    out.clear();
+    if (!tracesInputs())
+        return;
+    for (const Group& group : groups_) {
+        out.insert(out.end(), group.trace.begin(), group.trace.end());
+        out.resize(out.size() + (group.weights.cols() - std::min(group.trace.size(), group.weights.cols())), 0.0f);
+    }
+}
+
+void dense::storeInputTraces(std::span<const float> traces)
+{
+    size_t total = 0;
+    for (const Group& group : groups_)
+        total += group.weights.cols();
+    if (traces.size() != total)
+        return;  // not saved with this wiring: start from zero
+    size_t offset = 0;
+    for (Group& group : groups_) {
+        const auto part = traces.subspan(offset, group.weights.cols());
+        group.trace.assign(part.begin(), part.end());
+        offset += part.size();
+    }
+}
+
+void dense::clearInputTraces()
+{
+    for (Group& group : groups_)
+        group.trace.clear();
 }
 
 std::vector<float> dense::weights(size_t index) const

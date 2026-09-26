@@ -47,9 +47,9 @@ public:
     // neuron's weighted sum (SIMD, in parallel for large groups), activate.
     // A group reading this layer itself sees the outputs from before it ran.
     void forward() override;
-    // Every eligible neuron of every group learns (see neuron::learningDelta)
-    // against the group's current inputs.
-    void applyReward(float reward, float learningRate) override;
+    // Learning (applyReward and friends, see neuron_layer): every neuron
+    // that learns updates its row against its group's inputs: their current
+    // signs (Sign rule) or their trace (every other rule).
     bool learns() const override { return true; }
 
     // --- Weights --------------------------------------------------------
@@ -78,6 +78,10 @@ protected:
     void storeWeights(size_t index, std::span<const float> weights) override;
     bool wired() const override { return !groups_.empty(); }
     void neuronsReplaced() override { group_of_.assign(neurons_.size(), no_group); }
+    void updateWeights() override;
+    void copyInputTraces(std::vector<float>& out) const override;
+    void storeInputTraces(std::span<const float> traces) override;
+    void clearInputTraces() override;
 
 private:
     struct Group
@@ -89,6 +93,8 @@ private:
         std::vector<float> values;          // the pool gathered into contiguous floats
         std::vector<float> scratch;         // per-row sums / deltas (padded to whole blocks)
         std::vector<std::uint8_t> active;   // per-row eligibility during learning
+        std::vector<float> keep;            // per-row shrink factor during learning
+        std::vector<float> trace;           // input trace X (rules other than Sign), pool order
 
         bool reads(const layer& source) const;
         void append(const InputRange& range);

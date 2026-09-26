@@ -48,8 +48,9 @@ inline constexpr float default_alpha = 1.2f;                // default E-R thres
 inline constexpr float default_learning_gain = 2.0f;        // default per-neuron learning gain: multiplies every weight update
 
 // Layout of a serialized neuron. 1: without recovery / learning gain
-// (network formats 1-2); 2: with them.
-inline constexpr std::uint32_t NEURON_FORMAT_VERSION = 2;
+// (network formats 1-2); 2: with them; 3: the same neuron record, and layers
+// of neurons append their learning rule and its state (network format 9).
+inline constexpr std::uint32_t NEURON_FORMAT_VERSION = 3;
 // Upper bound for a serialized weight count, so corrupt data fails with an
 // error instead of an enormous allocation.
 inline constexpr std::uint64_t max_serialized_weights = std::uint64_t{1} << 26;
