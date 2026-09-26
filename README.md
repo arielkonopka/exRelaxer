@@ -12,7 +12,8 @@ automatically to every downstream layer.
 
 **Documentation:** [doc/](doc/README.md) has a detailed page for each class:
 [neuron](doc/neuron.md), [layer](doc/layer.md), [dense](doc/dense.md),
-[kernels](doc/kernels.md), [layer_factory](doc/layer_factory.md),
+[kernels](doc/kernels.md), [spatial](doc/spatial.md),
+[layer_factory](doc/layer_factory.md),
 [network](doc/network.md), and the
 test-support [pattern_benchmark](doc/pattern_benchmark.md). It also has
 PlantUML composition, class and interaction diagrams, and a
@@ -59,7 +60,7 @@ Both adaptation mechanisms can be toggled independently per layer.
 - A C++20 compiler (GCC, Clang or MSVC)
 - Internet access on first configure — GoogleTest v1.15.2 is fetched via
   `FetchContent`
-- Optional: OpenMP, for the parallel forward pass (detected automatically)
+- Optional: OpenMP, for the parallel forward pass and learning (detected automatically)
 
 ## Building and testing
 
@@ -83,6 +84,14 @@ Run selected tests directly:
 `-DEXRELAXER_NATIVE=ON` builds for the build machine's CPU (e.g. AVX2);
 results are the same either way.
 
+| Option | Default | Builds |
+|--------|---------|--------|
+| `EXRELAXER_BUILD_TESTS` | on when top-level | the GoogleTest unit tests (fetches GoogleTest) |
+| `EXRELAXER_BUILD_NNTESTING` | on when top-level | the `nntest` benchmark harness |
+| `EXRELAXER_BUILD_PYTHON` | off | the Python extension, tested by CTest as `python_tests` |
+
+A project that adds exrelaxer with `add_subdirectory` gets only the library.
+
 The learning tests run many seeded trials and print statistics with noise
 verdicts; the full suite takes under a minute in Release.
 
@@ -94,6 +103,17 @@ settings) run with the benchmark harness `nntest`; see
 ./build/NNtesting/nntest list
 ./build/NNtesting/nntest run gapped_pattern --set topology=window_readout,reservoir --out results.jsonl
 NNtesting/tools/compare.py results.jsonl
+```
+
+## Python
+
+`EXrelaxer.py/` is the Python package `exrelaxer` (nanobind bindings): build
+networks, run them and reward them from Python, with numpy arrays in and
+out. See [EXrelaxer.py/README.md](EXrelaxer.py/README.md).
+
+```bash
+pip install ./EXrelaxer.py
+python -c "import exrelaxer as exr; print(exr.Network())"
 ```
 
 ## Quick start
@@ -224,6 +244,7 @@ tests/
   spatial.cpp                    retina, Conv2D, LocallyConnected2D, Pool2D against scalar references
   filters.cpp                    filter banks, and bar-orientation learning with frozen Gabor features
   er_scales.hpp                  test inputs and timings relative to the E-R constants
+EXrelaxer.py/                    Python package exrelaxer: nanobind bindings, pytest suite
 NNtesting/                       benchmark harness nntest (see NNtesting/README.md)
   harness/                       runner: parameters, trials, statistics, result files
   tasks/                         task code shared with the unit tests (pattern_benchmark.hpp, bars.hpp)
@@ -250,7 +271,7 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   decoys) reaches ~0.96 valid-vs-decoy accuracy that way, and ~0.81–0.94
   with a frozen *random* reservoir as memory; fully learned feedback
   networks stay at chance. E-R neurons carry some memory on their own
-  (0.74 with no connections between them, vs 0.50 without E-R).
+  (0.757 with no connections between them, vs 0.50 without E-R).
 - **E-R makes learning steps very large.** Eligibility is
   `threshold / baseline_threshold − 1` and a firing lifts the threshold well
   above baseline, so E-R neurons take big steps and hit the weight clamp
@@ -264,6 +285,22 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files from older format versions load as weights only.
 
 ## Changelog
+
+### 2026-09-27: Python package, build options
+
+- `EXrelaxer.py/`: the Python package `exrelaxer` (nanobind). It binds
+  networks, every layer type, jitter, filter banks, per-neuron state, weights
+  and kernels, and save/load, with numpy in and out. `Network.run()` runs
+  many ticks (with rewards) in one call. It installs with
+  `pip install ./EXrelaxer.py`. Its pytest suite checks `run()` bit for bit
+  against a Python step loop, save/load continuation, and bar-orientation
+  learning from Python.
+- New CMake options `EXRELAXER_BUILD_TESTS` and `EXRELAXER_BUILD_NNTESTING`
+  (on only when exrelaxer is the top-level project) and
+  `EXRELAXER_BUILD_PYTHON`. The core library is position-independent.
+- `fetch.py --data DIR` also works after the command.
+- Docs: unconnected E-R neurons 0.757 (was still 0.74 in Known limitations);
+  `doc/spatial.md` in the documentation list.
 
 ### 2026-09-27: datasets and spiral tool
 
