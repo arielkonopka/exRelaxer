@@ -109,11 +109,14 @@ NNtesting/tools/compare.py results.jsonl
 
 `EXrelaxer.py/` is the Python package `exrelaxer` (nanobind bindings): build
 networks, run them and reward them from Python, with numpy arrays in and
-out. See [EXrelaxer.py/README.md](EXrelaxer.py/README.md).
+out. It also holds the Python experiment runner (`NNtesting/nntest.py`,
+one folder or file per experiment) and a loader for the datasets `fetch.py`
+prepares. See [EXrelaxer.py/README.md](EXrelaxer.py/README.md).
 
 ```bash
 pip install ./EXrelaxer.py
-python -c "import exrelaxer as exr; print(exr.Network())"
+NNtesting/datasets/fetch.py get mnist
+NNtesting/nntest.py run mnist_gabor       # MNIST from Python: 0.90 accuracy
 ```
 
 ## Quick start
@@ -244,11 +247,13 @@ tests/
   spatial.cpp                    retina, Conv2D, LocallyConnected2D, Pool2D against scalar references
   filters.cpp                    filter banks, and bar-orientation learning with frozen Gabor features
   er_scales.hpp                  test inputs and timings relative to the E-R constants
-EXrelaxer.py/                    Python package exrelaxer: nanobind bindings, pytest suite
+EXrelaxer.py/                    Python package exrelaxer: nanobind bindings, experiment runner,
+                                 dataset loader, pytest suite
 NNtesting/                       benchmark harness nntest (see NNtesting/README.md)
   harness/                       runner: parameters, trials, statistics, result files
   tasks/                         task code shared with the unit tests (pattern_benchmark.hpp, bars.hpp)
-  experiments/                   one file per experiment
+  experiments/                   one per experiment: NAME.cpp, NAME/experiment.py or NAME.py
+  nntest.py                      runner for the Python experiments
   datasets/fetch.py              downloads public datasets (MNIST, CIFAR-10, Kaggle, ...) into one format
   tools/compare.py               tables and before/after comparisons of result files
   tools/spiral.py                spiral sampling of images, bit-identical to the Spiral retina
@@ -286,7 +291,7 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
-### 2026-09-27: Python package, build options
+### 2026-09-27: Python package, Python experiments, build options
 
 - `EXrelaxer.py/`: the Python package `exrelaxer` (nanobind). It binds
   networks, every layer type, jitter, filter banks, per-neuron state, weights
@@ -298,6 +303,15 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 - New CMake options `EXRELAXER_BUILD_TESTS` and `EXRELAXER_BUILD_NNTESTING`
   (on only when exrelaxer is the top-level project) and
   `EXRELAXER_BUILD_PYTHON`. The core library is position-independent.
+- Python experiments: `NNtesting/nntest.py` (`exrelaxer.harness`) runs
+  experiments that are a folder (`NAME/experiment.py` plus their own files)
+  or a single `NAME.py` in `NNtesting/experiments/`. It has the same
+  commands, seeding, statistics, checks and JSON Lines as `nntest`.
+  `exrelaxer.datasets.load` reads `fetch.py`'s output.
+  `Network.apply_reward_to(layer, ...)` gives each readout its own reward.
+- New experiments: `bar_orientation_py` (single file; 0.9875, as the C++
+  one) and `mnist_gabor` (folder; MNIST at 0.90 with frozen Gabor features,
+  a frozen random mix and one-vs-rest readouts).
 - `fetch.py --data DIR` also works after the command.
 - Docs: unconnected E-R neurons 0.757 (was still 0.74 in Known limitations);
   `doc/spatial.md` in the documentation list.
