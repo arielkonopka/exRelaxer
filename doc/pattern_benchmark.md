@@ -1,6 +1,7 @@
 # pattern_benchmark (test support)
 
-`tests/pattern_benchmark.hpp`, namespace `pattern_benchmark`
+`NNtesting/tasks/pattern_benchmark.hpp`, namespace `pattern_benchmark` (shared
+by the unit tests and the [nntest](../NNtesting/README.md) experiments)
 
 Not part of the library: a header shared by the tests (`tests/network.cpp`)
 and by quick experiment programs. It defines the **gapped pattern detection**
@@ -204,9 +205,9 @@ training ticks, 20 trials):
 
 | Test | Memory | After C |
 |------|--------|---------|
-| `ReservoirLearnsTheSequence` | random reservoir 40 + 60 (recurrent scale 2), E-R off | 0.814 |
+| `ReservoirLearnsTheSequence` | random reservoir 40 + 60 (recurrent scale 2), E-R off | 0.798 |
 | `ERNeuronsCarryMemoryWithoutRecurrence` | 100 unconnected neurons, E-R off | 0.500 |
-| | the same, E-R on (readout E-R off) | **0.740** |
+| | the same, E-R on (readout E-R off) | **0.757** |
 
 - A frozen **random reservoir** replaces the delay window and still beats the
   shortcut rules; screening with a larger one (100 + 200) reached 0.938.

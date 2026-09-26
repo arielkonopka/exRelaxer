@@ -128,6 +128,17 @@ target_link_libraries(exrelaxer_tests PRIVATE
     GTest::gtest_main
 )
 
+# Task code shared with the benchmark harness (NNtesting/tasks).
+target_include_directories(exrelaxer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/NNtesting/tasks)
+
 # Automatic test discovery for CTest
 include(GoogleTest)
 gtest_discover_tests(exrelaxer_tests)
+
+# -----------------------------------------------------------------------------
+# Benchmark harness (nntest): experiments on networks, one file each
+# -----------------------------------------------------------------------------
+option(EXRELAXER_BUILD_NNTESTING "Build the nntest benchmark harness" ON)
+if(EXRELAXER_BUILD_NNTESTING)
+    add_subdirectory(NNtesting)
+endif()

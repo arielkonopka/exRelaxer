@@ -12,7 +12,8 @@ of known limitations, see the [project README](../README.md).
 | [kernels](kernels.md) | weight layout, SIMD kernels, determinism, parallelism, performance, random streams |
 | [layer_factory](layer_factory.md) | `layer_factory`, `LayerSpec`: creating layers by type, registering new types |
 | [network](network.md) | `network`: layer graph, inputs/outputs, update order, freezing, save/load |
-| [pattern_benchmark](pattern_benchmark.md) | Test support (`tests/pattern_benchmark.hpp`): gapped-pattern benchmark, frozen value detectors, delay window |
+| [pattern_benchmark](pattern_benchmark.md) | Task support (`NNtesting/tasks/pattern_benchmark.hpp`): gapped-pattern benchmark, frozen value detectors, delay window |
+| [NNtesting](../NNtesting/README.md) | The `nntest` benchmark harness: experiments, parameter sweeps, result files, comparisons |
 | [research](research.md) | Research log: parameter changes, mechanisms, topologies, jitter and what each showed |
 
 ## How the pieces fit together

@@ -863,33 +863,9 @@ namespace {
 
 using pattern_benchmark::NetworkBuilder;
 
-// Frozen value detectors, plus a frozen delay window when depth > 0. Returns
-// the layer the learned part should read, and the update order so far.
-struct FrontEnd
-{
-    network::LayerId features;
-    std::vector<network::LayerId> order;
-};
-
-FrontEnd addFrontEnd(network& net, int depth)
-{
-    using namespace pattern_benchmark;
-    FrontEnd f;
-    const ValueDetectors detectors = addValueDetectors(net);
-    f.features = depth > 0 ? addDelayWindow(net, detectors.bands, BAND_FEATURES, depth, f.order) : detectors.bands;
-    f.order.push_back(detectors.ramps);
-    f.order.push_back(detectors.bands);
-    if (depth > 0)
-        f.order.push_back(f.features);
-    return f;
-}
-
-void finishFrontEnd(network& net, FrontEnd& f, std::initializer_list<network::LayerId> rest, network::LayerId out)
-{
-    f.order.insert(f.order.end(), rest);
-    net.setUpdateOrder(f.order);
-    net.addOutput(out);
-}
+using pattern_benchmark::FrontEnd;
+using pattern_benchmark::addFrontEnd;
+using pattern_benchmark::finishFrontEnd;
 
 std::unique_ptr<network> buildWindowHiddenReadout(bool hasER, const Jitter& learningJitter)
 {
@@ -1059,7 +1035,7 @@ TEST(NetworkPatternTest, ReservoirLearnsTheSequence)
     printPatternStats("E-R off", st, RESERVOIR_TRIALS);
     std::cout << "==========================================\n";
 
-    // Measured: after C 0.814 (control 0.490); the hand-built window reaches
+    // Measured: after C 0.798 (control 0.490); the hand-built window reaches
     // ~1.0 and the best shortcut rule 0.81.
     EXPECT_GE(st.afterC.mean, 0.75f);
     EXPECT_LT(st.afterC.mean_control, 0.6f);
@@ -1081,8 +1057,7 @@ TEST(NetworkPatternTest, ERNeuronsCarryMemoryWithoutRecurrence)
     printReservoirResult("E-R on", on);
     std::cout << "==========================================\n";
 
-    // Measured: E-R off 0.500 exactly (no memory at all), E-R on 0.713 +- 0.034
-    // (0.740 with recovery 0.9).
+    // Measured: E-R off 0.500 exactly (no memory at all), E-R on 0.757 +- 0.030.
     EXPECT_LE(off.afterC.mean, 0.55f);
     EXPECT_GE(on.afterC.mean, 0.62f);
     EXPECT_GT(on.afterC.mean - off.afterC.mean, 2.0f * on.afterC.stderr_mean);

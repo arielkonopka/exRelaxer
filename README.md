@@ -86,6 +86,16 @@ results are the same either way.
 The learning tests run many seeded trials and print statistics with noise
 verdicts; the full suite takes under a minute in Release.
 
+Experiments (how well and how fast networks learn, across architectures and
+settings) run with the benchmark harness `nntest`; see
+[NNtesting/README.md](NNtesting/README.md):
+
+```bash
+./build/NNtesting/nntest list
+./build/NNtesting/nntest run gapped_pattern --set topology=window_readout,reservoir --out results.jsonl
+NNtesting/tools/compare.py results.jsonl
+```
+
 ## Quick start
 
 Link against `exrelaxer_core`; its public include directory is `core/`:
@@ -213,8 +223,14 @@ tests/
   regressions.cpp                one test per fixed bug; DISABLED_ tests for open ones
   spatial.cpp                    retina, Conv2D, LocallyConnected2D, Pool2D against scalar references
   filters.cpp                    filter banks, and bar-orientation learning with frozen Gabor features
-  pattern_benchmark.hpp          gapped-pattern benchmark, statistics, frozen detectors
   er_scales.hpp                  test inputs and timings relative to the E-R constants
+NNtesting/                       benchmark harness nntest (see NNtesting/README.md)
+  harness/                       runner: parameters, trials, statistics, result files
+  tasks/                         task code shared with the unit tests (pattern_benchmark.hpp, bars.hpp)
+  experiments/                   one file per experiment
+  datasets/fetch.py              downloads public datasets (MNIST, CIFAR-10, Kaggle, ...) into one format
+  tools/compare.py               tables and before/after comparisons of result files
+  tools/spiral.py                spiral sampling of images, bit-identical to the Spiral retina
 ```
 
 Tests express their E-R-sensitive inputs and timings relative to these
@@ -248,6 +264,38 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files from older format versions load as weights only.
 
 ## Changelog
+
+### 2026-09-27: datasets and spiral tool
+
+- `NNtesting/datasets/fetch.py`: downloads MNIST, Fashion-MNIST, CIFAR-10,
+  the Kaggle casting-inspection set, Speech Commands and ESC-50 (the audio
+  sets download only), or any Kaggle dataset (`fetch.py kaggle OWNER/SLUG`,
+  with or without API credentials). Image sets are prepared as
+  `SPLIT_images.npy` (uint8, N × C × H × W), `SPLIT_labels.npy` and
+  `meta.json`; downloads are checked against pinned SHA-256 hashes where
+  known and recorded otherwise.
+- `NNtesting/tools/spiral.py`: spiral sampling of images and prepared
+  datasets from the command line, with polar, reconstruction and path
+  views. Bit-identical to the C++ Spiral retina, checked by the CTest test
+  `spiral_matches_retina`.
+
+### 2026-09-26: benchmark harness
+
+- `NNtesting/`: the `nntest` runner, one file per experiment in
+  `NNtesting/experiments/`, registered automatically. Seeded trials,
+  parameter grids (`--set a=1,2 --set b=x,y`), per-metric statistics,
+  checks on default runs, JSON Lines results with the machine, build and git
+  commit, and `tools/compare.py` for tables and before/after comparisons.
+- Experiments: `bar_orientation`, `gapped_pattern` (window, mixed window or
+  reservoir topologies), `dense_throughput`, `vision_throughput`. The
+  `quick` ones also run in CTest (`nntest_quick`).
+- `tests/pattern_benchmark.hpp` moved to `NNtesting/tasks/`, with the
+  detector front end formerly private to the unit tests; the bar images
+  moved to `NNtesting/tasks/bars.hpp`. Unit tests use them from there.
+- Corrected stale measurements in docs and test comments (reservoir 0.798,
+  unconnected E-R neurons 0.757).
+- Found with the harness: small dense layers run slower on the default
+  20-thread pool than on one thread (see NNtesting/README.md).
 
 ### 2026-09-26: filter banks
 

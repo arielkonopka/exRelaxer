@@ -14,6 +14,7 @@
 #include "../core/layers/conv2d.hpp"
 #include "../core/layers/dense.hpp"
 #include "../core/layers/retina.hpp"
+#include "bars.hpp"
 
 using namespace exr;
 using filters::Filter;
@@ -148,23 +149,8 @@ namespace {
 
 constexpr size_t SIDE = 24;
 
-// A 2-pixel-wide, 12-pixel-long bar at a random position, on a noisy
-// background. Returns +1 for vertical, -1 for horizontal.
-float drawBar(std::mt19937& g, std::vector<float>& image)
-{
-    std::uniform_real_distribution<float> noise(-0.1f, 0.1f);
-    std::uniform_int_distribution<size_t> pos(4, SIDE - 5), coin(0, 1);
-    for (float& v : image) v = 0.1f + noise(g);
-    const bool vertical = coin(g) == 1;
-    const size_t cy = pos(g), cx = pos(g);
-    for (size_t along = 0; along < 12; ++along)
-        for (size_t across = 0; across < 2; ++across) {
-            const size_t y = vertical ? cy - 6 + along : cy + across;
-            const size_t x = vertical ? cx + across : cx - 6 + along;
-            if (y < SIDE && x < SIDE) image[y * SIDE + x] = 0.9f + noise(g);
-        }
-    return vertical ? 1.0f : -1.0f;
-}
+// Vertical (+1) or horizontal (-1) bars at random positions (see NNtesting/tasks/bars.hpp).
+float drawBar(std::mt19937& g, std::vector<float>& image) { return bars::BarImages{}.draw(g, image); }
 
 struct OrientationNet
 {

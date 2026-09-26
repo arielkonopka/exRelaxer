@@ -12,8 +12,8 @@
 #include <random>
 #include <string>
 #include <vector>
-#include "../core/network.hpp"
-#include "../core/layers/dense.hpp"
+#include "network.hpp"
+#include "layers/dense.hpp"
 
 using namespace exr;
 
@@ -314,6 +314,37 @@ inline network::LayerId addReservoir(network& net, network::LayerId source, size
 // With E-R on, a runaway network does not stay non-finite: once thresholds
 // become inf nothing fires and the output sits at exactly 0. So divergence
 // is detected from the response magnitude, not only from NaN/inf.
+// Frozen value detectors, plus a frozen delay window of `depth` lags when
+// depth > 0. `features` is the layer the learned part should read; `order`
+// is the update order so far.
+struct FrontEnd
+{
+    network::LayerId features;
+    std::vector<network::LayerId> order;
+};
+
+inline FrontEnd addFrontEnd(network& net, int depth)
+{
+    FrontEnd f;
+    const ValueDetectors detectors = addValueDetectors(net);
+    f.features = depth > 0 ? addDelayWindow(net, detectors.bands, BAND_FEATURES, depth, f.order) : detectors.bands;
+    f.order.push_back(detectors.ramps);
+    f.order.push_back(detectors.bands);
+    if (depth > 0)
+        f.order.push_back(f.features);
+    return f;
+}
+
+// Appends the learned layers to the update order, sets it and marks `out`
+// as the output.
+inline void finishFrontEnd(network& net, FrontEnd& f, std::initializer_list<network::LayerId> rest,
+                           network::LayerId out)
+{
+    f.order.insert(f.order.end(), rest);
+    net.setUpdateOrder(f.order);
+    net.addOutput(out);
+}
+
 inline bool isDivergent(float response) { return !std::isfinite(response) || std::abs(response) > 1e6f; }
 
 // How the reward is computed from the target on each training tick.
