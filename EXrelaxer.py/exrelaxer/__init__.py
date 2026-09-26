@@ -39,12 +39,17 @@ from ._core import (  # noqa: F401
     Sampling,
     Shape,
     Window2D,
+    build_info,
     constants,
     filters,
     reseed,
+    set_threads,
+    threads,
 )
+from . import datasets  # noqa: F401,E402
 
 __all__ = [
     "DeserializeMode", "Edge", "EdgeKind", "Jitter", "LayerSpec", "LayerType", "Network", "PoolMode",
-    "RetinaSpec", "Sampling", "Shape", "Window2D", "constants", "filters", "reseed",
+    "RetinaSpec", "Sampling", "Shape", "Window2D", "build_info", "constants", "datasets", "filters", "reseed",
+    "set_threads", "threads",
 ]

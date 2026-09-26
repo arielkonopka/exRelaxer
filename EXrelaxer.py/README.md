@@ -70,6 +70,31 @@ net.load_filters(v1, exr.filters.gabor_bank(7, 4, 5.0, 2.0))
 net.freeze(v1)
 ```
 
+## Experiments and datasets
+
+`exrelaxer.harness` runs experiments written in Python: one folder (or one
+file) per experiment in `NNtesting/experiments/`. It uses the C++ `nntest`
+commands, options and result format (see
+[NNtesting/README.md](../NNtesting/README.md#python-experiments)):
+
+```bash
+NNtesting/nntest.py list                 # or: python -m exrelaxer.nntest list, exr-nntest list
+NNtesting/nntest.py run mnist_gabor --trials 3 --out results.jsonl
+```
+
+`exrelaxer.datasets` reads what `NNtesting/datasets/fetch.py` prepares:
+
+```python
+from exrelaxer import datasets
+train = datasets.load("mnist", "train")              # images float32 N x C x H x W in 0..1
+test = datasets.load("mnist", "test", limit=2000)
+train.images.shape, train.labels, train.classes, train.shape   # shape: C x H x W of one image
+datasets.load("fashion_mnist", fetch_missing=True)   # runs fetch.py first if needed
+```
+
+The data directory is `data_dir=`, then `$EXR_DATA`, then
+`NNtesting/data` of the repository around the current directory.
+
 ## API
 
 The names are the C++ names in snake_case. The pages in [doc/](../doc/README.md)
@@ -82,6 +107,7 @@ describe the behaviour.
 | `freeze`, `unfreeze`, `is_frozen`, `set_recovery_jitter`, `set_learning_jitter`, `set_alpha_jitter`, `set_update_order`, `use_default_update_order` | the same |
 | `set_input`, `set_inputs(array or list)`, `step()`, `apply_reward(reward, lr)`, `outputs()` | running |
 | `run(inputs[T×N], rewards=None, learning_rate=0)` → `T×M` | a `step` loop in C++ |
+| `apply_reward_to(layer, reward, lr)` | one layer learns (unless frozen): a reward per readout |
 | `layer_output(id)` (C×H×W), `layer_shape`, `layer_size`, `layer_type`, `layer_spec`, `layer_name`, `find_layer`, `neuron_state(id)` (threshold, recovery, learning gain, alpha per neuron) | inspection |
 | `weights(id, neuron)`, `set_weights` (Dense); `kernel(id, channel)`, `set_kernel`, `load_filters(id, bank)` (Conv2D); `retina_points(id)`; `set_output(id, i, v)` | layer access |
 | `edges`, `output_layers`, `update_order`, `inputs`, `input_count`, `layer_count`, `describe()` | the same |
@@ -90,6 +116,8 @@ describe the behaviour.
 | `Shape`, `Window2D`, `RetinaSpec`, `Jitter` (`uniform`, `normal`, `*_relative`, `.around`, `.within`) | the same |
 | `filters.gaussian`, `difference_of_gaussians`, `gabor`, `gabor_bank`, `centre_surround_bank` | `exr::filters` |
 | `constants.max_weight`, `baseline_threshold`, ... | `core/neuron.hpp` |
+| `threads()`, `set_threads(n)`, `build_info()` | OpenMP threads; compiler, build type, native, openmp |
+| `datasets.load / available / fetch`, `harness.experiment`, `harness.main` | Python only (above) |
 
 C++ exceptions become Python ones: `std::invalid_argument` becomes
 `ValueError`, `std::out_of_range` becomes `IndexError`, and the rest become
@@ -98,8 +126,12 @@ must not be used from two threads at once.
 
 ## Tests
 
-`pytest EXrelaxer.py/tests` covers building and inspection, determinism,
-`run` against a Python `step` loop (bit for bit), save/load continuation,
-errors, jitter, retina and filter banks. It also runs the `bar_orientation`
-experiment written in Python, which reaches 0.97 to 1.0 accuracy against
-about 0.5 without learning.
+`pytest EXrelaxer.py/tests` covers the bindings and the tools around them:
+- the bindings: building and inspection, determinism, `run` against a Python
+  `step` loop (bit for bit), save/load continuation, errors, jitter, retina,
+  filter banks, and per-layer rewards;
+- the experiment runner: folder and file discovery, typed parameters, grids,
+  seeding, checks, exit codes, and JSON Lines that `compare.py` reads;
+- `datasets.load`;
+- the bar-orientation task learned from Python, at 0.97 to 1.0 accuracy
+  against about 0.5 without learning.

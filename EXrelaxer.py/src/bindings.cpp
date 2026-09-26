@@ -19,6 +19,9 @@
 #include <string>
 #include <typeinfo>
 #include <vector>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "filters.hpp"
 #include "network.hpp"
@@ -96,6 +99,47 @@ NB_MODULE(_core, m)
 
     m.def("reseed", &reseed, "seed"_a,
           "Resets every random stream of the library; call before building a network for reproducible weights.");
+
+    m.def(
+        "threads", [] {
+#ifdef _OPENMP
+            return omp_get_max_threads();
+#else
+            return 1;
+#endif
+        },
+        "OpenMP threads the layers may use (1 without OpenMP).");
+    m.def(
+        "set_threads", [](int count) {
+            if (count < 1)
+                throw std::invalid_argument("set_threads: count must be at least 1");
+#ifdef _OPENMP
+            omp_set_num_threads(count);
+#endif
+        },
+        "count"_a, "Sets the OpenMP thread count (results do not depend on it).");
+    m.def(
+        "build_info", [] {
+            nb::dict d;
+#if defined(__clang__)
+            d["compiler"] = "clang " __clang_version__;
+#elif defined(__GNUC__)
+            d["compiler"] = "gcc " __VERSION__;
+#elif defined(_MSC_VER)
+            d["compiler"] = "msvc " + std::to_string(_MSC_VER);
+#else
+            d["compiler"] = "unknown";
+#endif
+            d["build"] = EXRELAXER_BUILD_TYPE;
+            d["native"] = static_cast<bool>(EXRELAXER_NATIVE_BUILD);
+#ifdef _OPENMP
+            d["openmp"] = true;
+#else
+            d["openmp"] = false;
+#endif
+            return d;
+        },
+        "How the extension was compiled: compiler, build type, native, openmp.");
 
     // --- Constants (core/neuron.hpp) ---------------------------------------
     nb::module_ constants = m.def_submodule("constants", "Tunable constants shared by every neuron (read only).");
@@ -326,6 +370,14 @@ NB_MODULE(_core, m)
              "forward() on every layer, in update order.")
         .def("apply_reward", &network::applyReward, "reward"_a, "learning_rate"_a,
              nb::call_guard<nb::gil_scoped_release>(), "Every layer that is not frozen learns.")
+        .def(
+            "apply_reward_to",
+            [](network& net, LayerId id, float reward, float learningRate) {
+                if (!net.isFrozen(id))
+                    net.getLayer(id).applyReward(reward, learningRate);
+            },
+            "layer"_a, "reward"_a, "learning_rate"_a, nb::call_guard<nb::gil_scoped_release>(),
+            "Only this layer learns (unless frozen): a reward per output layer, e.g. one-vs-rest readouts.")
         .def("outputs", [](const network& net) { return toNumpy(net.outputs()); },
              "The output layers' values, concatenated.")
         .def(

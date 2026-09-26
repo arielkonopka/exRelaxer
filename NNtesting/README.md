@@ -9,8 +9,10 @@ experiments measure what the networks do.
 ```
 NNtesting/
   harness/       the runner: parameters, trials, statistics, result files
+  nntest.py      the same runner for Python experiments (exrelaxer.harness)
   tasks/         task code shared by experiments and unit tests
-  experiments/   one file per experiment, found automatically
+  experiments/   one file per experiment, found automatically: NAME.cpp (C++),
+                 NAME/experiment.py or NAME.py (Python)
   datasets/      fetch.py: downloads public datasets into one format (see datasets/README.md)
   tools/         compare.py: tables and comparisons of result files
                  spiral.py: spiral sampling of images, exactly as the Spiral retina
@@ -136,6 +138,47 @@ nnt::Register experiment({
 - **Task code** used by several experiments (and unit tests) goes to
   `tasks/`.
 
+## Python experiments
+
+Experiments can also be written in Python, against the `exrelaxer` package
+(`pip install ./EXrelaxer.py`, see [EXrelaxer.py/README.md](../EXrelaxer.py/README.md)).
+An experiment is a **folder** `experiments/NAME/` with an `experiment.py`,
+next to whatever else it needs (helper modules it imports by name, notes,
+configs). A small one can be a **single file** `experiments/NAME.py`.
+`NNtesting/nntest.py` runs them with the same commands, options, seeding,
+statistics, checks and exit codes as `nntest`. It also writes the same
+JSON Lines, so `compare.py` compares C++ and Python results alike.
+
+```bash
+NNtesting/nntest.py list
+NNtesting/nntest.py describe mnist_gabor
+NNtesting/nntest.py run mnist_gabor --set mix=0,512 --trials 3 --out results.jsonl
+NNtesting/nntest.py --data /big/disk run mnist_gabor   # datasets elsewhere (or EXR_DATA)
+```
+
+```python
+import exrelaxer as exr
+from exrelaxer import harness as nnt
+
+@nnt.experiment(
+    description="what it measures, in one line",
+    tags=["learning"],                                 # "quick": also runs in ctest
+    params={"hidden": (32, "hidden neurons"),          # name: (default, help); --set values
+            "er": (False, "E-R in the hidden layer")},  # are parsed as the default's type
+    trials=10,
+    expect={"accuracy": (0.9, None)},                  # metric: (min, max), checked with defaults
+)
+def run(t):                                            # exr.reseed(t.seed) has been called
+    data = t.dataset("mnist", "train")                 # prepared by datasets/fetch.py
+    hidden = t.params["hidden"]
+    ...                                                # t.rng: numpy generator seeded with t.seed
+    t.record("accuracy", accuracy)
+```
+
+The name defaults to the folder or file name and must not clash with a C++
+experiment. With `EXRELAXER_BUILD_PYTHON=ON`, the Python experiments tagged
+`quick` run as the CTest test `nntest_py_quick`.
+
 ## Experiments
 
 | Experiment | Tags | Measures |
@@ -144,6 +187,8 @@ nnt::Register experiment({
 | `gapped_pattern` | temporal, learning | A..B..C with gaps in a random stream, decoys; `topology` = `window_readout`, `window_mix` or `reservoir`; `er`, reward mode, sizes |
 | `dense_throughput` | performance, quick | ms per step and per step + reward, `n × n` dense layer |
 | `vision_throughput` | performance, vision | ms per step, per step + reward and per layer of a 320 × 200 camera pipeline |
+| `bar_orientation_py` (Python file) | vision, learning, quick | `bar_orientation` written in Python; accuracy 0.9875 (0.514 without learning) |
+| `mnist_gabor` (Python folder) | vision, learning, dataset | MNIST (or `--set dataset=fashion_mnist`): frozen Gabor bank + pool + frozen random mix + one learned readout per class; accuracy 0.90 on 10 000 training images (0.08 without learning) |
 
 ## Datasets
 
