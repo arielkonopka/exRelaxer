@@ -157,6 +157,7 @@ add_executable(exrelaxer_tests
     tests/spatial.cpp
     tests/filters.cpp
     tests/audio.cpp
+    tests/snake.cpp
 )
 
 target_link_libraries(exrelaxer_tests PRIVATE

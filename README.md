@@ -295,6 +295,7 @@ tests/
   kernels.cpp                    SIMD kernels and dense layers bit-identical to scalar references
   regressions.cpp                one test per fixed bug; DISABLED_ tests for open ones
   spatial.cpp                    retina, Conv2D, LocallyConnected2D, Pool2D against scalar references
+  snake.cpp                      the headless snake game: rules, state vector, reference values shared with Python
   audio.cpp                      Cochlea against a double-precision DFT, History, save/load of a hearing network
   filters.cpp                    filter banks, and bar-orientation learning with frozen Gabor features
   er_scales.hpp                  test inputs and timings relative to the E-R constants
@@ -305,7 +306,7 @@ EXrelaxer.py/                    Python package exrelaxer: nanobind bindings, ex
                                  dataset loader, pytest suite
 NNtesting/                       benchmark harness nntest (see NNtesting/README.md)
   harness/                       runner: parameters, trials, statistics, result files
-  tasks/                         task code shared with the unit tests (pattern_benchmark.hpp, bars.hpp)
+  tasks/                         task code shared with the unit tests (pattern_benchmark.hpp, bars.hpp, snake.hpp)
   experiments/                   one per experiment: NAME.cpp, NAME/experiment.py or NAME.py
   nntest.py                      runner for the Python experiments
   datasets/fetch.py              downloads public datasets (MNIST, CIFAR-10, Kaggle, ...) into one format
@@ -344,6 +345,19 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files from older format versions load as weights only.
 
 ## Changelog
+
+### 2026-09-27: snake
+
+- `snake` (C++, game in `NNtesting/tasks/snake.hpp`) and `snake_py`
+  (Python, `NNtesting/experiments/snake/`): a network learns to play snake
+  without a screen. It sees 23 values: the 8 cells around the head, the
+  apple's direction, 4 points it sees (forward, left, right, back) with their
+  map positions and distances, and a bias. One readout per action learns
+  from error-driven rewards. It eats 13.6 apples per game on a 10 × 10 field
+  (0.06 untrained). Both versions play the same games and give the same
+  numbers.
+- Tests: `tests/snake.cpp` and `EXrelaxer.py/tests/test_snake.py` check the
+  game rules and the same reference states in both languages.
 
 ### 2026-09-27: audio layers
 
