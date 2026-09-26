@@ -269,10 +269,14 @@ def cmd_info(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--data", help="data directory (default $EXR_DATA or NNtesting/data)")
+    data_help = "data directory (default $EXR_DATA or NNtesting/data)"
+    parser.add_argument("--data", help=data_help)
+    # --data is accepted after the command too; SUPPRESS keeps a value given before it.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--data", default=argparse.SUPPRESS, help=data_help)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("list", help="the known datasets").set_defaults(func=cmd_list)
+    sub.add_parser("list", parents=[common], help="the known datasets").set_defaults(func=cmd_list)
 
     def add_image_options(p):
         p.add_argument("--size", type=parse_size, help="resize images to N x N or W x H (WxH)")
@@ -281,12 +285,12 @@ def main():
         colour.add_argument("--colour", dest="grey", action="store_false", help="RGB channels")
         p.add_argument("--force", action="store_true", help="download again")
 
-    get = sub.add_parser("get", help="download and prepare datasets")
+    get = sub.add_parser("get", parents=[common], help="download and prepare datasets")
     get.add_argument("names", nargs="+")
     add_image_options(get)
     get.set_defaults(func=cmd_get)
 
-    kaggle = sub.add_parser("kaggle", help="any Kaggle dataset")
+    kaggle = sub.add_parser("kaggle", parents=[common], help="any Kaggle dataset")
     kaggle.add_argument("dataset", help="OWNER/SLUG, as in the dataset's URL")
     kaggle.add_argument("--name", help="local name (default: the slug)")
     kaggle.add_argument("--image-root", help="directory inside the archive with class folders "
@@ -294,7 +298,7 @@ def main():
     add_image_options(kaggle)
     kaggle.set_defaults(func=cmd_kaggle)
 
-    info = sub.add_parser("info", help="what a prepared dataset contains")
+    info = sub.add_parser("info", parents=[common], help="what a prepared dataset contains")
     info.add_argument("name")
     info.set_defaults(func=cmd_info)
 

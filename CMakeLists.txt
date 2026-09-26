@@ -92,6 +92,27 @@ if(OpenMP_CXX_FOUND)
     target_link_libraries(exrelaxer_core PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
+# Position-independent, so the core also links into shared libraries such as
+# the Python extension (EXrelaxer.py/).
+set_target_properties(exrelaxer_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# Tests and the benchmark harness are built by default only when this is the
+# top-level project, so a project that adds exrelaxer with add_subdirectory
+# gets just the library (and no GoogleTest download).
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(EXRELAXER_TOP_LEVEL ON)
+else()
+    set(EXRELAXER_TOP_LEVEL OFF)
+endif()
+option(EXRELAXER_BUILD_TESTS "Build the GoogleTest unit tests" ${EXRELAXER_TOP_LEVEL})
+option(EXRELAXER_BUILD_NNTESTING "Build the nntest benchmark harness" ${EXRELAXER_TOP_LEVEL})
+option(EXRELAXER_BUILD_PYTHON "Build the Python extension (EXrelaxer.py/, needs nanobind)" OFF)
+
+if(EXRELAXER_BUILD_TESTS OR EXRELAXER_BUILD_NNTESTING)
+    enable_testing()
+endif()
+
+if(EXRELAXER_BUILD_TESTS)
 # -----------------------------------------------------------------------------
 # GoogleTest setup via FetchContent
 # -----------------------------------------------------------------------------
@@ -111,7 +132,6 @@ FetchContent_MakeAvailable(googletest)
 # -----------------------------------------------------------------------------
 # Test executable
 # -----------------------------------------------------------------------------
-enable_testing()
 
 add_executable(exrelaxer_tests
     tests/neuron.cpp
@@ -134,11 +154,19 @@ target_include_directories(exrelaxer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/N
 # Automatic test discovery for CTest
 include(GoogleTest)
 gtest_discover_tests(exrelaxer_tests)
+endif()
 
 # -----------------------------------------------------------------------------
 # Benchmark harness (nntest): experiments on networks, one file each
 # -----------------------------------------------------------------------------
-option(EXRELAXER_BUILD_NNTESTING "Build the nntest benchmark harness" ON)
 if(EXRELAXER_BUILD_NNTESTING)
     add_subdirectory(NNtesting)
+endif()
+
+# -----------------------------------------------------------------------------
+# Python extension (normally built by pip from EXrelaxer.py/; this option
+# builds it in this tree too, e.g. to run its tests next to the unit tests)
+# -----------------------------------------------------------------------------
+if(EXRELAXER_BUILD_PYTHON)
+    add_subdirectory(EXrelaxer.py)
 endif()
