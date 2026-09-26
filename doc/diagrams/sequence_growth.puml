@@ -1,0 +1,42 @@
+@startuml sequence_growth
+skinparam shadowing false
+skinparam sequenceMessageAlign left
+autonumber
+
+title Feedback growth and propagation: net.addFeedback(A, B, n) when C already reads B
+
+participant network
+participant "A : dense" as A
+participant "B : dense" as B
+participant "C : dense" as C
+participant "neuron (in C)" as CN
+
+note over B, C : earlier: net.connect(B, C)\n-> C has a group sourced from B,\nC is in B.listeners
+
+network -> A : addFeedback(B, n)
+A -> B : addNeuronsWithGroup(n, A.getOutput(), A)
+B -> B : create n neurons (same E-R/habituation flags)\ninitializeWeights: one weight per A output
+B -> B : new WiringGroup {inputs = A's slots,\nnew neuron indices, source = A}
+B -> A : A.listeners += B  (if not already)
+B -> B : append the n new output slots
+
+loop each listener of B
+  B -> C : notifySourceGrew(B, n new slots)
+  loop each group of C whose source is B
+    C -> C : group.inputs += new slots
+    loop each neuron of that group
+      C -> CN : growWeights(n)
+    end
+  end
+end
+
+A --> network : true
+network -> network : record Edge{A, B, Feedback, n}\nand BuildOp{Feedback, A, B, n}
+
+note over C
+  if C's growth also added neurons somewhere,
+  its own listeners would be notified in turn:
+  growth cascades downstream
+end note
+
+@enduml

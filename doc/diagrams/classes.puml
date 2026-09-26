@@ -1,0 +1,171 @@
+@startuml classes
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+title exrelaxer - class diagram (public API)
+
+enum LayerType {
+  Dense = 0
+  Conv2D = 1
+}
+
+enum DeserializeMode {
+  WeightsOnly
+  FullState
+}
+
+class LayerSpec <<struct>> {
+  +type : LayerType = Dense
+  +size : size_t = 0
+  +hasHabituation : bool = true
+  +hasER : bool = true
+  +frozen : bool = false
+  +recoveryJitter : Jitter
+  +learningJitter : Jitter
+  +alphaJitter : Jitter
+}
+
+class Jitter <<struct>> {
+  +distribution : None | Uniform | Normal
+  +spread : float
+  +relative : bool
+  +mean : optional<float>
+  +min, max : float
+  +enabled() : bool
+  +{static} none() / uniform(halfWidth) / normal(sd)
+  +{static} uniformRelative(f = 0.5) / normalRelative(f = 0.5)
+  +around(centre) / within(lo, hi) : Jitter
+}
+
+class neuron {
+  +neuron(hasHabituation, hasER)
+  +neuron(hasHabituation, hasER, alpha)
+  +{static} reseed(seed : uint32)
+  --
+  +step(inputs : span<const float>) : float
+  +updateWeights(inputs, reward, learningRate)
+  --
+  +initializeWeights(inputs)
+  +growWeights(count)
+  +expandWeights(count)
+  +setWeights(weights)
+  +getWeights() : vector<float>&
+  +getOutput() : shared_ptr<float>&
+  +spontaneousOutput() : float
+  +randomizeRecovery(jitter) / randomizeLearningGain(jitter)
+  +randomizeAlpha(jitter)
+  +randomizeDynamics(recovery, learning, alpha)
+  +get/setRecovery(), get/setLearningGain(), get/setAlpha()
+  --
+  +serialize(os)
+  +deserialize(is, mode, format)
+  --
+  -excite(value)
+  -threshold : float
+  -previous_input : float
+  -habituation_counter : int
+  -alpha : float
+  -weights : vector<float>
+  -output : shared_ptr<float>
+  -spontaneous_rng : minstd_rand
+  -recovery : float
+  -learning_gain : float
+}
+
+abstract class layer <<interface>> {
+  +listeners : vector<reference_wrapper<layer>>
+  --
+  +{abstract} forward()
+  +{abstract} applyReward(reward, learningRate)
+  +{abstract} getType() : LayerType
+  +{abstract} size() : size_t
+  +{abstract} getOutput() : vector<shared_ptr<float>>
+  +{abstract} join(source : layer&) : bool
+  +{abstract} addFeedback(target : layer&, count) : bool
+  +{abstract} addNeuronsWithGroup(width, sourceOutput, source : layer&)
+  +{abstract} notifySourceGrew(source : layer&, newEntries)
+  +{abstract} attachInputs(inputs) : bool
+  +{abstract} setRecoveryJitter(jitter)
+  +{abstract} setLearningJitter(jitter)
+  +{abstract} setAlphaJitter(jitter)
+  +{abstract} serialize(os)
+  +{abstract} deserialize(is, mode, neuronFormat)
+}
+
+class dense {
+  +dense(n, hasHabituation = true, hasER = true,\n    recoveryJitter = {}, learningJitter = {}, alphaJitter = {})
+  +getNeurons() : deque<neuron>&
+  --
+  -gather(group) : span<const float>
+  -neurons : deque<neuron>
+  -output : vector<shared_ptr<float>>
+  -groups : vector<WiringGroup>
+  -{static} parallel_min_work = 32768
+}
+
+class layer_factory {
+  +layer_factory()
+  +{static} instance() : layer_factory&
+  +registerType(type : LayerType, creator : Creator)
+  +isRegistered(type : LayerType) : bool
+  +create(spec : LayerSpec) : unique_ptr<layer>
+}
+
+class network {
+  +network(factory = layer_factory::instance())
+  .. building ..
+  +addLayer(name, spec : LayerSpec) : LayerId
+  +connect(from, to)
+  +addFeedback(from, to, width)
+  +addInputs(target, count) : size_t
+  +addOutput(id)
+  +freeze(id) / unfreeze(id) / isFrozen(id)
+  +setRecoveryJitter(id, jitter) / setLearningJitter(id, jitter)
+  +setAlphaJitter(id, jitter)
+  +setUpdateOrder(order) / useDefaultUpdateOrder()
+  .. running ..
+  +setInput(index, value) / setInputs(values)
+  +step()
+  +applyReward(reward, learningRate)
+  +outputs() : vector<float>
+  .. inspection ..
+  +layerCount() / getLayer(id) / findLayer(name)
+  +layerName(id) / layerSpec(id)
+  +edges() / outputLayers() / inputCount() / inputs()
+  +updateOrder() : vector<LayerId>
+  +describe(os)
+  .. serialization ..
+  +save(os)
+  +{static} load(is, mode, factory) : unique_ptr<network>
+}
+
+enum "network::EdgeKind" as EdgeKind {
+  Forward
+  Feedback
+}
+
+class "network::Edge" as Edge <<struct>> {
+  +from : LayerId
+  +to : LayerId
+  +kind : EdgeKind
+  +width : size_t
+}
+
+layer <|.. dense
+dense *-- "0..*" neuron
+layer --> LayerType
+layer ..> DeserializeMode
+neuron ..> DeserializeMode
+layer_factory ..> LayerSpec
+layer_factory ..> layer : creates
+LayerSpec --> LayerType
+LayerSpec *-- "3" Jitter
+neuron ..> Jitter
+network --> layer_factory
+network *-- "0..*" layer
+network *-- "0..*" Edge
+network ..> LayerSpec
+Edge --> EdgeKind
+
+@enduml

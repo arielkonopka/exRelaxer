@@ -1,0 +1,52 @@
+@startuml sequence_save_load
+skinparam shadowing false
+skinparam sequenceMessageAlign left
+autonumber
+
+title Saving and loading a network
+
+actor Caller
+participant "original : network" as N
+participant "stream" as S
+participant "network::load" as Load
+participant "restored : network" as R
+participant layer_factory as F
+participant "layer" as L
+
+== save ==
+Caller -> N : save(os)
+N -> S : magic "EXRN", version 2
+N -> S : construction history\n(AddLayer + spec + frozen, Connect,\nFeedback, Inputs - in call order)
+N -> S : output layers, custom update order
+N -> S : input values
+loop each layer, in id order
+  N -> S : layer.serialize(os)\n(neurons only, no wiring)
+end
+
+== load ==
+Caller -> Load : load(is, mode, factory)
+Load -> S : check magic and version
+Load -> R ** : new network(factory)
+loop each recorded operation
+  alt AddLayer
+    Load -> R : addLayer(name, spec)
+    R -> F : create(spec)
+    F --> R : unique_ptr<layer>
+  else Connect / Feedback / Inputs
+    Load -> R : connect / addFeedback / addInputs
+    note right : same calls as originally:\nidentical groups and wiring
+  end
+end
+Load -> R : addOutput(...), setUpdateOrder(...)
+Load -> R : input values (FullState only)
+loop each layer, in id order
+  Load -> L : deserialize(is, mode)
+  note right
+    neuron counts match, so neurons are
+    restored in place: output slots held
+    by readers stay valid
+  end note
+end
+Load --> Caller : unique_ptr<network>
+
+@enduml

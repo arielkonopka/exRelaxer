@@ -1,0 +1,101 @@
+@startuml composition
+' Ownership and references between the objects of a running network.
+' Filled diamond = owns (lifetime bound), open diamond / dashed = refers to.
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+hide empty methods
+hide circle
+
+title exrelaxer - object composition
+
+class network {
+  nodes : vector<Node>
+  edges_ : vector<Edge>
+  ops_ : vector<BuildOp>
+  inputs_ : vector<shared_ptr<float>>
+  outputs_ : vector<LayerId>
+  order_ : vector<LayerId>
+}
+
+class "network::Node" as Node {
+  name : string
+  spec : LayerSpec
+  impl : unique_ptr<layer>
+}
+
+class "network::Edge" as Edge {
+  from, to : LayerId
+  kind : EdgeKind
+  width : size_t
+}
+
+class "network::BuildOp" as BuildOp {
+  kind : OpKind
+  a, b, count : size_t
+}
+
+class layer_factory {
+  creators : map<LayerType, Creator>
+}
+
+class LayerSpec {
+  type, size
+  hasHabituation, hasER
+  frozen
+  recoveryJitter, learningJitter, alphaJitter
+}
+
+abstract class layer {
+  listeners : vector<reference_wrapper<layer>>
+}
+
+class dense {
+  neurons : deque<neuron>
+  output : vector<shared_ptr<float>>
+  groups : vector<WiringGroup>
+}
+
+class "dense::WiringGroup" as WiringGroup {
+  inputs : vector<shared_ptr<float>>
+  neuronIndices : vector<size_t>
+  source : reference_wrapper<layer>
+  values : vector<float>
+}
+
+class neuron {
+  weights : vector<float>
+  threshold, previous_input
+  habituation_counter
+  spontaneous_rng : minstd_rand
+  recovery, learning_gain, alpha
+}
+
+class "float\n(output slot)" as Slot
+class "float\n(sensor)" as Sensor
+
+network *-- "0..*" Node
+network *-- "0..*" Edge
+network *-- "0..*" BuildOp : construction history\n(replayed by load)
+network *-- "0..*" Sensor : shared_ptr
+network o.. layer_factory : const& (must outlive)
+Node *-- LayerSpec
+Node *-- "1" layer : unique_ptr
+
+layer <|-- dense
+layer o.. "0..*" layer : listeners\n(readers of my output)
+
+dense *-- "0..*" neuron
+dense *-- "0..*" WiringGroup
+dense o-- "0..*" Slot : output\n(shared_ptr copies)
+neuron *-- "1" Slot : shared_ptr
+
+WiringGroup o.. layer : source
+WiringGroup o-- "0..*" Slot : inputs: another layer's\noutput slots
+WiringGroup o-- "0..*" Sensor : inputs: sensors\n(attachInputs)
+WiringGroup ..> neuron : neuronIndices
+
+layer_factory ..> layer : creates
+layer_factory ..> LayerSpec : reads
+
+@enduml

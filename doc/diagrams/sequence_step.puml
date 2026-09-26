@@ -1,0 +1,61 @@
+@startuml sequence_step
+skinparam shadowing false
+skinparam sequenceMessageAlign left
+autonumber
+
+title One tick: setInputs, step, outputs, applyReward
+
+actor Caller
+participant network
+participant "layer (dense)" as L
+participant "WiringGroup" as G
+participant neuron
+
+Caller -> network : setInputs(values)
+note right : writes the values into the\nnetwork-owned sensor floats
+
+Caller -> network : step()
+network -> network : updateOrder()
+note right
+  default: topological order of connect
+  edges (cached until the graph changes);
+  or the custom order
+end note
+
+loop each layer in update order
+  network -> L : forward()
+  loop each wiring group, in creation order
+    L -> G : gather()
+    note right
+      copy *inputs[i] into values[]:
+      reads source slots as they are NOW
+      (already updated this tick or not)
+    end note
+    alt neurons x inputs >= 32768 (OpenMP)
+      L -> neuron : step(values)  [parallel]
+    else
+      L -> neuron : step(values)  [serial]
+    end
+    neuron -> neuron : sum, clamp +-10,\nhabituation, E-R
+    neuron --> L : writes own output slot
+  end
+end
+
+Caller -> network : outputs()
+network --> Caller : output layers' slot values
+
+Caller -> network : applyReward(reward, rate)
+loop each layer that is not frozen
+  network -> L : applyReward(reward, rate)
+  loop each wiring group
+    L -> G : gather()
+    L -> neuron : updateWeights(values, reward, rate)
+    note right
+      if eligible:
+      w += rate x reward x eligibility x sign(x)
+      clamp +-10
+    end note
+  end
+end
+
+@enduml
