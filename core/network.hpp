@@ -127,6 +127,12 @@ public:
     size_t layerCount() const { return nodes.size(); }
     layer& getLayer(LayerId id);
     const layer& getLayer(LayerId id) const;
+    // The layer as its concrete type, e.g. layerAs<conv2d>(id); throws
+    // std::bad_cast if it is another type.
+    template <typename T>
+    T& layerAs(LayerId id) { return dynamic_cast<T&>(getLayer(id)); }
+    template <typename T>
+    const T& layerAs(LayerId id) const { return dynamic_cast<const T&>(getLayer(id)); }
     LayerId findLayer(const std::string& name) const;  // throws std::out_of_range if absent
     const std::string& layerName(LayerId id) const;
     const LayerSpec& layerSpec(LayerId id) const;

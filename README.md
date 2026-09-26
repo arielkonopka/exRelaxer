@@ -36,8 +36,9 @@ experiment so far.
 - **Vision layers** – `Retina` reads camera images (every pixel, or samples
   on a tight spiral out from the centre), `Conv2D` (shared kernels),
   `LocallyConnected2D` (own weights per position) and `Pool2D`. A 320 × 200
-  pipeline with about 2 million neurons steps in about 18 ms (see
-  [doc/spatial.md](doc/spatial.md)).
+  pipeline with about 2 million neurons steps in about 18 ms. Fixed filter
+  banks (Gabor, centre-surround, Gaussian) turn a Conv2D into a frozen
+  feature detector (see [doc/spatial.md](doc/spatial.md)).
 - **Pluggable layer types** – layers are created by `layer_factory` from a
   `LayerSpec`; new types plug in by registering a creator.
 - **Dynamic topology** – layers can be joined, grown with feedback neurons,
@@ -197,6 +198,7 @@ core/
   layers/locally_connected2d.*   convolution geometry, own weights per position
   layers/pool2d.hpp/.cpp         max / average pooling
   layers/retina.hpp/.cpp         image input: grid or spiral sampling
+  filters.hpp/.cpp               fixed filter banks for Conv2D: Gaussian, difference of Gaussians, Gabor
   parallel.hpp                   splitting work between OpenMP threads
   binary_io.hpp                  binary stream I/O for serialization
 doc/                             detailed documentation, one page per class
@@ -210,6 +212,7 @@ tests/
   kernels.cpp                    SIMD kernels and dense layers bit-identical to scalar references
   regressions.cpp                one test per fixed bug; DISABLED_ tests for open ones
   spatial.cpp                    retina, Conv2D, LocallyConnected2D, Pool2D against scalar references
+  filters.cpp                    filter banks, and bar-orientation learning with frozen Gabor features
   pattern_benchmark.hpp          gapped-pattern benchmark, statistics, frozen detectors
   er_scales.hpp                  test inputs and timings relative to the E-R constants
 ```
@@ -245,6 +248,21 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files from older format versions load as weights only.
 
 ## Changelog
+
+### 2026-09-26: filter banks
+
+- `core/filters.hpp` (`exr::filters`): `gaussian`, `differenceOfGaussians`
+  (on- and off-centre), `gabor`, `gaborBank`, `centreSurroundBank`, and
+  `load(conv2d&, bank)` to put a bank into a Conv2D's kernels. DoG and Gabor
+  filters have zero mean and give exactly `gain` for their best
+  full-contrast pattern.
+- `network::layerAs<T>(id)`: a layer as its concrete type.
+- New learning test: frozen Gabor features + a learned readout tell
+  vertical from horizontal bars at 0.99 accuracy (0.52 without learning),
+  10 seeded trials.
+- Tests no longer leak `std::cout` formatting (`std::fixed`,
+  `std::setprecision`) into later tests' output, which had made printed
+  results depend on test order. The results themselves are unchanged.
 
 ### 2026-09-26: vision layers
 

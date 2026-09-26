@@ -441,8 +441,17 @@ inline const char* verdict(float t, const char* better, const char* worse)
 // Shortcut rules that ignore (part of) the sequence, scored on the same test
 // streams: a network has only learned the sequence if it beats them on the
 // after-C measure.
+// Prints results with 3 significant digits within a scope, then restores
+// std::cout, so the format never depends on which tests ran before.
+struct ThreeDigits
+{
+    std::streamsize saved = std::cout.precision(3);
+    ~ThreeDigits() { std::cout.precision(saved); }
+};
+
 inline void printShortcutBaselines(int trials = PATTERN_TRIALS)
 {
+    ThreeDigits digits;
     struct Rule { const char* name; std::function<bool(const std::vector<float>&, size_t)> fires; };
     const Rule rules[] = {
         {"respond after any C", [](const std::vector<float>& v, size_t t) {
@@ -474,6 +483,7 @@ inline void printShortcutBaselines(int trials = PATTERN_TRIALS)
 
 inline void printMeasure(const char* name, const Measure& m, const char* chance_good)
 {
+    ThreeDigits digits;
     const float t_control = tStatistic(m.diff, m.stderr_diff);
     const float t_chance = tStatistic(m.mean - 0.5f, m.stderr_mean);
     std::cout << "   " << name << ": " << m.mean << " (control " << m.mean_control << "), trained - control "
@@ -487,6 +497,7 @@ inline void printMeasure(const char* name, const Measure& m, const char* chance_
 
 inline void printPatternStats(const char* title, const PatternStats& st, int trials = PATTERN_TRIALS)
 {
+    ThreeDigits digits;
     std::cout << " " << title << ": diverged " << st.diverged << "/" << trials
               << " (control " << st.diverged_control << ")\n";
     printMeasure("balanced accuracy (all ticks)", st.balanced, "ABOVE CHANCE - reacts to the pattern");

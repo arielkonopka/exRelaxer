@@ -15,6 +15,18 @@
 #include "pattern_benchmark.hpp"
 #include "er_scales.hpp"
 
+namespace {
+
+// Undoes std::fixed / std::setprecision on std::cout, so the format of later
+// output (other tests' results) does not depend on which tests ran before.
+void restoreCoutFormat()
+{
+    std::cout.unsetf(std::ios::floatfield);
+    std::cout.precision(6);
+}
+
+} // namespace
+
 // =============================================================================
 // layer_factory
 // =============================================================================
@@ -1006,7 +1018,7 @@ TEST(NetworkPatternTest, TopologyComparison)
                   << std::setprecision(3) << "  balanced " << r.st.balanced.mean
                   << "  " << r.name << ", E-R " << (r.hasER ? "on" : "off") << "\n"
                   << "    " << r.topology << "\n";
-        std::cout.unsetf(std::ios::floatfield);
+        restoreCoutFormat();
     }
     std::cout << "==========================================\n";
 
@@ -1026,6 +1038,7 @@ constexpr size_t RESERVOIR_TRAIN_TICKS = 40000;  // reservoirs need longer train
 
 void printReservoirResult(const char* label, const pattern_benchmark::PatternStats& st)
 {
+    pattern_benchmark::ThreeDigits digits;
     const auto& m = st.afterC;
     std::cout << "   after C " << m.mean << " +- " << m.stderr_mean << " (control " << m.mean_control
               << "), balanced " << st.balanced.mean << "  <- " << label << "\n";
@@ -1121,6 +1134,7 @@ TEST(NetworkPatternTest, LearningJitterEffectDependsOnBaseGain)
     const Result at1 = measure(1.0f);
     const Result atDefault = measure(default_learning_gain);
 
+    pattern_benchmark::ThreeDigits digits;
     std::cout << "\n==========================================\n"
               << " [Learning jitter +-0.1, E-R hidden layer + readout - " << TRIALS << " paired trials]\n"
               << "==========================================\n";
@@ -1172,7 +1186,7 @@ void printAlphaRow(const char* setting, const std::vector<float>& base, const st
         std::cout << std::showpos << d << std::noshowpos << " +- " << se << "  (t " << std::setprecision(1)
                   << tStatistic(d, se) << ")  " << verdict(t, "HELPS", "HURTS") << "\n";
     }
-    std::cout.unsetf(std::ios::floatfield);
+    restoreCoutFormat();
 }
 
 // --- Pavlovian sign inversion ----------------------------------------------
@@ -1423,7 +1437,7 @@ TEST(AlphaJitterTest, ThreeNumberSequenceDetection)
               << "\n Balanced accuracy, 0.5 = chance; no-learning control " << std::setprecision(3)
               << pattern_benchmark::meanOf(control) << ".\n\n"
               << "   alpha jitter  balanced   hits on trigger   vs none (paired)\n";
-    std::cout.unsetf(std::ios::floatfield);
+    restoreCoutFormat();
     for (size_t i = 0; i < std::size(ALPHA_SETTINGS); ++i) {
         std::ostringstream h;
         h << std::fixed << std::setprecision(2) << pattern_benchmark::meanOf(hits[i]);

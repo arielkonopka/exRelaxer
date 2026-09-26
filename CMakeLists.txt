@@ -36,6 +36,8 @@ add_library(exrelaxer_core STATIC
     core/kernels.cpp
     core/kernels.hpp
     core/parallel.hpp
+    core/filters.cpp
+    core/filters.hpp
     core/binary_io.hpp
     core/neuron.cpp
     core/neuron.hpp
@@ -118,6 +120,7 @@ add_executable(exrelaxer_tests
     tests/regressions.cpp
     tests/kernels.cpp
     tests/spatial.cpp
+    tests/filters.cpp
 )
 
 target_link_libraries(exrelaxer_tests PRIVATE

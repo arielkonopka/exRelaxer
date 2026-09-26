@@ -161,7 +161,8 @@ with the network.
 | Method | Returns |
 |--------|---------|
 | `layerCount()` | number of layers |
-| `getLayer(id)` | the `layer&` (use `dynamic_cast<dense&>` for dense-specific access, e.g. setting weights) |
+| `getLayer(id)` | the `layer&` |
+| `layerAs<T>(id)` | the layer as its concrete type, e.g. `layerAs<dense>(id).setWeights(...)` or `layerAs<conv2d>(id)`; throws `std::bad_cast` for another type |
 | `findLayer(name)` | id; throws `std::out_of_range` if absent |
 | `layerName(id)`, `layerSpec(id)` | name, spec (with the current frozen flag) |
 | `edges()` | every connection in creation order: `{from, to, kind, width}`, kind `Forward` or `Feedback` |
