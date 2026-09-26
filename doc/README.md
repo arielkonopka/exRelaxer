@@ -6,25 +6,30 @@ of known limitations, see the [project README](../README.md).
 | Page | Covers |
 |------|--------|
 | [neuron](neuron.md) | `neuron`, `DeserializeMode`, the tunable constants: E-R, habituation, learning rule, serialization format |
-| [layer](layer.md) | `layer` (abstract interface), `LayerType`: the contract every layer type implements |
-| [dense](dense.md) | `dense`: wiring groups, growth propagation, parallel forward pass |
+| [layer](layer.md) | `layer` (base class), `neuron_layer`, `Shape`, `InputRange`, `LayerType`: what every layer type shares |
+| [dense](dense.md) | `dense`: wiring groups, growth propagation, SIMD forward pass and learning |
+| [spatial](spatial.md) | image layers: `retina` (grid and spiral sampling), `conv2d`, `locally_connected2d`, `pool2d`, `Window2D` |
+| [kernels](kernels.md) | weight layout, SIMD kernels, determinism, parallelism, performance, random streams |
 | [layer_factory](layer_factory.md) | `layer_factory`, `LayerSpec`: creating layers by type, registering new types |
 | [network](network.md) | `network`: layer graph, inputs/outputs, update order, freezing, save/load |
-| [pattern_benchmark](pattern_benchmark.md) | Test support (`tests/pattern_benchmark.hpp`): gapped-pattern benchmark, frozen value detectors, delay window |
+| [pattern_benchmark](pattern_benchmark.md) | Task support (`NNtesting/tasks/pattern_benchmark.hpp`): gapped-pattern benchmark, frozen value detectors, delay window |
+| [NNtesting](../NNtesting/README.md) | The `nntest` benchmark harness: experiments, parameter sweeps, result files, comparisons |
 | [research](research.md) | Research log: parameter changes, mechanisms, topologies, jitter and what each showed |
 
 ## How the pieces fit together
 
 ```
-network ──owns──> layer (via layer_factory, by LayerType)
-                    └── dense ──owns──> neuron × N
-                                          (weights, threshold, habituation state)
+network ──owns──> layer (via layer_factory, by LayerType)     output buffer, shape
+                    └── neuron_layer ──owns──> neuron × N     (threshold, habituation state)
+                          └── dense ──owns──> wiring groups  (input ranges, weight matrix)
 ```
 
-- A **neuron** turns a vector of input values into one output value and keeps
-  its own adaptive state (E-R threshold, habituation counter).
-- A **layer** is a set of neurons plus the wiring that decides which values
-  each neuron reads. `dense` is the only layer type so far.
+- A **neuron** turns one weighted sum into one output value and keeps its
+  own adaptive state (E-R threshold, habituation counter).
+- A **layer** owns a contiguous output buffer. `neuron_layer` adds neurons;
+  `dense` adds the wiring that decides which values each neuron reads, and
+  owns the weights, laid out for SIMD ([kernels](kernels.md)). `dense` is
+  the fully connected type; the [spatial](spatial.md) types handle images.
 - A **network** owns layers, records how they are connected, owns the input
   sensors, decides the order in which layers run, and saves/loads everything.
 - **layer_factory** lets the network create layers from a `LayerSpec`
@@ -33,8 +38,7 @@ network ──owns──> layer (via layer_factory, by LayerType)
 ### Composition
 
 What owns what (filled diamond: owns; open diamond / dashed: refers to).
-Note the shared `float` slots: a neuron owns its output slot, and every
-reader holds a `shared_ptr` to it.
+Readers refer to a source's output buffer by range; they never own it.
 
 ![Object composition](diagrams/composition.svg)
 
@@ -61,12 +65,13 @@ cd doc/diagrams && plantuml -tsvg *.puml
 
 ## Core concepts
 
-### Values are shared, not copied
+### Values are read in place
 
-Every neuron's output lives in a `std::shared_ptr<float>`. A layer that
-reads another layer holds copies of those pointers, so it always sees the
-current value without being notified. Input sensors are the same kind of
-pointer, owned by the network (or by the caller when using layers directly).
+Each layer's outputs live in one contiguous buffer. A layer that reads
+another holds `InputRange`s into that buffer (the buffer object, an offset
+and a count), so it always reads the current values without being notified,
+and a whole range is copied with one `memcpy`. Input sensors are a buffer
+too, owned by the network (or by the caller when using layers directly).
 
 ### A tick and its timing
 
@@ -86,8 +91,9 @@ lets you build delay lines by running a chain of copy layers oldest-first.
 
 Inside a `dense` layer, neurons are organised in **wiring groups**: a set of
 neurons plus one input pool they all read. `join` creates a group of all
-current neurons; `addFeedback` adds new neurons in a group of their own;
-`attachInputs` connects external sensors. When a source layer grows, every
+current neurons (or appends the source to their group); `addFeedback` adds
+new neurons in a group of their own; `attachInputs` connects external
+sensors. Every neuron is in at most one group. When a source layer grows, every
 group reading it grows too, and its neurons get matching new weights. See
 [dense](dense.md#wiring-groups).
 
@@ -97,13 +103,14 @@ Learning is reward-modulated and local: `applyReward(reward, learningRate)`
 moves each *eligible* neuron's weights by `learningRate × reward ×
 eligibility × sign(input)`. There is no backpropagation and no per-neuron
 error signal: every eligible neuron receives the same reward. See
-[neuron](neuron.md#learning-updateweights) for eligibility and the exact
+[neuron](neuron.md#learning) for eligibility and the exact
 rule, and [pattern_benchmark](pattern_benchmark.md#reward-modes) for why an
 error-driven reward (reward only when wrong) matters in practice.
 
 ### Reproducibility
 
 Initial weights and each neuron's spontaneous-firing generator come from
-process-wide random streams. Call `neuron::reseed(seed)` before building a
+process-wide random streams. Call `exr::reseed(seed)` before building a
 network to make it independent of anything created earlier in the process.
-Results never depend on the number of threads.
+Results never depend on the number of threads or the SIMD width
+([kernels](kernels.md#determinism)).

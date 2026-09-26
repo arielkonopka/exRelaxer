@@ -9,33 +9,30 @@ participant network
 participant "A : dense" as A
 participant "B : dense" as B
 participant "C : dense" as C
-participant "neuron (in C)" as CN
+participant "C's group\n(weight_matrix)" as CW
 
-note over B, C : earlier: net.connect(B, C)\n-> C has a group sourced from B,\nC is in B.listeners
+note over B, C : earlier: net.connect(B, C)\n-> C has a group reading B,\nC is a reader of B
 
-network -> A : addFeedback(B, n)
-A -> B : addNeuronsWithGroup(n, A.getOutput(), A)
-B -> B : create n neurons (same E-R/habituation flags)\ninitializeWeights: one weight per A output
-B -> B : new WiringGroup {inputs = A's slots,\nnew neuron indices, source = A}
-B -> A : A.listeners += B  (if not already)
-B -> B : append the n new output slots
+network -> B : addNeurons(n, A)
+B -> B : create n neurons (same flags and jitter)
+B -> B : new Group {inputs = A's output range,\nneurons = the n new ones, sources = {A}}\nweights: one row each, drawn from the Initial stream
+B -> A : readFrom(A): B becomes a reader of A (once)
+B -> B : append n entries to the output buffer
 
-loop each listener of B
-  B -> C : notifySourceGrew(B, n new slots)
-  loop each group of C whose source is B
-    C -> C : group.inputs += new slots
-    loop each neuron of that group
-      C -> CN : growWeights(n)
-    end
+B -> B : outputGrew(old size)
+loop each reader of B, in registration order
+  B -> C : sourceGrew(B, offset, n)
+  loop each group of C whose sources include B
+    C -> C : group.inputs += B's range [offset, offset + n)
+    C -> CW : appendColumns(n, new weights row after row)
   end
 end
 
-A --> network : true
 network -> network : record Edge{A, B, Feedback, n}\nand BuildOp{Feedback, A, B, n}
 
 note over C
   if C's growth also added neurons somewhere,
-  its own listeners would be notified in turn:
+  its own readers would be notified in turn:
   growth cascades downstream
 end note
 

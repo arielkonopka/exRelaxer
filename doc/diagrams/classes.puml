@@ -8,6 +8,9 @@ title exrelaxer - class diagram (public API)
 enum LayerType {
   Dense = 0
   Conv2D = 1
+  Pool2D = 2
+  LocallyConnected2D = 3
+  Retina = 4
 }
 
 enum DeserializeMode {
@@ -24,6 +27,10 @@ class LayerSpec <<struct>> {
   +recoveryJitter : Jitter
   +learningJitter : Jitter
   +alphaJitter : Jitter
+  +window : Window2D
+  +pool : PoolMode
+  +retina : RetinaSpec
+  +{static} Dense / Conv2D / LocallyConnected2D / Pool2D / Retina(...)
 }
 
 class Jitter <<struct>> {
@@ -39,69 +46,148 @@ class Jitter <<struct>> {
 }
 
 class neuron {
-  +neuron(hasHabituation, hasER)
-  +neuron(hasHabituation, hasER, alpha)
-  +{static} reseed(seed : uint32)
+  +neuron(hasHabituation = true, hasER = true, alpha = default_alpha)
   --
-  +step(inputs : span<const float>) : float
-  +updateWeights(inputs, reward, learningRate)
+  +activate(weightedSum : float) : float
+  +output() : float / setOutput(value)
+  +eligible() : bool
+  +learningDelta(reward, learningRate) : float
+  +step(inputs, weights) : float
+  +learn(weights, inputs, reward, learningRate)
   --
-  +initializeWeights(inputs)
-  +growWeights(count)
-  +expandWeights(count)
-  +setWeights(weights)
-  +getWeights() : vector<float>&
-  +getOutput() : shared_ptr<float>&
-  +spontaneousOutput() : float
   +randomizeRecovery(jitter) / randomizeLearningGain(jitter)
   +randomizeAlpha(jitter)
   +randomizeDynamics(recovery, learning, alpha)
-  +get/setRecovery(), get/setLearningGain(), get/setAlpha()
+  +recovery() / learningGain() / alpha() and setters
   --
-  +serialize(os)
-  +deserialize(is, mode, format)
+  +serialize(os, weights)
+  +deserialize(is, mode, format) : vector<float>
   --
-  -excite(value)
-  -threshold : float
-  -previous_input : float
-  -habituation_counter : int
-  -alpha : float
-  -weights : vector<float>
-  -output : shared_ptr<float>
-  -spontaneous_rng : minstd_rand
-  -recovery : float
-  -learning_gain : float
+  -threshold_ : float
+  -previous_input_ : float
+  -habituation_counter_ : int
+  -output_ : float
+  -alpha_, recovery_, learning_gain_ : float
+  -rng_ : minstd_rand
 }
 
-abstract class layer <<interface>> {
-  +listeners : vector<reference_wrapper<layer>>
+class Shape <<struct>> {
+  +channels, height, width : size_t
+  +size() : size_t
+}
+
+class InputRange <<struct>> {
+  +buffer : reference_wrapper<const vector<float>>
+  +offset, count : size_t
+}
+
+abstract class layer {
+  +{abstract} type() : LayerType
+  +shape() : Shape
+  +size() : size_t
+  +output() : span<const float>
+  +outputBuffer() : const vector<float>&
   --
   +{abstract} forward()
-  +{abstract} applyReward(reward, learningRate)
-  +{abstract} getType() : LayerType
-  +{abstract} size() : size_t
-  +{abstract} getOutput() : vector<shared_ptr<float>>
-  +{abstract} join(source : layer&) : bool
-  +{abstract} addFeedback(target : layer&, count) : bool
-  +{abstract} addNeuronsWithGroup(width, sourceOutput, source : layer&)
-  +{abstract} notifySourceGrew(source : layer&, newEntries)
-  +{abstract} attachInputs(inputs) : bool
-  +{abstract} setRecoveryJitter(jitter)
-  +{abstract} setLearningJitter(jitter)
-  +{abstract} setAlphaJitter(jitter)
+  +applyReward(reward, learningRate)
+  +join(source : layer&)
+  +attachInputs(sensors : InputRange)
+  +addNeurons(count, source : layer&)
+  +addFeedback(target : layer&, count)
+  +hasReaders() : bool
   +{abstract} serialize(os)
   +{abstract} deserialize(is, mode, neuronFormat)
+  --
+  #output_ : vector<float>
+  #readFrom(source : layer&)
+  #outputGrew(oldSize)
+  #sourceGrew(source, offset, count)
+  -readers_, sources_ : vector<reference_wrapper<layer>>
+}
+
+abstract class neuron_layer {
+  +neurons() : span<neuron>
+  +setOutput(index, value)
+  +setRecoveryJitter / setLearningJitter / setAlphaJitter(jitter)
+  +serialize(os) / deserialize(is, mode, neuronFormat)
+  --
+  #newNeuron() : neuron&
+  #{abstract} copyWeights / expectedWeights / storeWeights
+  #{abstract} wired() : bool
+  #neurons_ : vector<neuron>
 }
 
 class dense {
-  +dense(n, hasHabituation = true, hasER = true,\n    recoveryJitter = {}, learningJitter = {}, alphaJitter = {})
-  +getNeurons() : deque<neuron>&
+  +dense(count = 0, hasHabituation = true, hasER = true,\n    recoveryJitter = {}, learningJitter = {}, alphaJitter = {})
+  +weights(i) : vector<float>
+  +setWeights(i, weights)
+  +inputCount(i) : size_t
+  +groupCount() / groupNeurons(g) / groupOf(i)
   --
-  -gather(group) : span<const float>
-  -neurons : deque<neuron>
-  -output : vector<shared_ptr<float>>
-  -groups : vector<WiringGroup>
-  -{static} parallel_min_work = 32768
+  -groups_ : vector<Group>
+  -group_of_ : vector<size_t>
+  -addGroup(group)
+}
+
+abstract class spatial_neuron_layer {
+  +shape() : Shape
+  +window() : Window2D
+  +outputChannels() / inputChannels() / windowSize()
+  +join(source)
+  --
+  #{abstract} createWeights() / appendInputs(count)
+  -inputs_ : spatial_inputs
+}
+
+class conv2d {
+  +conv2d(channels, window, ...)
+  +kernel(c) / setKernel(c, weights)
+  -kernels_ : vector<float>
+}
+
+class locally_connected2d {
+  +locally_connected2d(channels, window, ...)
+  +weights(i) / setWeights(i, weights)
+  -weights_ : vector<weight_matrix>
+}
+
+class retina {
+  +retina(RetinaSpec, ...)
+  +samples() / samplePoint(k)
+  +attachInputs(sensors)
+}
+
+class pool2d {
+  +pool2d(window, mode)
+  +shape() : Shape
+}
+
+class Window2D <<struct>> {
+  +kernelHeight, kernelWidth
+  +strideY, strideX, padY, padX
+  +{static} square(kernel, stride, padding)
+}
+
+class RetinaSpec <<struct>> {
+  +input : Shape
+  +sampling : Grid | Spiral
+  +spacing, radius : float
+}
+
+class "dense::Group" as Group <<struct>> {
+  +inputs : vector<InputRange>
+  +sources : vector<reference_wrapper<const layer>>
+  +neurons : {first, count}
+  +weights : kernels::weight_matrix
+}
+
+class "kernels::weight_matrix" as weight_matrix {
+  +{static} lanes = 8
+  +multiply(x, sums, firstBlock, lastBlock)
+  +learn(signs, delta, active, limit, firstBlock, lastBlock)
+  +appendColumns(count, rowMajor)
+  +copyRow(r, out) / setRow(r, values)
+  -data_ : aligned vector<float>
 }
 
 class layer_factory {
@@ -132,7 +218,7 @@ class network {
   .. inspection ..
   +layerCount() / getLayer(id) / findLayer(name)
   +layerName(id) / layerSpec(id)
-  +edges() / outputLayers() / inputCount() / inputs()
+  +edges() / outputLayers() / inputCount() / inputs() : span<const float>
   +updateOrder() : vector<LayerId>
   +describe(os)
   .. serialization ..
@@ -152,9 +238,24 @@ class "network::Edge" as Edge <<struct>> {
   +width : size_t
 }
 
-layer <|.. dense
-dense *-- "0..*" neuron
+layer <|-- neuron_layer
+neuron_layer <|-- dense
+neuron_layer <|-- spatial_neuron_layer
+spatial_neuron_layer <|-- conv2d
+spatial_neuron_layer <|-- locally_connected2d
+neuron_layer <|-- retina
+layer <|-- pool2d
+spatial_neuron_layer --> Window2D
+pool2d --> Window2D
+retina --> RetinaSpec
+LayerSpec *-- Window2D
+LayerSpec *-- RetinaSpec
+neuron_layer *-- "0..*" neuron
+dense *-- "0..*" Group
+Group *-- weight_matrix
+Group o-- "0..*" InputRange
 layer --> LayerType
+layer ..> Shape
 layer ..> DeserializeMode
 neuron ..> DeserializeMode
 layer_factory ..> LayerSpec

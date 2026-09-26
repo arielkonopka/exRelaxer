@@ -1,6 +1,7 @@
 # pattern_benchmark (test support)
 
-`tests/pattern_benchmark.hpp`, namespace `pattern_benchmark`
+`NNtesting/tasks/pattern_benchmark.hpp`, namespace `pattern_benchmark` (shared
+by the unit tests and the [nntest](../NNtesting/README.md) experiments)
 
 Not part of the library: a header shared by the tests (`tests/network.cpp`)
 and by quick experiment programs. It defines the **gapped pattern detection**
@@ -83,7 +84,7 @@ PatternScore runPatternTrial(const NetworkBuilder& build, std::uint32_t seed, bo
                              RewardMode mode = RewardMode::Target);
 ```
 
-1. `neuron::reseed(seed)`, build the network.
+1. `exr::reseed(seed)`, build the network.
 2. Train on stream `1000 + seed` for `trainTicks` ticks: `patternStep`,
    then `applyReward`. Positive ticks are rarer, so their reward is scaled by
    (negatives / positives) to balance the classes.
@@ -192,7 +193,7 @@ The input neurons bring in the current tick, the recurrent neurons carry
 the past forward. With `recurrentNeurons = 0` there is no recurrence at all,
 so any memory must come from the neurons' own state (E-R thresholds). Place
 the returned layer after `source` in the update order. Weights come from
-the neuron random streams, so `neuron::reseed` controls them.
+the library's random streams, so `exr::reseed` controls them.
 `recoveryJitter` spreads the neurons' E-R relaxation rates, i.e. their
 memory timescales.
 
@@ -204,9 +205,9 @@ training ticks, 20 trials):
 
 | Test | Memory | After C |
 |------|--------|---------|
-| `ReservoirLearnsTheSequence` | random reservoir 40 + 60 (recurrent scale 2), E-R off | 0.814 |
+| `ReservoirLearnsTheSequence` | random reservoir 40 + 60 (recurrent scale 2), E-R off | 0.798 |
 | `ERNeuronsCarryMemoryWithoutRecurrence` | 100 unconnected neurons, E-R off | 0.500 |
-| | the same, E-R on (readout E-R off) | **0.740** |
+| | the same, E-R on (readout E-R off) | **0.757** |
 
 - A frozen **random reservoir** replaces the delay window and still beats the
   shortcut rules; screening with a larger one (100 + 200) reached 0.938.

@@ -5,6 +5,8 @@
 #include <cmath>
 #include "../core/neuron.hpp"
 
+using namespace exr;
+
 // A weak stimulus: a few times the resting E-R threshold. Scaled
 // multiplicatively, so its ratio to the threshold (what E-R responds to)
 // stays the same when baseline_threshold changes. 0.5 at baseline 0.1.

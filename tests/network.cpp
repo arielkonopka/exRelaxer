@@ -15,6 +15,18 @@
 #include "pattern_benchmark.hpp"
 #include "er_scales.hpp"
 
+namespace {
+
+// Undoes std::fixed / std::setprecision on std::cout, so the format of later
+// output (other tests' results) does not depend on which tests ran before.
+void restoreCoutFormat()
+{
+    std::cout.unsetf(std::ios::floatfield);
+    std::cout.precision(6);
+}
+
+} // namespace
+
 // =============================================================================
 // layer_factory
 // =============================================================================
@@ -22,7 +34,7 @@ TEST(LayerFactoryTest, CreatesDenseFromSpec)
 {
     const auto created = layer_factory::instance().create({LayerType::Dense, 7, false, true});
     ASSERT_NE(created, nullptr);
-    EXPECT_EQ(created->getType(), LayerType::Dense);
+    EXPECT_EQ(created->type(), LayerType::Dense);
     EXPECT_EQ(created->size(), 7u);
     EXPECT_NE(dynamic_cast<dense*>(created.get()), nullptr);
 }
@@ -30,8 +42,9 @@ TEST(LayerFactoryTest, CreatesDenseFromSpec)
 TEST(LayerFactoryTest, UnregisteredTypeThrows)
 {
     layer_factory factory;
-    EXPECT_FALSE(factory.isRegistered(LayerType::Conv2D));
-    EXPECT_THROW(factory.create({LayerType::Conv2D, 4}), std::invalid_argument);
+    const auto unknown = static_cast<LayerType>(200);  // no type uses this value
+    EXPECT_FALSE(factory.isRegistered(unknown));
+    EXPECT_THROW(factory.create({unknown, 4}), std::invalid_argument);
 }
 
 TEST(LayerFactoryTest, RegisteredTypeIsUsedByNetwork)
@@ -79,8 +92,9 @@ TEST(NetworkTest, BuildsGraphAndRecordsEdges)
     EXPECT_EQ(net.edges()[2].width, 5u);
 
     // out reads hid, so hid's growth reached out's weights: 11 each.
-    for (const auto& n : dynamic_cast<dense&>(net.getLayer(out)).getNeurons())
-        EXPECT_EQ(n.getWeights().size(), 11u);
+    const auto& outLayer = dynamic_cast<const dense&>(net.getLayer(out));
+    for (size_t n = 0; n < outLayer.size(); ++n)
+        EXPECT_EQ(outLayer.inputCount(n), 11u);
 
     EXPECT_EQ(net.outputs().size(), 2u);
 }
@@ -170,9 +184,9 @@ TEST(NetworkTest, CustomOrderBuildsDelayLine)
     net.setUpdateOrder({delay, taps});
 
     auto& t = dynamic_cast<dense&>(net.getLayer(taps));
-    t.getNeurons()[0].setWeights({1.0f});
-    t.getNeurons()[1].setWeights({1.0f});
-    dynamic_cast<dense&>(net.getLayer(delay)).getNeurons()[0].setWeights({1.0f, 0.0f});
+    t.setWeights(0, {1.0f});
+    t.setWeights(1, {1.0f});
+    dynamic_cast<dense&>(net.getLayer(delay)).setWeights(0, {1.0f, 0.0f});
 
     for (float x : {0.0f, 0.0f, 1.0f, 2.0f}) {
         net.setInputs({x});
@@ -194,23 +208,23 @@ TEST(NetworkTest, MatchesManuallyWiredLayersExactly)
     auto reward = [](int t) { return (t % 5 == 0) ? 1.0f : -0.2f; };
 
     // Manual: the Pavlovian topology from dense.cpp.
-    neuron::reseed(7);
+    reseed(7);
     dense A(5), B(5), C(5), D(5);
     B.join(A);
     C.join(B);
     D.join(C);
     A.addFeedback(C, 20);
-    auto sensor = std::make_shared<float>(0.0f);
-    A.attachInputs({sensor});
+    std::vector<float> sensor(1, 0.0f);
+    A.attachInputs(sensor);
 
     std::vector<std::vector<float>> manual;
     for (int t = 0; t < STEPS; ++t) {
-        *sensor = stimulus(t);
+        sensor[0] = stimulus(t);
         A.forward(); B.forward(); C.forward(); D.forward();
         std::vector<float> out;
-        for (const auto& v : D.getOutput()) out.push_back(*v);
+        for (float v : D.output()) out.push_back(v);
         manual.push_back(out);
-        for (dense* l : {&A, &B, &C, &D}) l->applyReward(reward(t), LEARNING_RATE);
+        for (dense& l : {std::ref(A), std::ref(B), std::ref(C), std::ref(D)}) l.applyReward(reward(t), LEARNING_RATE);
     }
 
     // Guard against a vacuous comparison (E-R can silence outputs entirely).
@@ -222,7 +236,7 @@ TEST(NetworkTest, MatchesManuallyWiredLayersExactly)
     ASSERT_GE(nonzero, 15);
 
     // Same construction sequence through the network.
-    neuron::reseed(7);
+    reseed(7);
     network net;
     const auto a = net.addLayer("A", {LayerType::Dense, 5});
     const auto b = net.addLayer("B", {LayerType::Dense, 5});
@@ -251,8 +265,9 @@ namespace {
 std::vector<std::vector<float>> weightsOf(const network& net, network::LayerId id)
 {
     std::vector<std::vector<float>> all;
-    for (const auto& n : dynamic_cast<const dense&>(net.getLayer(id)).getNeurons())
-        all.push_back(n.getWeights());
+    const auto& layer = dynamic_cast<const dense&>(net.getLayer(id));
+    for (size_t i = 0; i < layer.size(); ++i)
+        all.push_back(layer.weights(i));
     return all;
 }
 
@@ -270,7 +285,7 @@ void trainBriefly(network& net)
 
 TEST(NetworkFreezeTest, FrozenLayerStillRunsButDoesNotLearn)
 {
-    neuron::reseed(2);
+    reseed(2);
     network net;
     const auto in = net.addLayer("in", {LayerType::Dense, 4, false, false, /*frozen*/ true});
     const auto out = net.addLayer("out", {LayerType::Dense, 3, false, false});
@@ -288,13 +303,13 @@ TEST(NetworkFreezeTest, FrozenLayerStillRunsButDoesNotLearn)
     EXPECT_EQ(weightsOf(net, in), in_before);   // frozen: unchanged
     EXPECT_NE(weightsOf(net, out), out_before); // plastic: learned
     bool in_active = false;                     // and the frozen layer still computed outputs
-    for (const auto& v : net.getLayer(in).getOutput()) in_active = in_active || *v != 0.0f;
+    for (float v : net.getLayer(in).output()) in_active = in_active || v != 0.0f;
     EXPECT_TRUE(in_active);
 }
 
 TEST(NetworkFreezeTest, FreezeAndUnfreezeAtRuntime)
 {
-    neuron::reseed(3);
+    reseed(3);
     network net;
     const auto in = net.addLayer("in", {LayerType::Dense, 4, false, false});
     net.addInputs(in, 1);
@@ -352,70 +367,72 @@ void runSteps(network& net, int from, int to, bool learn)
 
 TEST(NetworkFreezeTest, JitterIsControlledFromTheNetwork)
 {
-    neuron::reseed(12);
+    reseed(12);
     network net;
     const auto a = net.addLayer("a", {LayerType::Dense, 20, false, true});
     const auto b = net.addLayer("b", {LayerType::Dense, 3});
     net.connect(b, a);
-    auto& neurons = dynamic_cast<dense&>(net.getLayer(a)).getNeurons();
+    // A fresh view each time: growth reallocates the neuron storage.
+    const auto& layerA = dynamic_cast<const dense&>(net.getLayer(a));
+    auto neurons = [&] { return layerA.neurons(); };
 
     // No jitter by default
-    for (const neuron& n : neurons) {
-        EXPECT_EQ(n.getRecovery(), recovery_factor);
-        EXPECT_EQ(n.getLearningGain(), default_learning_gain);
+    for (const neuron& n : neurons()) {
+        EXPECT_EQ(n.recovery(), recovery_factor);
+        EXPECT_EQ(n.learningGain(), default_learning_gain);
     }
 
     // Recovery only: learning gain untouched
     net.setRecoveryJitter(a, Jitter::uniform(0.05f));
     EXPECT_EQ(net.layerSpec(a).recoveryJitter, Jitter::uniform(0.05f));
     std::vector<float> recoveries;
-    for (const neuron& n : neurons) {
-        recoveries.push_back(n.getRecovery());
-        EXPECT_EQ(n.getLearningGain(), default_learning_gain);
+    for (const neuron& n : neurons()) {
+        recoveries.push_back(n.recovery());
+        EXPECT_EQ(n.learningGain(), default_learning_gain);
     }
-    EXPECT_GT(*std::max_element(recoveries.begin(), recoveries.end()) -
-              *std::min_element(recoveries.begin(), recoveries.end()), 0.03f);
+    const auto [lowest, highest] = std::ranges::minmax(recoveries);
+    EXPECT_GT(highest - lowest, 0.03f);
 
     // Learning gain only: recovery values kept
     net.setLearningJitter(a, Jitter::normal(0.1f));
-    for (size_t i = 0; i < neurons.size(); ++i) {
-        EXPECT_EQ(neurons[i].getRecovery(), recoveries[i]);
-        EXPECT_NE(neurons[i].getLearningGain(), default_learning_gain);
+    for (size_t i = 0; i < neurons().size(); ++i) {
+        EXPECT_EQ(neurons()[i].recovery(), recoveries[i]);
+        EXPECT_NE(neurons()[i].learningGain(), default_learning_gain);
     }
 
     // Growth uses the current settings
     net.addFeedback(b, a, 5);
-    ASSERT_EQ(neurons.size(), 25u);
+    ASSERT_EQ(neurons().size(), 25u);
     for (size_t i = 20; i < 25; ++i) {
-        EXPECT_NE(neurons[i].getRecovery(), recovery_factor);
-        EXPECT_NE(neurons[i].getLearningGain(), default_learning_gain);
+        EXPECT_NE(neurons()[i].recovery(), recovery_factor);
+        EXPECT_NE(neurons()[i].learningGain(), default_learning_gain);
     }
 
     // Alpha: off so far; enabling it changes only alpha
-    for (const neuron& n : neurons)
-        EXPECT_EQ(n.getAlpha(), default_alpha);
+    for (const neuron& n : neurons())
+        EXPECT_EQ(n.alpha(), default_alpha);
     std::vector<float> gains;
-    for (const neuron& n : neurons) gains.push_back(n.getLearningGain());
+    for (const neuron& n : neurons()) gains.push_back(n.learningGain());
     net.setAlphaJitter(a, Jitter::uniformRelative());
-    for (size_t i = 0; i < neurons.size(); ++i) {
-        EXPECT_NE(neurons[i].getAlpha(), default_alpha);
-        EXPECT_EQ(neurons[i].getLearningGain(), gains[i]);
+    for (size_t i = 0; i < neurons().size(); ++i) {
+        EXPECT_NE(neurons()[i].alpha(), default_alpha);
+        EXPECT_EQ(neurons()[i].learningGain(), gains[i]);
     }
     EXPECT_EQ(net.layerSpec(a).alphaJitter, Jitter::uniformRelative());
 
     // Disabling resets to the defaults
     net.setRecoveryJitter(a, Jitter::none());
     net.setAlphaJitter(a, Jitter::none());
-    for (const neuron& n : neurons) {
-        EXPECT_EQ(n.getRecovery(), recovery_factor);
-        EXPECT_EQ(n.getAlpha(), default_alpha);
+    for (const neuron& n : neurons()) {
+        EXPECT_EQ(n.recovery(), recovery_factor);
+        EXPECT_EQ(n.alpha(), default_alpha);
     }
     EXPECT_THROW(net.setLearningJitter(42, Jitter::none()), std::out_of_range);
 }
 
 TEST(NetworkSerializationTest, RestoresTopology)
 {
-    neuron::reseed(3);
+    reseed(3);
     auto original = buildSampleNetwork(true);
     std::stringstream ss;
     original->save(ss);
@@ -442,13 +459,13 @@ TEST(NetworkSerializationTest, RestoresTopology)
 
 TEST(NetworkSerializationTest, FullStateContinuesExactly)
 {
-    neuron::reseed(11);
+    reseed(11);
     auto original = buildSampleNetwork(false);
     runSteps(*original, 0, 200, true);
 
     std::stringstream ss;
     original->save(ss);
-    neuron::reseed(999);  // loading must not depend on the global RNG state
+    reseed(999);  // loading must not depend on the global RNG state
     const auto restored = network::load(ss, DeserializeMode::FullState);
 
     // Keep learning, then go silent long enough for E-R thresholds to decay
@@ -479,7 +496,7 @@ TEST(NetworkSerializationTest, FullStateContinuesExactly)
 
 TEST(NetworkSerializationTest, WeightsOnlyKeepsWeightsAndResetsState)
 {
-    neuron::reseed(5);
+    reseed(5);
     auto original = buildSampleNetwork(false);
     runSteps(*original, 0, 150, true);
 
@@ -488,21 +505,21 @@ TEST(NetworkSerializationTest, WeightsOnlyKeepsWeightsAndResetsState)
     const auto restored = network::load(ss, DeserializeMode::WeightsOnly);
 
     for (network::LayerId id = 0; id < original->layerCount(); ++id) {
-        const auto& a = dynamic_cast<const dense&>(original->getLayer(id)).getNeurons();
-        const auto& b = dynamic_cast<const dense&>(restored->getLayer(id)).getNeurons();
+        const auto& a = dynamic_cast<const dense&>(original->getLayer(id));
+        const auto& b = dynamic_cast<const dense&>(restored->getLayer(id));
         ASSERT_EQ(a.size(), b.size());
         for (size_t i = 0; i < a.size(); ++i)
-            EXPECT_EQ(a[i].getWeights(), b[i].getWeights());
+            EXPECT_EQ(a.weights(i), b.weights(i));
     }
     for (float v : restored->outputs())
         EXPECT_EQ(v, 0.0f);
-    for (const auto& input : restored->inputs())
-        EXPECT_EQ(*input, 0.0f);
+    for (float input : restored->inputs())
+        EXPECT_EQ(input, 0.0f);
 }
 
 TEST(NetworkSerializationTest, RestoresFrozenState)
 {
-    neuron::reseed(4);
+    reseed(4);
     network net;
     const auto a = net.addLayer("a", {LayerType::Dense, 2, true, true, /*frozen*/ true});
     const auto b = net.addLayer("b", {LayerType::Dense, 2});
@@ -592,22 +609,22 @@ TEST(NetworkSerializationTest, OlderFormatsLoadAsWeightsOnly)
         EXPECT_EQ(net->inputCount(), 1u);
         EXPECT_EQ(net->isFrozen(1), version >= 2);  // frozen flags exist from version 2
 
-        const auto& a = dynamic_cast<const dense&>(net->getLayer(0)).getNeurons();
-        const auto& bl = dynamic_cast<const dense&>(net->getLayer(1)).getNeurons();
-        EXPECT_EQ(a[0].getWeights(), std::vector<float>{0.75f});
-        EXPECT_EQ(a[1].getWeights(), std::vector<float>{-0.5f});
-        EXPECT_EQ(bl[1].getWeights(), (std::vector<float>{0.5f, -0.25f}));
+        const auto& a = dynamic_cast<const dense&>(net->getLayer(0));
+        const auto& bl = dynamic_cast<const dense&>(net->getLayer(1));
+        EXPECT_EQ(a.weights(0), std::vector<float>{0.75f});
+        EXPECT_EQ(a.weights(1), std::vector<float>{-0.5f});
+        EXPECT_EQ(bl.weights(1), (std::vector<float>{0.5f, -0.25f}));
 
-        for (const auto* layer : {&a, &bl})
-            for (const neuron& n : *layer) {
-                EXPECT_EQ(*n.getOutput(), 0.0f);                  // state not restored
-                EXPECT_EQ(n.getRecovery(), recovery_factor);      // dynamics not restored
-                EXPECT_EQ(n.getLearningGain(), default_learning_gain);
+        for (const dense& layer : {std::cref(a), std::cref(bl)})
+            for (const neuron& n : layer.neurons()) {
+                EXPECT_EQ(n.output(), 0.0f);                      // state not restored
+                EXPECT_EQ(n.recovery(), recovery_factor);      // dynamics not restored
+                EXPECT_EQ(n.learningGain(), default_learning_gain);
             }
-        EXPECT_EQ(*net->inputs()[0], 0.0f);                       // input value not restored
+        EXPECT_EQ(net->inputs()[0], 0.0f);                        // input value not restored
         EXPECT_FALSE(net->layerSpec(0).recoveryJitter.enabled()); // jitter settings not restored
         EXPECT_FALSE(net->layerSpec(0).learningJitter.enabled());
-        EXPECT_EQ(dynamic_cast<const dense&>(net->getLayer(0)).getNeurons()[0].getAlpha(), default_alpha);
+        EXPECT_EQ(dynamic_cast<const dense&>(net->getLayer(0)).neurons()[0].alpha(), default_alpha);
     }
 }
 
@@ -627,7 +644,7 @@ TEST(NetworkSerializationTest, RejectsUnknownFormatVersions)
 
 TEST(NetworkSerializationTest, RestoresJitteredDynamics)
 {
-    neuron::reseed(8);
+    reseed(8);
     network net;
     const Jitter recovery = Jitter::normal(0.02f).around(0.95f).within(0.9f, 0.99f);
     const Jitter learning = Jitter::uniformRelative(0.5f);
@@ -639,7 +656,7 @@ TEST(NetworkSerializationTest, RestoresJitteredDynamics)
 
     std::stringstream ss;
     net.save(ss);
-    neuron::reseed(99);        // loading must restore the saved values, not draw new ones
+    reseed(99);        // loading must restore the saved values, not draw new ones
     const auto restored = network::load(ss);
 
     EXPECT_EQ(restored->layerSpec(a).recoveryJitter, recovery);
@@ -650,14 +667,14 @@ TEST(NetworkSerializationTest, RestoresJitteredDynamics)
     std::ostringstream text;
     restored->describe(text);
     EXPECT_NE(text.str().find("U+-50%"), std::string::npos) << text.str();
-    const auto& orig = dynamic_cast<const dense&>(net.getLayer(a)).getNeurons();
-    const auto& rest = dynamic_cast<const dense&>(restored->getLayer(a)).getNeurons();
+    const auto orig = dynamic_cast<const dense&>(net.getLayer(a)).neurons();
+    const auto rest = dynamic_cast<const dense&>(restored->getLayer(a)).neurons();
     ASSERT_EQ(orig.size(), 9u);
     for (size_t i = 0; i < orig.size(); ++i) {
-        EXPECT_EQ(rest[i].getRecovery(), orig[i].getRecovery());
-        EXPECT_EQ(rest[i].getLearningGain(), orig[i].getLearningGain());
-        EXPECT_EQ(rest[i].getAlpha(), orig[i].getAlpha());
-        EXPECT_NE(orig[i].getAlpha(), default_alpha);  // jittered, including the grown neurons
+        EXPECT_EQ(rest[i].recovery(), orig[i].recovery());
+        EXPECT_EQ(rest[i].learningGain(), orig[i].learningGain());
+        EXPECT_EQ(rest[i].alpha(), orig[i].alpha());
+        EXPECT_NE(orig[i].alpha(), default_alpha);  // jittered, including the grown neurons
     }
 }
 
@@ -666,7 +683,7 @@ TEST(NetworkSerializationTest, RejectsMalformedData)
     std::stringstream garbage("definitely not a network");
     EXPECT_THROW(network::load(garbage), std::runtime_error);
 
-    neuron::reseed(1);
+    reseed(1);
     auto net = buildSampleNetwork(false);
     std::stringstream ss;
     net->save(ss);
@@ -846,33 +863,9 @@ namespace {
 
 using pattern_benchmark::NetworkBuilder;
 
-// Frozen value detectors, plus a frozen delay window when depth > 0. Returns
-// the layer the learned part should read, and the update order so far.
-struct FrontEnd
-{
-    network::LayerId features;
-    std::vector<network::LayerId> order;
-};
-
-FrontEnd addFrontEnd(network& net, int depth)
-{
-    using namespace pattern_benchmark;
-    FrontEnd f;
-    const ValueDetectors detectors = addValueDetectors(net);
-    f.features = depth > 0 ? addDelayWindow(net, detectors.bands, BAND_FEATURES, depth, f.order) : detectors.bands;
-    f.order.push_back(detectors.ramps);
-    f.order.push_back(detectors.bands);
-    if (depth > 0)
-        f.order.push_back(f.features);
-    return f;
-}
-
-void finishFrontEnd(network& net, FrontEnd& f, std::initializer_list<network::LayerId> rest, network::LayerId out)
-{
-    f.order.insert(f.order.end(), rest);
-    net.setUpdateOrder(f.order);
-    net.addOutput(out);
-}
+using pattern_benchmark::FrontEnd;
+using pattern_benchmark::addFrontEnd;
+using pattern_benchmark::finishFrontEnd;
 
 std::unique_ptr<network> buildWindowHiddenReadout(bool hasER, const Jitter& learningJitter)
 {
@@ -969,7 +962,7 @@ TEST(NetworkPatternTest, TopologyComparison)
     std::vector<Row> rows;
     for (const Candidate& c : candidates)
         for (bool hasER : {false, true}) {
-            neuron::reseed(0);
+            reseed(0);
             const std::string topology = topologySummary(*c.build(hasER));
             rows.push_back({c.name, topology, hasER,
                             measurePattern(c.build, hasER, PATTERN_LEARNING_RATE, COMPARISON_TRIALS,
@@ -1001,7 +994,7 @@ TEST(NetworkPatternTest, TopologyComparison)
                   << std::setprecision(3) << "  balanced " << r.st.balanced.mean
                   << "  " << r.name << ", E-R " << (r.hasER ? "on" : "off") << "\n"
                   << "    " << r.topology << "\n";
-        std::cout.unsetf(std::ios::floatfield);
+        restoreCoutFormat();
     }
     std::cout << "==========================================\n";
 
@@ -1021,6 +1014,7 @@ constexpr size_t RESERVOIR_TRAIN_TICKS = 40000;  // reservoirs need longer train
 
 void printReservoirResult(const char* label, const pattern_benchmark::PatternStats& st)
 {
+    pattern_benchmark::ThreeDigits digits;
     const auto& m = st.afterC;
     std::cout << "   after C " << m.mean << " +- " << m.stderr_mean << " (control " << m.mean_control
               << "), balanced " << st.balanced.mean << "  <- " << label << "\n";
@@ -1041,7 +1035,7 @@ TEST(NetworkPatternTest, ReservoirLearnsTheSequence)
     printPatternStats("E-R off", st, RESERVOIR_TRIALS);
     std::cout << "==========================================\n";
 
-    // Measured: after C 0.814 (control 0.490); the hand-built window reaches
+    // Measured: after C 0.798 (control 0.490); the hand-built window reaches
     // ~1.0 and the best shortcut rule 0.81.
     EXPECT_GE(st.afterC.mean, 0.75f);
     EXPECT_LT(st.afterC.mean_control, 0.6f);
@@ -1063,8 +1057,7 @@ TEST(NetworkPatternTest, ERNeuronsCarryMemoryWithoutRecurrence)
     printReservoirResult("E-R on", on);
     std::cout << "==========================================\n";
 
-    // Measured: E-R off 0.500 exactly (no memory at all), E-R on 0.713 +- 0.034
-    // (0.740 with recovery 0.9).
+    // Measured: E-R off 0.500 exactly (no memory at all), E-R on 0.757 +- 0.030.
     EXPECT_LE(off.afterC.mean, 0.55f);
     EXPECT_GE(on.afterC.mean, 0.62f);
     EXPECT_GT(on.afterC.mean - off.afterC.mean, 2.0f * on.afterC.stderr_mean);
@@ -1116,6 +1109,7 @@ TEST(NetworkPatternTest, LearningJitterEffectDependsOnBaseGain)
     const Result at1 = measure(1.0f);
     const Result atDefault = measure(default_learning_gain);
 
+    pattern_benchmark::ThreeDigits digits;
     std::cout << "\n==========================================\n"
               << " [Learning jitter +-0.1, E-R hidden layer + readout - " << TRIALS << " paired trials]\n"
               << "==========================================\n";
@@ -1167,7 +1161,7 @@ void printAlphaRow(const char* setting, const std::vector<float>& base, const st
         std::cout << std::showpos << d << std::noshowpos << " +- " << se << "  (t " << std::setprecision(1)
                   << tStatistic(d, se) << ")  " << verdict(t, "HELPS", "HURTS") << "\n";
     }
-    std::cout.unsetf(std::ios::floatfield);
+    restoreCoutFormat();
 }
 
 // --- Pavlovian sign inversion ----------------------------------------------
@@ -1204,7 +1198,7 @@ struct PavlovianLearning
 // ticks from rest, as in the dense.cpp Pavlovian tests.
 PavlovianLearning runAlphaPavlovianTrial(std::uint32_t seed, const Jitter& alphaJitter)
 {
-    neuron::reseed(seed);
+    reseed(seed);
     const auto net = buildPavlovianNetwork(alphaJitter);
     auto propagate = [&](float x, int ticks) {
         net->setInputs({x});
@@ -1323,7 +1317,7 @@ struct SequenceScore
 SequenceScore runAlphaSequenceTrial(std::uint32_t seed, const Jitter& alphaJitter, float learningRate)
 {
     using namespace pattern_benchmark;
-    neuron::reseed(seed);
+    reseed(seed);
     const auto net = buildSequenceNetwork(alphaJitter);
     bool diverged = false;
 
@@ -1367,7 +1361,7 @@ TEST(AlphaJitterTest, PavlovianSignInversion)
         learned.push_back(ok);
     }
 
-    neuron::reseed(0);
+    reseed(0);
     std::cout << "\n==========================================\n"
               << " [Alpha jitter: Pavlovian sign inversion - " << ALPHA_PAVLOV_TRIALS << " paired trials]\n"
               << "==========================================\n"
@@ -1407,7 +1401,7 @@ TEST(AlphaJitterTest, ThreeNumberSequenceDetection)
     for (int trial = 0; trial < ALPHA_SEQ_TRIALS; ++trial)
         control.push_back(runAlphaSequenceTrial(static_cast<std::uint32_t>(trial), Jitter::none(), 0.0f).balanced);
 
-    neuron::reseed(0);
+    reseed(0);
     std::cout << "\n==========================================\n"
               << " [Alpha jitter: 3-number sequence detection, no decoys - " << ALPHA_SEQ_TRIALS
               << " paired trials]\n"
@@ -1418,7 +1412,7 @@ TEST(AlphaJitterTest, ThreeNumberSequenceDetection)
               << "\n Balanced accuracy, 0.5 = chance; no-learning control " << std::setprecision(3)
               << pattern_benchmark::meanOf(control) << ".\n\n"
               << "   alpha jitter  balanced   hits on trigger   vs none (paired)\n";
-    std::cout.unsetf(std::ios::floatfield);
+    restoreCoutFormat();
     for (size_t i = 0; i < std::size(ALPHA_SETTINGS); ++i) {
         std::ostringstream h;
         h << std::fixed << std::setprecision(2) << pattern_benchmark::meanOf(hits[i]);

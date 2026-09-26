@@ -1,24 +1,64 @@
-# layer
+# layer and neuron_layer
 
-`core/layers/layer.hpp`
+`core/layers/layer.hpp`, `core/layers/layer.cpp`,
+`core/layers/neuron_layer.hpp`, `core/layers/neuron_layer.cpp`
 
-The abstract interface every layer type implements. `network` and
-`layer_factory` use layers only through this interface, so a new layer type
-works with them once it implements `layer` and is registered with the
-factory (see [layer_factory](layer_factory.md#adding-a-layer-type)).
+Two levels shared by every layer type, so each concrete type only adds what
+is specific to it:
 
-`dense` ([dense](dense.md)) is the only implementation so far.
+```
+layer            output buffer, shape, growth notifications, wiring interface
+└─ neuron_layer  neurons, per-neuron dynamics (jitter), neuron-record serialization
+   └─ dense      its wiring rule, the weights, forward pass and learning
+```
+
+`network` and `layer_factory` use layers only through `layer`, so a new
+layer type works with them once it derives from `layer` (or `neuron_layer`)
+and is registered with the factory (see
+[layer_factory](layer_factory.md#adding-a-layer-type)). Layer types without
+neurons (e.g. pooling) derive from `layer` directly. Everything is in
+`namespace exr`.
 
 ## LayerType
 
 ```cpp
-enum class LayerType : uint8_t { Dense = 0, Conv2D = 1 };
+enum class LayerType : uint8_t { Dense = 0, Conv2D = 1, Pool2D = 2, LocallyConnected2D = 3, Retina = 4 };
 ```
 
 Identifies the concrete class. It is stored in `LayerSpec`, used by the
 factory to pick a creator, and written into saved networks, so **existing
-values must never be renumbered**. `Conv2D` is reserved; no class implements
-it yet.
+values must never be renumbered**. The spatial types are described in
+[spatial](spatial.md).
+
+## Shape
+
+```cpp
+struct Shape { size_t channels = 0, height = 1, width = 1; size_t size() const; static Shape flat(size_t); };
+```
+
+The layout of a layer's output: channels × height × width, **channel-major**
+(all of channel 0, then channel 1, ...). A layer that grows by whole channels
+therefore only ever appends to its output, which is what growth propagation
+relies on. Flat layers (`dense`) are `{size, 1, 1}`.
+
+## Outputs and inputs
+
+Each layer owns **one contiguous output buffer** (`std::vector<float>`).
+
+| Method | Contract |
+|--------|----------|
+| `size_t size() const` | number of outputs (neurons) |
+| `std::span<const float> output() const` | this tick's outputs; the span is invalidated when the layer grows |
+| `const std::vector<float>& outputBuffer() const` | the buffer object itself, which is what readers keep |
+
+A reader refers to what it reads with an `InputRange`: a reference
+(`std::reference_wrapper`) to the buffer **object**, an offset and a count. It stays valid when the buffer
+reallocates as its owner grows. A plain `std::vector<float>` converts to an
+`InputRange` over the whole vector, which is how caller-owned sensors are
+attached; binding it to a temporary vector does not compile. The buffer
+must outlive every reader of it: a network owns and
+destroys all its layers and sensors together; standalone, declare sources
+(and sensor vectors) before the layers that read them.
 
 ## Interface
 
@@ -26,66 +66,88 @@ it yet.
 
 | Method | Contract |
 |--------|----------|
-| `void forward()` | step every neuron once against its inputs, updating the layer's output values |
-| `void applyReward(float reward, float learningRate)` | apply the learning rule to every neuron (see [neuron](neuron.md#learning-updateweights)) |
-
-### Inspection
-
-| Method | Contract |
-|--------|----------|
-| `LayerType getType()` | the concrete type |
-| `size_t size() const` | current number of neurons |
-| `const std::vector<std::shared_ptr<float>>& getOutput() const` | one live output slot per neuron, in neuron order. Readers keep the pointers. |
+| `void forward()` | compute this tick's outputs |
+| `void applyReward(float reward, float learningRate)` | apply the learning rule; the default does nothing (layers that do not learn) |
+| `bool learns() const` | whether `applyReward` can change the layer (false by default) |
+| `bool hasNeurons() const` | whether the layer is a `neuron_layer` |
 
 ### Wiring
 
 | Method | Contract |
 |--------|----------|
-| `bool join(layer& source)` | every neuron this layer has *now* reads `source`'s output |
-| `bool addFeedback(layer& target, size_t count)` | add `count` new neurons to `target`, reading *this* layer's output. Implemented by calling `target.addNeuronsWithGroup(count, getOutput(), *this)`. |
-| `void addNeuronsWithGroup(size_t width, const std::vector<std::shared_ptr<float>>& sourceOutput, layer& source)` | add `width` new neurons reading `sourceOutput`, register as a listener of `source`, and notify this layer's own listeners that its output grew |
-| `void notifySourceGrew(layer& source, const std::vector<std::shared_ptr<float>>& newOutputEntries)` | called by a source this layer listens to when the source's output grew; extend whatever reads that source |
-| `bool attachInputs(const std::vector<std::shared_ptr<float>>& inputs)` | read external sensors |
-| `std::vector<std::reference_wrapper<layer>> listeners` | layers that read this layer's output and must be notified when it grows |
+| `void join(layer& source)` | every neuron this layer has *now* reads `source`'s whole output |
+| `void attachInputs(const InputRange& sensors)` | every neuron this layer has now reads the sensors |
+| `void addNeurons(size_t count, layer& source)` | `count` new neurons reading `source` |
+| `void addFeedback(layer& target, size_t count)` | non-virtual convenience: `target.addNeurons(count, *this)` |
 
-Return values: `true` on success. Implementations should return `false` (or
-throw) for requests they cannot honour; `network` turns `false` into a
-`std::runtime_error`.
+Layer types that do not support an operation throw `std::logic_error` (the
+defaults do). Errors are exceptions; nothing returns a status flag.
 
-### Per-neuron dynamics
+### Growth notifications (for implementers)
 
-| Method | Contract |
+| Member | Contract |
 |--------|----------|
-| `void setRecoveryJitter(const Jitter&)` | redraw every neuron's E-R recovery from the jitter (disabled: reset to the default) and use it for neurons added later |
-| `void setLearningJitter(const Jitter&)` | the same for the learning gain |
-| `void setAlphaJitter(const Jitter&)` | the same for the E-R alpha |
+| `readFrom(layer& source)` (protected) | registers this layer as a reader of `source`, once |
+| `outputGrew(size_t oldSize)` (protected) | call after appending to the output: tells every reader, in registration order, that entries `[oldSize, size())` are new |
+| `sourceGrew(const layer& source, size_t offset, size_t count)` (protected virtual) | a source this layer reads grew; extend whatever reads it |
+| `bool hasReaders() const` | whether other layers read this one |
 
-See [neuron: per-neuron dynamics](neuron.md#per-neuron-dynamics).
+The reader/source lists are private to `layer`. A destroyed layer
+unregisters itself from both sides, so it is never notified afterwards.
 
 ### Serialization
 
 | Method | Contract |
 |--------|----------|
-| `void serialize(std::ostream&) const` | write the layer's own state (its neurons), not its wiring |
-| `void deserialize(std::istream&, DeserializeMode, uint32_t neuronFormat = NEURON_FORMAT_VERSION)` | read what `serialize` wrote; `neuronFormat` is the neuron data layout of the file (older network files pass older formats). When the layer was rebuilt with the same neurons, restore them **in place**, so output pointers held by other layers stay valid. |
+| `void serialize(std::ostream&) const` | write the layer's own state, not its wiring |
+| `void deserialize(std::istream&, DeserializeMode = FullState, uint32_t neuronFormat = NEURON_FORMAT_VERSION)` | read what `serialize` wrote; `neuronFormat` is the neuron data layout of the file (older network files pass older formats) |
 
 Wiring is not the layer's job to save: `network` records the construction
 history and replays it (see [network](network.md#serialization)).
 
+## neuron_layer
+
+The base of every layer made of [neurons](neuron.md). It owns the neurons,
+creates new ones with the layer's flags and jitter, and serializes them.
+Derived classes decide how neurons are wired and own the weights.
+
+| Member | Purpose |
+|--------|---------|
+| `hasHabituation()`, `hasER()` | flags of every neuron the layer creates, including later growth |
+| `neurons()` | span over the neurons' dynamics state (threshold, recovery, gain, alpha, ...); invalidated by growth |
+| `setOutput(i, value)` | drive an output by hand, e.g. a layer used as a fixed source; the next `forward()` overwrites wired neurons |
+| `setRecoveryJitter(j)`, `setLearningJitter(j)`, `setAlphaJitter(j)` | redraw that parameter for every existing neuron, in neuron order (disabled: reset to the default), and keep `j` for later growth |
+| `recoveryJitter()`, `learningJitter()`, `alphaJitter()` | the current settings |
+| `newNeuron()` (protected) | append a neuron and its output slot |
+
+See [neuron: per-neuron dynamics](neuron.md#per-neuron-dynamics).
+
+### Serialization
+
+`serialize` writes `hasHabituation`, `hasER`, the neuron count (`size_t`),
+then one [neuron record](neuron.md#serialization) per neuron, carrying that
+neuron's weights (obtained from the derived class through `copyWeights`).
+
+`deserialize`:
+
+- with the same neuron count, every neuron is restored in place; each wired
+  neuron's weight count must equal what it reads (`expectedWeights`), or
+  `std::runtime_error` is thrown. This is the intended use: rebuild the same
+  topology, then deserialize;
+- with another count, only an **unwired** layer (no inputs, no readers) is
+  rebuilt from the data. A wired layer throws `std::runtime_error`.
+
+Everything is read and validated before the layer changes, so a refused or
+malformed load leaves it as it was. A truncated stream also leaves it
+unchanged; the caller checks the stream state (`network::load` reports it).
+
 ## Requirements for implementations
 
-- **Stable output pointers.** Other layers hold the pointers returned by
-  `getOutput()`. A layer must never replace an existing neuron's output slot
-  while wired; growth must only append.
-- **Stable address.** Listeners hold references to layers, so a layer must
-  not move after wiring. `network` stores layers in `unique_ptr`s for this.
-- **Growth propagation.** When the layer's output grows, it must call
-  `notifySourceGrew(*this, newEntries)` on every listener.
-- **Deterministic results.** Results should not depend on thread count;
-  `dense` guarantees this by copying each group's inputs before stepping.
-
-## Known rough edges
-
-- `listeners` is a public data member; anything can modify it. It is kept
-  consistent by `join` / `addNeuronsWithGroup`.
-- `getType()` is not `const`.
+- **Append-only growth.** Readers refer to output positions, so outputs
+  must only ever be appended, and `outputGrew` called after appending.
+- **Stable address.** Readers hold references to layers and to their output
+  buffers, so a layer must not move after wiring. Layers are neither
+  copyable nor movable; `network` stores them in `unique_ptr`s.
+- **Deterministic results.** Results must not depend on thread count or SIMD
+  width. `dense` guarantees this by summing in input order and by copying a
+  group's inputs before stepping it (see [kernels](kernels.md#determinism)).

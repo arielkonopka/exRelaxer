@@ -4,19 +4,60 @@
 #include <map>
 #include <memory>
 #include "layer.hpp"
+#include "spatial.hpp"
 
-// Everything needed to construct a layer of any type. Layer types that need
-// more parameters (e.g. Conv2D's width/height/kernel) add fields here.
+namespace exr {
+
+// Everything needed to construct a layer of any type. Fields a type does not
+// use are ignored. The builders below fill in the fields each type uses:
+//
+//   net.addLayer("eye", LayerSpec::Retina({{1, 200, 320}, Sampling::Spiral}));
+//   net.addLayer("v1", LayerSpec::Conv2D(16, Window2D::square(5, 1, 2)));
+//   net.addLayer("pool", LayerSpec::Pool2D(Window2D::square(2, 2)));
 struct LayerSpec
 {
     LayerType type = LayerType::Dense;
-    size_t size = 0;             // number of neurons at construction
+    size_t size = 0;             // Dense: neurons at construction; Conv2D, LocallyConnected2D: output channels
     bool hasHabituation = true;
     bool hasER = true;
     bool frozen = false;         // network::applyReward skips frozen layers (see network::freeze)
     Jitter recoveryJitter = {};  // per-neuron E-R recovery (default: none, all recovery_factor)
     Jitter learningJitter = {};  // per-neuron learning gain (default: none, all default_learning_gain)
     Jitter alphaJitter = {};     // per-neuron E-R alpha (default: none, all default_alpha)
+    Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
+    PoolMode pool = PoolMode::Max;  // Pool2D
+    RetinaSpec retina = {};      // Retina
+
+    static LayerSpec Dense(size_t size, bool hasHabituation = true, bool hasER = true)
+    {
+        return {LayerType::Dense, size, hasHabituation, hasER};
+    }
+    static LayerSpec Conv2D(size_t channels, const Window2D& window, bool hasHabituation = true, bool hasER = true)
+    {
+        LayerSpec s{LayerType::Conv2D, channels, hasHabituation, hasER};
+        s.window = window;
+        return s;
+    }
+    static LayerSpec LocallyConnected2D(size_t channels, const Window2D& window, bool hasHabituation = true,
+                                        bool hasER = true)
+    {
+        LayerSpec s = Conv2D(channels, window, hasHabituation, hasER);
+        s.type = LayerType::LocallyConnected2D;
+        return s;
+    }
+    static LayerSpec Pool2D(const Window2D& window, PoolMode mode = PoolMode::Max)
+    {
+        LayerSpec s{LayerType::Pool2D, 0, false, false};
+        s.window = window;
+        s.pool = mode;
+        return s;
+    }
+    static LayerSpec Retina(const RetinaSpec& retina, bool hasHabituation = true, bool hasER = true)
+    {
+        LayerSpec s{LayerType::Retina, 0, hasHabituation, hasER};
+        s.retina = retina;
+        return s;
+    }
 };
 
 // Creates layers from a LayerSpec without the caller knowing the concrete
@@ -47,3 +88,5 @@ public:
 private:
     std::map<LayerType, Creator> creators;
 };
+
+} // namespace exr

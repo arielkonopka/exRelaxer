@@ -44,18 +44,21 @@ the network hands out references to its layers. Use
 | Method | Effect |
 |--------|--------|
 | `LayerId addLayer(const std::string& name, const LayerSpec& spec)` | create a layer through the factory. Names must be unique and non-empty. Ids are consecutive from 0. |
-| `void connect(LayerId from, LayerId to)` | `to` reads `from`'s output (`to.join(from)`): a **forward edge**. Only the neurons `to` has now are wired; connect before growing `to`. Each pair once. `connect(x, x)` makes every neuron of x read x (recurrence). |
+| `void connect(LayerId from, LayerId to)` | `to` reads `from`'s output (`to.join(from)`): a **forward edge**. Every neuron `to` has now reads `from`, in addition to what it already reads (one weighted sum over all its sources); neurons added later by feedback are not wired. Each pair once. `connect(x, x)` makes every neuron of x read x (recurrence). |
 | `void addFeedback(LayerId from, LayerId to, size_t width)` | add `width` new neurons to `to`, reading `from`: a **feedback edge**. Layers already reading `to` are extended automatically. |
 | `size_t addInputs(LayerId target, size_t count)` | create `count` sensors (owned by the network, initially 0) and attach them to `target`. Returns the index of the first new sensor. |
+| `size_t addInputs(LayerId target, const Shape& image)` | the same for an image (`image.size()` sensors, channel after channel, row after row), e.g. for a [retina](spatial.md#retina) |
 | `void addOutput(LayerId id)` | mark a layer as output. `outputs()` concatenates output layers in marking order. |
 
 The wiring semantics are those of `dense`; read
-[dense: wiring groups](dense.md#wiring-groups), in particular the caveat
-that a layer should not `connect` from two different sources.
+[dense: wiring groups](dense.md#wiring-groups). A layer connected from
+several sources, or from a source and sensors, integrates them all in one
+weighted sum per neuron.
 
 Errors: unknown id → `std::out_of_range`; duplicate or empty name, zero
 inputs → `std::invalid_argument`; connecting a pair twice →
-`std::logic_error`; a layer refusing the operation → `std::runtime_error`.
+`std::logic_error`; a layer type that does not support the operation →
+`std::logic_error`.
 
 ## Running
 
@@ -125,6 +128,9 @@ void setLearningJitter(LayerId id, const Jitter& jitter);
 void setAlphaJitter(LayerId id, const Jitter& jitter);
 ```
 
+These apply to layers made of neurons ([neuron_layer](layer.md#neuron_layer));
+other layer types throw `std::invalid_argument`.
+
 Each neuron has its own E-R recovery, learning gain and E-R alpha (see
 [neuron](neuron.md#per-neuron-dynamics)). Whether and how each is
 randomized is normally decided **at layer creation**, through
@@ -155,14 +161,15 @@ with the network.
 | Method | Returns |
 |--------|---------|
 | `layerCount()` | number of layers |
-| `getLayer(id)` | the `layer&` (use `dynamic_cast<dense&>` for dense-specific access, e.g. setting weights) |
+| `getLayer(id)` | the `layer&` |
+| `layerAs<T>(id)` | the layer as its concrete type, e.g. `layerAs<dense>(id).setWeights(...)` or `layerAs<conv2d>(id)`; throws `std::bad_cast` for another type |
 | `findLayer(name)` | id; throws `std::out_of_range` if absent |
 | `layerName(id)`, `layerSpec(id)` | name, spec (with the current frozen flag) |
 | `edges()` | every connection in creation order: `{from, to, kind, width}`, kind `Forward` or `Feedback` |
 | `outputLayers()` | output layer ids in marking order |
-| `inputCount()`, `inputs()` | number of sensors, the sensor pointers |
+| `inputCount()`, `inputs()` | number of sensors, their current values (one contiguous buffer, in `addInputs` order) |
 | `updateOrder()` | the order `step()` uses |
-| `describe(os)` | human-readable dump: layers (current neurons, habituation, E-R, frozen, recovery and learning-gain distributions), where inputs attach, edges, outputs, update order |
+| `describe(os)` | human-readable dump: layers (outputs, shape of spatial layers, habituation, E-R, learning or frozen, recovery / learning-gain / alpha distributions of layers with neurons), where inputs attach, edges, outputs, update order |
 
 Example `describe` output:
 
@@ -218,13 +225,16 @@ the building methods' exceptions.
 Binary, native endianness (not portable across platforms). Counts and ids
 are `uint64`.
 
-1. Magic `EXRN`, format version `uint32` (currently **6**).
+1. Magic `EXRN`, format version `uint32` (currently **7**).
 2. Operation count, then each operation: kind (`uint8`) and fields:
    - AddLayer: name length + bytes, `LayerType` (`uint8`), size,
      hasHabituation, hasER, frozen (`uint8` each; frozen is the state at save
      time), then recoveryJitter, learningJitter and alphaJitter, each as distribution
      (`uint8`), spread (`float`), relative (`uint8`), has-mean (`uint8`),
-     mean, min, max (`float`)
+     mean, min, max (`float`); then the spatial parameters: window
+     (kernel height and width, strides, paddings), pooling mode (`uint8`),
+     retina image shape (channels, height, width), sampling (`uint8`),
+     spacing and radius (`float`)
    - Connect: from, to
    - Feedback: from, to, width
    - Inputs: target, count
@@ -240,6 +250,7 @@ are `uint64`.
 | 4 | jitter as a full distribution |
 | 5 | relative-spread flag per jitter |
 | 6 | alpha jitter per layer |
+| 7 | spatial parameters per layer (window, pooling mode, retina) |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.

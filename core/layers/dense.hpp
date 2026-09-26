@@ -1,122 +1,113 @@
+// A fully connected layer. Neurons are organised in wiring groups: the
+// neurons of a group read one shared input pool, the concatenated outputs of
+// the group's sources (layers) and any attached sensors, with one weight row
+// each. Every neuron belongs to at most one group, so a neuron reading
+// several sources integrates them in one weighted sum.
+//
+//   hidden.join(input)            every neuron hidden has now reads input
+//   hidden.addFeedback(out, 3)    3 NEW neurons in out, reading hidden
+//
+// Growth propagates: when a layer grows (neurons added to it), every group
+// reading it gets the new outputs appended to its pool, with new weights.
 #pragma once
-#include <vector>
-#include <deque>
-#include <memory>
-#include <functional>
 #include <cstddef>
-#include <istream>
-#include <ostream>
-#include "../neuron.hpp"
-#include "layer.hpp"
+#include <functional>
+#include <optional>
+#include <span>
+#include <vector>
+#include "../kernels.hpp"
+#include "../random.hpp"
+#include "neuron_layer.hpp"
 
-// A layer of neurons that can be wired to one or more distinct input
-// sources over its lifetime. Each source gets its own "wiring group": the
-// neurons reading from that source, plus the source's output pool. Growth
-// is explicit and propagates automatically to anyone downstream:
-//
-//   input.joinDense(hidden)        // hidden's neurons read from input's output
-//   hidden.addFeedback(hidden2, 3) // adds 3 NEW neurons to hidden2, wired
-//                                  // ONLY to hidden's output - hidden2's
-//                                  // existing neurons are untouched
-//
-// If some third layer already called `.joinDense(hidden2)` before that
-// addFeedback, its wiring group sourced from hidden2 is automatically
-// extended by 3 entries (with matching new weights) - it doesn't need to
-// be told explicitly.
-class dense : public layer
+namespace exr {
+
+class dense final : public neuron_layer
 {
 public:
     // recoveryJitter / learningJitter / alphaJitter: every neuron this layer
-    // creates (now and through later growth) gets its recovery, learning gain
-    // and alpha drawn from them (neuron::randomizeDynamics). Disabled = defaults.
-    explicit dense(size_t nNumber, bool hasHabituation = true, bool hasER = true,
+    // creates (now and through later growth) draws its recovery, learning
+    // gain and alpha from them. Disabled = defaults.
+    explicit dense(size_t count = 0, bool hasHabituation = true, bool hasER = true,
                    const Jitter& recoveryJitter = {}, const Jitter& learningJitter = {},
                    const Jitter& alphaJitter = {});
 
-    // Redraws that parameter for every existing neuron, in neuron order, and
-    // keeps the jitter for later growth.
-    void setRecoveryJitter(const Jitter& jitter) final;
-    void setLearningJitter(const Jitter& jitter) final;
-    void setAlphaJitter(const Jitter& jitter) final;
-    const Jitter& getRecoveryJitter() const { return recoveryJitter_; }
-    const Jitter& getLearningJitter() const { return learningJitter_; }
-    const Jitter& getAlphaJitter() const { return alphaJitter_; }
+    LayerType type() const override { return LayerType::Dense; }
 
-    // Wires every neuron CURRENTLY in this layer to read from source's
-    // output, as a new wiring group. Call this once, early - before any
-    // addFeedback calls add neurons this layer's own groups won't cover.
-    virtual bool join(layer& source) final;
+    // Every neuron this layer has now reads `source` (or the sensors): the
+    // source is appended to the pool of every existing group (that does not
+    // read it yet), and neurons in no group form a new group. Neurons added
+    // later by feedback are in their own group and do not read it.
+    void join(layer& source) override;
+    void attachInputs(const InputRange& sensors) override;
+    // `count` new neurons in a new group reading `source`'s current output.
+    // Readers of this layer are extended with the new outputs.
+    void addNeurons(size_t count, layer& source) override;
 
-    // Adds `width` new neurons to targetLayer, wired only to this layer's
-    // current output (their own isolated wiring group). targetLayer's
-    // existing neurons/groups are untouched. Any layer already listening to
-    // targetLayer's output gets its matching wiring group auto-extended.
-    // virtual bool addFeedback(layer& targetLayer, size_t width);
+    // Each group: gather its pool into contiguous floats, compute every
+    // neuron's weighted sum (SIMD, in parallel for large groups), activate.
+    // A group reading this layer itself sees the outputs from before it ran.
+    void forward() override;
+    // Every eligible neuron of every group learns (see neuron::learningDelta)
+    // against the group's current inputs.
+    void applyReward(float reward, float learningRate) override;
+    bool learns() const override { return true; }
 
-    // Steps every neuron against its own wiring group's input pool.
-    void forward();
+    // --- Weights --------------------------------------------------------
+    // Neuron `index`'s weights, in pool order (empty when not wired).
+    std::vector<float> weights(size_t index) const;
+    // Size must equal inputCount(index); throws std::invalid_argument otherwise.
+    void setWeights(size_t index, const std::vector<float>& weights);
+    size_t inputCount(size_t index) const;
 
-    std::deque<neuron>& getNeurons() { return neurons; }
-    const std::deque<neuron>& getNeurons() const { return neurons; }
+    // --- Wiring inspection ----------------------------------------------
+    struct NeuronRange
+    {
+        size_t first = 0;
+        size_t count = 0;
+        bool operator==(const NeuronRange&) const = default;
+    };
+    static constexpr size_t no_group = static_cast<size_t>(-1);
+    size_t groupCount() const { return groups_.size(); }
+    NeuronRange groupNeurons(size_t group) const;
+    size_t groupOf(size_t index) const { return group_of_.at(index); }  // no_group when not wired
 
-    // Each entry aliases (via shared_ptr) one neuron's live output slot -
-    // downstream layers/groups read through these, always seeing the
-    // latest value without needing to be re-notified.
-    std::vector<std::shared_ptr<float>>& getOutput() { return output; }
-    const std::vector<std::shared_ptr<float>>& getOutput() const { return output; }
-
-    size_t size() const { return neurons.size(); }
-
-    void serialize(std::ostream& os) const;
-    void deserialize(std::istream& is, DeserializeMode mode = DeserializeMode::FullState,
-                     std::uint32_t neuronFormat = NEURON_FORMAT_VERSION);
-
-    virtual LayerType getType() final { return LayerType::Dense ; };
-    // Adds `width` new neurons in a new group sourced from `sourceOutput`.
-    // Registers *this as a listener on `source`, so it can notify us later
-    // if it grows further.
-    virtual void addNeuronsWithGroup(size_t width, const std::vector<std::shared_ptr<float>>& sourceOutput, layer& source);
-
-
-    virtual bool addFeedback(layer& targetLayer, size_t width) final;
-
-
-    // Called by a source layer we're listening to when ITS output grows.
-    // Extends every one of our groups whose source matches, and grows the
-    // weights of every neuron in those groups to match.
-    virtual void notifySourceGrew(layer& sourceLayer, const std::vector<std::shared_ptr<float>>& newOutputEntries) final;
-
-    // Learning & Plasticity
-    virtual void applyReward(float reward,float learningRate) final;
-
-    virtual  bool attachInputs(const std::vector<std::shared_ptr<float>>& input_pointers);
+protected:
+    void sourceGrew(const layer& source, size_t offset, size_t count) override;
+    void copyWeights(size_t index, std::vector<float>& out) const override;
+    size_t expectedWeights(size_t index) const override { return inputCount(index); }
+    void storeWeights(size_t index, std::span<const float> weights) override;
+    bool wired() const override { return !groups_.empty(); }
+    void neuronsReplaced() override { group_of_.assign(neurons_.size(), no_group); }
 
 private:
-    struct WiringGroup
+    struct Group
     {
-        std::vector<std::shared_ptr<float>> inputs; // the source pool this group reads from
-        std::vector<size_t> neuronIndices;           // indices into `neurons` using this group
-        std::reference_wrapper<layer> source;        // which layer's output this tracks, for propagation
-        std::vector<float> values;                   // `inputs` copied into contiguous floats, refreshed before each use
+        std::vector<InputRange> inputs;     // the pool, in weight-column order
+        std::vector<std::reference_wrapper<const layer>> sources;  // layers whose outputs are in the pool
+        NeuronRange neurons;                // a group's neurons are always contiguous
+        kernels::weight_matrix weights;     // one row per neuron, one column per pool entry
+        std::vector<float> values;          // the pool gathered into contiguous floats
+        std::vector<float> scratch;         // per-row sums / deltas (padded to whole blocks)
+        std::vector<std::uint8_t> active;   // per-row eligibility during learning
+
+        bool reads(const layer& source) const;
+        void append(const InputRange& range);
+        std::span<const float> gather();
     };
 
-    // Work (neurons x inputs multiply-adds) per thread. A group gets
-    // work / parallel_work_per_thread threads, capped at the OpenMP maximum,
-    // and runs serially below two. Measured on 20 threads: giving every
-    // mid-sized group all threads was fastest but woke and parked 20 threads
-    // each tick; on a reservoir workload (200 x 300 group) that cost 2.6x the
-    // CPU of serial for a 2.6x speed-up, versus 1.2x the CPU for 2.0x with
-    // this value. Large groups (>= 16384 x 20) still use every thread.
-    static constexpr size_t parallel_work_per_thread = 16384;
+    // The layer a range comes from; none for sensors.
+    using Source = std::optional<std::reference_wrapper<const layer>>;
+    // Appends `range` to the pool of every group (that does not read
+    // `source` yet, when given), with weights from `stream`.
+    void appendToGroups(const InputRange& range, Source source, rng::WeightStream stream);
+    // Neurons in no group form a new one reading `range`, weights from `stream`.
+    void groupUnwired(const InputRange& range, Source source, rng::WeightStream stream);
+    // The only way a group is created. Throws std::logic_error if a neuron
+    // is already in a group: a neuron belongs to exactly one group.
+    void addGroup(Group group);
 
-    // Refreshes group.values from group.inputs and returns it.
-    static std::span<const float> gather(WiringGroup& group);
-
-    std::deque<neuron> neurons;   // deque, not vector: growth (emplace_back) must never invalidate
-                                   // references to already-existing neurons held elsewhere (e.g. in groups)
-    std::vector<std::shared_ptr<float>> output;
-    std::vector<WiringGroup> groups;
-
-    bool hasHabituation_, hasER_; // propagated to every neuron this layer constructs, including future growth
-    Jitter recoveryJitter_, learningJitter_, alphaJitter_; // likewise
+    std::vector<Group> groups_;
+    std::vector<size_t> group_of_;  // per neuron: index into groups_, or no_group
 };
+
+} // namespace exr

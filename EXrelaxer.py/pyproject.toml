@@ -1,0 +1,23 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "exrelaxer"
+version = "0.1.0"
+description = "Python bindings for exRelaxer: biologically inspired neurons with excitation-relaxation, habituation and reward-modulated Hebbian learning"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["exrelaxer"]
+cmake.build-type = "Release"
+# The C++ library is in the parent directory, so the package is installed from
+# a checkout (pip install ./EXrelaxer.py), not from an sdist.
+sdist.exclude = ["build"]

@@ -6,9 +6,13 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
+#include <functional>
+#include <string_view>
 #include "../core/layers/dense.hpp"
 #include "er_scales.hpp"
 #include "../core/neuron.hpp"
+
+using namespace exr;
 
 TEST(DenseLayerTest, RecursiveTopologyAndCascadePropagation)
 {
@@ -19,81 +23,81 @@ TEST(DenseLayerTest, RecursiveTopologyAndCascadePropagation)
     dense B(3);
     dense C(4);
 
-    EXPECT_TRUE(B.join(A));
-    EXPECT_TRUE(C.join(B));
+    EXPECT_NO_THROW(B.join(A));
+    EXPECT_NO_THROW(C.join(B));
 
     // Verify initial layer dimensions and connection bounds
     EXPECT_EQ(A.size(), 2);
-    EXPECT_EQ(A.getOutput().size(), 2);
+    EXPECT_EQ(A.output().size(), 2);
 
     EXPECT_EQ(B.size(), 3);
-    EXPECT_EQ(B.getOutput().size(), 3);
-    for (const auto& n : B.getNeurons())
+    EXPECT_EQ(B.output().size(), 3);
+    for (size_t n = 0; n < B.size(); ++n)
     {
-        EXPECT_EQ(n.getWeights().size(), 2); // B reads from A (2 outputs)
+        EXPECT_EQ(B.inputCount(n), 2); // B reads from A (2 outputs)
     }
 
     EXPECT_EQ(C.size(), 4);
-    EXPECT_EQ(C.getOutput().size(), 4);
-    for (const auto& n : C.getNeurons())
+    EXPECT_EQ(C.output().size(), 4);
+    for (size_t n = 0; n < C.size(); ++n)
     {
-        EXPECT_EQ(n.getWeights().size(), 3); // C reads from B (3 outputs)
+        EXPECT_EQ(C.inputCount(n), 3); // C reads from B (3 outputs)
     }
 
     // -------------------------------------------------------------------------
     // Step 2: Feedback connection A -> C (Attach 2 neurons to C reading from A)
     // -------------------------------------------------------------------------
-    EXPECT_TRUE(A.addFeedback(C, 2));
+    EXPECT_NO_THROW(A.addFeedback(C, 2));
 
     // C expands to 6 neurons (4 existing + 2 new feedback neurons)
     EXPECT_EQ(C.size(), 6);
-    EXPECT_EQ(C.getOutput().size(), 6);
+    EXPECT_EQ(C.output().size(), 6);
 
     // -------------------------------------------------------------------------
     // Step 3: Feedback connection C -> A (Attach 3 neurons to A reading from C)
     // -------------------------------------------------------------------------
-    EXPECT_TRUE(C.addFeedback(A, 3));
+    EXPECT_NO_THROW(C.addFeedback(A, 3));
 
     // A expands from 2 to 5 neurons
     EXPECT_EQ(A.size(), 5);
-    EXPECT_EQ(A.getOutput().size(), 5);
+    EXPECT_EQ(A.output().size(), 5);
 
     // CASCADE: B listens to A, so B's input vector automatically expands
     // from 2 to 5 inputs. Weights of original 3 neurons in B expand accordingly.
-    for (const auto& n : B.getNeurons())
+    for (size_t n = 0; n < B.size(); ++n)
     {
-        EXPECT_EQ(n.getWeights().size(), 5);
+        EXPECT_EQ(B.inputCount(n), 5);
     }
 
     // -------------------------------------------------------------------------
     // Step 4: Feedback connection B -> A (Attach 2 neurons to A reading from B)
     // -------------------------------------------------------------------------
-    EXPECT_TRUE(B.addFeedback(A, 2));
+    EXPECT_NO_THROW(B.addFeedback(A, 2));
 
     // A expands from 5 to 7 neurons
     EXPECT_EQ(A.size(), 7);
-    EXPECT_EQ(A.getOutput().size(), 7);
+    EXPECT_EQ(A.output().size(), 7);
 
     // CASCADE: B's input group connected to A expands again to 7 inputs
-    for (const auto& n : B.getNeurons())
+    for (size_t n = 0; n < B.size(); ++n)
     {
-        EXPECT_EQ(n.getWeights().size(), 7);
+        EXPECT_EQ(B.inputCount(n), 7);
     }
 
     // -------------------------------------------------------------------------
     // Step 5: Feedback connection A -> B (Attach 1 neuron to B reading from A)
     // -------------------------------------------------------------------------
-    EXPECT_TRUE(A.addFeedback(B, 1));
+    EXPECT_NO_THROW(A.addFeedback(B, 1));
 
     // B expands from 3 to 4 neurons
     EXPECT_EQ(B.size(), 4);
-    EXPECT_EQ(B.getOutput().size(), 4);
+    EXPECT_EQ(B.output().size(), 4);
 
     // CASCADE IN C: C listens to B, so C's input group reading B expands
     // from 3 to 4 inputs. Weights of C's first 4 neurons expand accordingly.
     for (size_t i = 0; i < 4; ++i)
     {
-        EXPECT_EQ(C.getNeurons()[i].getWeights().size(), 4);
+        EXPECT_EQ(C.inputCount(i), 4);
     }
 
     // -------------------------------------------------------------------------
@@ -103,15 +107,9 @@ TEST(DenseLayerTest, RecursiveTopologyAndCascadePropagation)
     EXPECT_NO_THROW(B.forward());
     EXPECT_NO_THROW(C.forward());
 
-    for (const auto& out_ptr : A.getOutput()) {
-        ASSERT_NE(out_ptr, nullptr);
-    }
-    for (const auto& out_ptr : B.getOutput()) {
-        ASSERT_NE(out_ptr, nullptr);
-    }
-    for (const auto& out_ptr : C.getOutput()) {
-        ASSERT_NE(out_ptr, nullptr);
-    }
+    for (const dense& layer : {std::cref(A), std::cref(B), std::cref(C)})
+        for (float v : layer.output())
+            EXPECT_TRUE(std::isfinite(v));
 }
 
 TEST(DenseLayerTest, FullStateSerializationPreservesNetworkBehavior)
@@ -121,8 +119,8 @@ TEST(DenseLayerTest, FullStateSerializationPreservesNetworkBehavior)
     dense B_orig(3);
     B_orig.join(A_orig);
 
-    *A_orig.getOutput()[0] = 1.5f;
-    *A_orig.getOutput()[1] = 0.5f;
+    A_orig.setOutput(0, 1.5f);
+    A_orig.setOutput(1, 0.5f);
 
     for (int i = 0; i < 10; ++i) {
         B_orig.forward();
@@ -142,19 +140,19 @@ TEST(DenseLayerTest, FullStateSerializationPreservesNetworkBehavior)
     B_restored.deserialize(ss, DeserializeMode::FullState);
 
     // 4. Feed identical new input and execute forward pass in both networks
-    *A_orig.getOutput()[0] = 2.0f;
-    *A_orig.getOutput()[1] = 1.0f;
+    A_orig.setOutput(0, 2.0f);
+    A_orig.setOutput(1, 1.0f);
 
-    *A_restored.getOutput()[0] = 2.0f;
-    *A_restored.getOutput()[1] = 1.0f;
+    A_restored.setOutput(0, 2.0f);
+    A_restored.setOutput(1, 1.0f);
 
     B_orig.forward();
     B_restored.forward();
 
     // 5. Verify bit-exact equality between original and restored layer outputs
-    ASSERT_EQ(B_orig.getOutput().size(), B_restored.getOutput().size());
-    for (size_t i = 0; i < B_orig.getOutput().size(); ++i) {
-        EXPECT_FLOAT_EQ(*B_orig.getOutput()[i], *B_restored.getOutput()[i]);
+    ASSERT_EQ(B_orig.output().size(), B_restored.output().size());
+    for (size_t i = 0; i < B_orig.output().size(); ++i) {
+        EXPECT_FLOAT_EQ(B_orig.output()[i], B_restored.output()[i]);
     }
 }
 
@@ -173,8 +171,8 @@ TEST(DenseLayerTest, FileSerializationAndDeserialization)
     dense B_orig(3);
     B_orig.join(A_orig);
 
-    *A_orig.getOutput()[0] = 1.23f;
-    *A_orig.getOutput()[1] = 0.45f;
+    A_orig.setOutput(0, 1.23f);
+    A_orig.setOutput(1, 0.45f);
 
     for (int i = 0; i < 5; ++i) {
         B_orig.forward();
@@ -201,19 +199,19 @@ TEST(DenseLayerTest, FileSerializationAndDeserialization)
     }
 
     // 4. Feed identical new input and execute forward pass in both networks
-    *A_orig.getOutput()[0] = 2.0f;
-    *A_orig.getOutput()[1] = 1.0f;
+    A_orig.setOutput(0, 2.0f);
+    A_orig.setOutput(1, 1.0f);
 
-    *A_restored.getOutput()[0] = 2.0f;
-    *A_restored.getOutput()[1] = 1.0f;
+    A_restored.setOutput(0, 2.0f);
+    A_restored.setOutput(1, 1.0f);
 
     B_orig.forward();
     B_restored.forward();
 
     // 5. Verify bit-exact equality between original and restored layer outputs
-    ASSERT_EQ(B_orig.getOutput().size(), B_restored.getOutput().size());
-    for (size_t i = 0; i < B_orig.getOutput().size(); ++i) {
-        EXPECT_FLOAT_EQ(*B_orig.getOutput()[i], *B_restored.getOutput()[i]);
+    ASSERT_EQ(B_orig.output().size(), B_restored.output().size());
+    for (size_t i = 0; i < B_orig.output().size(); ++i) {
+        EXPECT_FLOAT_EQ(B_orig.output()[i], B_restored.output()[i]);
     }
 
     // Clean up temporary test file
@@ -234,19 +232,19 @@ TEST(DenseLayerTest, MultipleAddFeedbackUpdatesListenersWeightsCorrectly)
     dense listener(2);
 
     // listener subscribes to target's output
-    ASSERT_TRUE(listener.join(target));
+    ASSERT_NO_THROW(listener.join(target));
 
     // Initial state
     EXPECT_EQ(target.size(), 3u);
-    EXPECT_EQ(target.getOutput().size(), 3u);
+    EXPECT_EQ(target.output().size(), 3u);
     EXPECT_EQ(listener.size(), 2u);
 
     // 2. First addFeedback call: add 2 new neurons to target
-    ASSERT_TRUE(source.addFeedback(target, 2));
+    ASSERT_NO_THROW(source.addFeedback(target, 2));
 
     // target grows from 3 to 5 neurons
     EXPECT_EQ(target.size(), 5u);
-    EXPECT_EQ(target.getOutput().size(), 5u);
+    EXPECT_EQ(target.output().size(), 5u);
 
     // Run a forward pass to make sure listener extended its group's neuron
     // weights correctly and nothing reads out of bounds
@@ -255,11 +253,11 @@ TEST(DenseLayerTest, MultipleAddFeedbackUpdatesListenersWeightsCorrectly)
     EXPECT_NO_THROW(listener.forward());
 
     // 3. Second addFeedback call: add 3 more neurons to target
-    ASSERT_TRUE(source.addFeedback(target, 3));
+    ASSERT_NO_THROW(source.addFeedback(target, 3));
 
     // target grows from 5 to 8 neurons
     EXPECT_EQ(target.size(), 8u);
-    EXPECT_EQ(target.getOutput().size(), 8u);
+    EXPECT_EQ(target.output().size(), 8u);
 
     // Run forward again on all layers
     EXPECT_NO_THROW(source.forward());
@@ -267,13 +265,94 @@ TEST(DenseLayerTest, MultipleAddFeedbackUpdatesListenersWeightsCorrectly)
     EXPECT_NO_THROW(listener.forward());
 
     // 4. Check listener's outputs are consistent
-    for (const auto& out_ptr : listener.getOutput())
-    {
-        ASSERT_NE(out_ptr, nullptr);
-        EXPECT_FALSE(std::isnan(*out_ptr));
-    }
+    for (float v : listener.output())
+        EXPECT_FALSE(std::isnan(v));
 }
 
+
+// A neuron belongs to one wiring group: joining a second source appends it to
+// the group, so every neuron integrates both sources in one weighted sum.
+TEST(DenseLayerTest, JoiningTwoSourcesIntegratesThemInOneGroup)
+{
+    dense A(3, false, false), B(2, false, false), X(2, false, false);
+    std::vector<float> sensor(1, 0.0f);
+    A.attachInputs(sensor);
+    B.attachInputs(sensor);
+    ASSERT_NO_THROW(X.join(A));
+    ASSERT_NO_THROW(X.join(B));
+    for (size_t n = 0; n < X.size(); ++n)
+        EXPECT_EQ(X.inputCount(n), 5u);  // A's 3 outputs, then B's 2
+
+    for (size_t n = 0; n < A.size(); ++n) A.setWeights(n, {1.0f});
+    for (size_t n = 0; n < B.size(); ++n) B.setWeights(n, {2.0f});
+    X.setWeights(0, {1.0f, 1.0f, 1.0f, 0.0f, 0.0f});  // A only
+    X.setWeights(1, {0.0f, 0.0f, 1.0f, 1.0f, 1.0f});  // A[2] + B
+
+    sensor[0] = 0.5f;
+    A.forward(); B.forward(); X.forward();
+    EXPECT_FLOAT_EQ(X.output()[0], 1.5f);  // 3 x 0.5
+    EXPECT_FLOAT_EQ(X.output()[1], 2.5f);  // 0.5 + 1 + 1
+
+    // Growing one source appends to the shared pool; the other source's
+    // weights stay aligned.
+    dense F(1, false, false);
+    F.join(A);
+    F.addFeedback(A, 2);  // A: 3 -> 5 neurons, X's group gets 2 more inputs
+    for (size_t n = 0; n < X.size(); ++n)
+        EXPECT_EQ(X.inputCount(n), 7u);
+    EXPECT_EQ(X.weights(1)[3], 1.0f);
+    EXPECT_EQ(X.weights(1)[4], 1.0f);
+}
+
+// Sensors mixed into a layer's group (i -> a -> b + j): b's neurons read a's
+// outputs and the sensor j in one sum.
+TEST(DenseLayerTest, SensorsJoinTheExistingGroup)
+{
+    dense a(2, false, false), b(2, false, false);
+    std::vector<float> i(1, 0.0f), j(1, 0.0f);
+    a.attachInputs(i);
+    b.join(a);
+    b.attachInputs(j);
+    for (size_t n = 0; n < b.size(); ++n)
+        EXPECT_EQ(b.inputCount(n), 3u);  // a[0], a[1], j
+
+    for (size_t n = 0; n < a.size(); ++n) a.setWeights(n, {1.0f});
+    for (size_t n = 0; n < b.size(); ++n) b.setWeights(n, {1.0f, 1.0f, 10.0f});
+    i[0] = 0.1f;
+    j[0] = 0.3f;
+    a.forward(); b.forward();
+    EXPECT_FLOAT_EQ(b.output()[0], 3.2f);  // 0.1 + 0.1 + 10 x 0.3
+}
+
+// Sensors are not a source layer: when the layer itself grows, a group that
+// reads both the sensors and the layer gets only the layer's new outputs, and
+// nothing is appended twice.
+TEST(DenseLayerTest, SelfGrowthDoesNotExtendSensors)
+{
+    dense x(3), y(2);
+    std::vector<float> sensors(2, 0.0f);
+    x.attachInputs(sensors);
+    x.join(x);
+    y.addFeedback(x, 4);  // x: 3 -> 7 neurons
+    for (size_t k = 0; k < 3; ++k)
+        EXPECT_EQ(x.inputCount(k), 2u + 7u);  // sensors + all of x
+    for (size_t k = 3; k < 7; ++k)
+        EXPECT_EQ(x.inputCount(k), 2u);      // y only
+    EXPECT_NO_THROW(x.forward());
+}
+
+// A layer's saved weights must match its wiring when loaded in place.
+TEST(DenseLayerTest, DeserializeRejectsWeightsThatDoNotMatchWiring)
+{
+    dense a(3), saved(2);
+    saved.join(a);
+    std::stringstream data;
+    saved.serialize(data);
+
+    dense b(2), other(2);
+    other.join(b);  // 2 inputs, not 3
+    EXPECT_THROW(other.deserialize(data), std::runtime_error);
+}
 
 TEST(DenseLayerTest, StressTestFourLargeLayersWithCrossFeedback)
 {
@@ -290,20 +369,20 @@ TEST(DenseLayerTest, StressTestFourLargeLayersWithCrossFeedback)
     // l2 reads from l1 (1,000,000 weights)
     // l3 reads from l2 (1,000,000 weights)
     // l4 reads from l3 (1,000,000 weights)
-    ASSERT_TRUE(l2.join(l1));
-    ASSERT_TRUE(l3.join(l2));
-    ASSERT_TRUE(l4.join(l3));
+    ASSERT_NO_THROW(l2.join(l1));
+    ASSERT_NO_THROW(l3.join(l2));
+    ASSERT_NO_THROW(l4.join(l3));
 
     // 3. Add feedback (cross) connections
     // l3 adds 100 new neurons to l1
-    ASSERT_TRUE(l3.addFeedback(l1, FEEDBACK_NEURONS));
+    ASSERT_NO_THROW(l3.addFeedback(l1, FEEDBACK_NEURONS));
 
     // l4 adds 100 new neurons to l2
     // l3 reads from l2, so l3's neurons automatically get +100 weights
-    ASSERT_TRUE(l4.addFeedback(l2, FEEDBACK_NEURONS));
+    ASSERT_NO_THROW(l4.addFeedback(l2, FEEDBACK_NEURONS));
 
     // l2 adds 100 new neurons to l4
-    ASSERT_TRUE(l2.addFeedback(l4, FEEDBACK_NEURONS));
+    ASSERT_NO_THROW(l2.addFeedback(l4, FEEDBACK_NEURONS));
 
     // Check sizes grew after propagation
     EXPECT_EQ(l1.size(), BASE_NEURONS + FEEDBACK_NEURONS); // 1100
@@ -323,13 +402,10 @@ TEST(DenseLayerTest, StressTestFourLargeLayersWithCrossFeedback)
 
     // 5. Check every neuron's output is valid
     auto verifyOutputs = [](const dense& layer, const std::string& name) {
-        const auto& outputs = layer.getOutput();
+        const auto outputs = layer.output();
         EXPECT_EQ(outputs.size(), layer.size());
         for (size_t i = 0; i < outputs.size(); ++i)
-        {
-            ASSERT_NE(outputs[i], nullptr) << "Null pointer on output " << i << " in " << name;
-            EXPECT_FALSE(std::isnan(*outputs[i])) << "NaN detected on output " << i << " in " << name;
-        }
+            EXPECT_FALSE(std::isnan(outputs[i])) << "NaN detected on output " << i << " in " << name;
     };
 
     verifyOutputs(l1, "Layer 1");
@@ -374,7 +450,7 @@ PavlovianResult runPavlovianTrial(std::uint32_t seed, bool hasER, float learning
     constexpr bool HAS_HABITUATION = true;
     const bool HAS_ER = hasER;
 
-    neuron::reseed(seed);
+    reseed(seed);
 
     dense A(LAYER_SIZE, HAS_HABITUATION, HAS_ER);
     dense B(LAYER_SIZE, HAS_HABITUATION, HAS_ER);
@@ -386,8 +462,8 @@ PavlovianResult runPavlovianTrial(std::uint32_t seed, bool hasER, float learning
     D.join(C);
     A.addFeedback(C, 20);
 
-    auto sensor = std::make_shared<float>(0.0f);
-    A.attachInputs({sensor});
+    std::vector<float> sensor(1, 0.0f);
+    A.attachInputs(sensor);
 
     auto propagate = [&](int ticks = 4) {
         for (int t = 0; t < ticks; ++t) {
@@ -400,14 +476,14 @@ PavlovianResult runPavlovianTrial(std::uint32_t seed, bool hasER, float learning
 
     // Relaxation helper: let activity settle back to rest
     auto relax = [&](int ticks = 6) {
-        *sensor = 0.0f;
+        sensor[0] = 0.0f;
         propagate(ticks);
     };
 
     auto getOutputResponse = [&]() {
         float sum = 0.0f;
-        const auto& out = D.getOutput();
-        for (const auto& v : out) sum += *v;
+        const auto out = D.output();
+        for (float v : out) sum += v;
         return sum / static_cast<float>(out.size());
     };
 
@@ -416,7 +492,7 @@ PavlovianResult runPavlovianTrial(std::uint32_t seed, bool hasER, float learning
     // outputs flicker.
     auto sampleResponse = [&](float stimulus) {
         relax(6);
-        *sensor = stimulus;
+        sensor[0] = stimulus;
         float sum = 0.0f;
         for (int t = 0; t < SAMPLE_TICKS; ++t) {
             propagate(1);
@@ -426,12 +502,12 @@ PavlovianResult runPavlovianTrial(std::uint32_t seed, bool hasER, float learning
     };
 
     // Presents `stimulus`, then rewards with the sign the response should
-    // have. updateWeights() moves every eligible neuron's output toward the
+    // have. the learning rule moves every eligible neuron's output toward the
     // reward's sign, so the reward is the desired direction, not a
     // right/wrong score.
     auto train = [&](float stimulus, float desiredSign) {
         relax(20);
-        *sensor = stimulus;
+        sensor[0] = stimulus;
         propagate(4);
         A.applyReward(desiredSign, learningRate);
         B.applyReward(desiredSign, learningRate);
@@ -552,7 +628,7 @@ namespace {
 //   Only neurons with a/b of opposite sign and similar magnitude flip sign
 //   between the two orders, roughly 1 in 4. With 8 neurons, about 1 seed in
 //   8 has none and cannot learn; 32 makes that practically impossible.
-//   It is required because updateWeights() only uses the sign of each input.
+//   It is required because the learning rule only uses the sign of each input.
 //   Raw taps are always positive here, so the readout could never learn
 //   order from them directly. The mixed features change sign between
 //   "1,2" and "2,1".
@@ -563,7 +639,7 @@ namespace {
 // (taps + delay) and/or the processing path (hidden + out) to compare.
 struct SequenceConfig
 {
-    const char* name;
+    std::string_view name;
     bool memoryER;      // E-R on taps and delay
     bool processingER;  // E-R on hidden and out
 };
@@ -574,7 +650,7 @@ constexpr SequenceConfig SEQ_ALL_ER{"E-R on all layers", true, true};
 
 struct SequenceNet
 {
-    std::shared_ptr<float> sensor = std::make_shared<float>(0.0f);
+    std::vector<float> sensor = std::vector<float>(1, 0.0f);  // declared first: outlives the layers reading it
     dense taps;
     dense delay;
     dense hidden;
@@ -586,22 +662,22 @@ struct SequenceNet
           hidden(32, false, config.processingER),
           out(1, false, config.processingER)
     {
-        taps.attachInputs({sensor});   // taps[0] reads the sensor
+        taps.attachInputs(sensor);     // taps[0] reads the sensor
         delay.join(taps);              // delay reads taps' output
         delay.addFeedback(taps, 1);    // taps[1] reads delay; delay auto-grows to read taps[1] too
         hidden.join(taps);
         out.join(hidden);
 
         // Pin the memory path to identity weights: x(t) and x(t-1) copied exactly.
-        taps.getNeurons()[0].setWeights({1.0f});
-        taps.getNeurons()[1].setWeights({1.0f});
-        delay.getNeurons()[0].setWeights({1.0f, 0.0f}); // reads taps[0], ignores taps[1]
+        taps.setWeights(0, {1.0f});
+        taps.setWeights(1, {1.0f});
+        delay.setWeights(0, {1.0f, 0.0f}); // reads taps[0], ignores taps[1]
     }
 
     // One time step. delay steps before taps, so it still sees the previous tick's taps[0].
     void tick(float x)
     {
-        *sensor = x;
+        sensor[0] = x;
         delay.forward();
         taps.forward();
         hidden.forward();
@@ -615,7 +691,7 @@ struct SequenceNet
             tick(0.0f);
         tick(first);
         tick(second);
-        return *out.getOutput()[0];
+        return out.output()[0];
     }
 };
 
@@ -626,16 +702,16 @@ TEST(DenseLayerTest, SequenceDelayLineExposesPreviousInput)
     SequenceNet net;
 
     ASSERT_EQ(net.taps.size(), 2u);
-    ASSERT_EQ(net.delay.getNeurons()[0].getWeights().size(), 2u); // grew with taps
-    ASSERT_EQ(net.hidden.getNeurons()[0].getWeights().size(), 2u);
+    ASSERT_EQ(net.delay.inputCount(0), 2u); // grew with taps
+    ASSERT_EQ(net.hidden.inputCount(0), 2u);
 
     net.present(1.0f, 2.0f);
-    EXPECT_FLOAT_EQ(*net.taps.getOutput()[0], 2.0f); // x(t)
-    EXPECT_FLOAT_EQ(*net.taps.getOutput()[1], 1.0f); // x(t-1)
+    EXPECT_FLOAT_EQ(net.taps.output()[0], 2.0f); // x(t)
+    EXPECT_FLOAT_EQ(net.taps.output()[1], 1.0f); // x(t-1)
 
     net.present(2.0f, 1.0f);
-    EXPECT_FLOAT_EQ(*net.taps.getOutput()[0], 1.0f);
-    EXPECT_FLOAT_EQ(*net.taps.getOutput()[1], 2.0f);
+    EXPECT_FLOAT_EQ(net.taps.output()[0], 1.0f);
+    EXPECT_FLOAT_EQ(net.taps.output()[1], 2.0f);
 }
 
 namespace {
@@ -656,14 +732,14 @@ SequenceResult runSequenceTrial(std::uint32_t seed, const SequenceConfig& config
 {
     constexpr int EPOCHS = 200;
 
-    neuron::reseed(seed);
+    reseed(seed);
     SequenceNet net(config);
 
     SequenceResult r{};
     r.initial_12 = net.present(1.0f, 2.0f);
     r.initial_21 = net.present(2.0f, 1.0f);
 
-    // The reward sign is the desired response. updateWeights() moves the
+    // The reward sign is the desired response. the learning rule moves the
     // output toward the reward's sign: reward "1,2", punish "2,1".
     // applyReward() runs right after present(), so out still reads the
     // hidden values from the final tick.

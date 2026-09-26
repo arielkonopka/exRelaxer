@@ -12,13 +12,16 @@ layer it creates and when loading a saved network.
 struct LayerSpec
 {
     LayerType type = LayerType::Dense;
-    size_t size = 0;             // number of neurons at construction
+    size_t size = 0;             // Dense: neurons; Conv2D, LocallyConnected2D: output channels
     bool hasHabituation = true;
     bool hasER = true;
     bool frozen = false;         // network::applyReward skips frozen layers
     Jitter recoveryJitter = {};  // per-neuron E-R recovery (default: none)
     Jitter learningJitter = {};  // per-neuron learning gain (default: none)
     Jitter alphaJitter = {};     // per-neuron E-R alpha (default: none)
+    Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
+    PoolMode pool = PoolMode::Max;  // Pool2D
+    RetinaSpec retina = {};      // Retina
 };
 ```
 
@@ -76,7 +79,18 @@ public:
 
 | Type | Creator |
 |------|---------|
-| `LayerType::Dense` | `std::make_unique<dense>(spec.size, spec.hasHabituation, spec.hasER, spec.recoveryJitter, spec.learningJitter)` |
+| `LayerType::Dense` | `dense(spec.size, spec.hasHabituation, spec.hasER, jitters...)` |
+| `LayerType::Conv2D` | `conv2d(spec.size, spec.window, spec.hasHabituation, spec.hasER, jitters...)` |
+| `LayerType::LocallyConnected2D` | `locally_connected2d(spec.size, spec.window, ...)` |
+| `LayerType::Pool2D` | `pool2d(spec.window, spec.pool)` |
+| `LayerType::Retina` | `retina(spec.retina, spec.hasHabituation, spec.hasER, jitters...)` |
+
+`LayerSpec` has a builder per type that fills the fields it uses:
+`LayerSpec::Dense(size)`, `Conv2D(channels, window)`,
+`LocallyConnected2D(channels, window)`, `Pool2D(window, mode)`,
+`Retina(retinaSpec)`. Fields a type does not use are ignored. `size` is the
+neuron count for Dense and the output channels for Conv2D and
+LocallyConnected2D.
 
 Built-in types are registered in the constructor, **not** by static
 self-registering objects in their own source files: in a static library the
@@ -87,7 +101,9 @@ type would silently be missing.
 
 1. Add a value to `LayerType` (never renumber existing ones; they are saved
    in network files).
-2. Implement `layer` (see [requirements](layer.md#requirements-for-implementations)).
+2. Derive from `neuron_layer` (a layer made of neurons) or `layer` (e.g.
+   pooling), see [requirements](layer.md#requirements-for-implementations).
+   Weighted sums and learning should use the shared [kernels](kernels.md).
 3. Register a creator, either in `layer_factory`'s constructor (built-in) or
    at startup:
 

@@ -10,6 +10,9 @@
 #include <vector>
 #include "layers/layer.hpp"
 #include "layers/layer_factory.hpp"
+#include "layers/neuron_layer.hpp"
+
+namespace exr {
 
 // A graph of layers plus the sensors that feed it and the layers read as its
 // output. Layers are created through a layer_factory and handled only
@@ -55,7 +58,7 @@ public:
 
     explicit network(const layer_factory& factory = layer_factory::instance());
 
-    // Layers hold references to each other (listeners), and the network hands
+    // Layers hold references to each other (readers, output buffers), and the network hands
     // out references to its layers, so a network is neither copied nor moved.
     network(const network&) = delete;
     network& operator=(const network&) = delete;
@@ -65,7 +68,8 @@ public:
     LayerId addLayer(const std::string& name, const LayerSpec& spec);
 
     // `to` reads `from`'s output. As with layer::join, only the neurons `to`
-    // has right now are wired; call this before growing `to` with feedback.
+    // has right now are wired, and each of them sums `from` together with
+    // everything it already reads; call this before growing `to` with feedback.
     // Each pair can be connected once. connect(x, x) makes every neuron of x
     // read x's own output (recurrence) and is ignored by the update order.
     void connect(LayerId from, LayerId to);
@@ -74,9 +78,12 @@ public:
     // already reading `to` are extended automatically.
     void addFeedback(LayerId from, LayerId to, size_t width);
 
-    // Creates `count` sensors owned by the network and attaches them to
-    // `target`. Returns the index of the first new sensor.
+    // Creates `count` sensors owned by the network (initially 0) and
+    // attaches them to `target`. Returns the index of the first new sensor.
     size_t addInputs(LayerId target, size_t count);
+    // Sensors for an image, channel after channel, row after row (e.g. for a
+    // retina); the same as addInputs(target, image.size()).
+    size_t addInputs(LayerId target, const Shape& image);
 
     // Marks a layer as output; outputs() concatenates output layers in the
     // order they were marked.
@@ -90,7 +97,8 @@ public:
     void unfreeze(LayerId id);
     bool isFrozen(LayerId id) const;
 
-    // Per-neuron dynamics of a layer (see Jitter in neuron.hpp): E-R recovery,
+    // Per-neuron dynamics of a layer made of neurons (see Jitter in
+    // neuron.hpp; other layer types throw std::invalid_argument): E-R recovery,
     // learning gain and E-R alpha, each independently optional. Normally
     // chosen at layer creation through LayerSpec; these setters change it
     // later: they redraw that parameter for every existing neuron of the
@@ -119,6 +127,12 @@ public:
     size_t layerCount() const { return nodes.size(); }
     layer& getLayer(LayerId id);
     const layer& getLayer(LayerId id) const;
+    // The layer as its concrete type, e.g. layerAs<conv2d>(id); throws
+    // std::bad_cast if it is another type.
+    template <typename T>
+    T& layerAs(LayerId id) { return dynamic_cast<T&>(getLayer(id)); }
+    template <typename T>
+    const T& layerAs(LayerId id) const { return dynamic_cast<const T&>(getLayer(id)); }
     LayerId findLayer(const std::string& name) const;  // throws std::out_of_range if absent
     const std::string& layerName(LayerId id) const;
     const LayerSpec& layerSpec(LayerId id) const;
@@ -126,7 +140,7 @@ public:
     const std::vector<Edge>& edges() const { return edges_; }
     const std::vector<LayerId>& outputLayers() const { return outputs_; }
     size_t inputCount() const { return inputs_.size(); }
-    const std::vector<std::shared_ptr<float>>& inputs() const { return inputs_; }
+    std::span<const float> inputs() const { return inputs_; }
 
     // Throws std::logic_error if the forward edges form a cycle (other than
     // self-connections) and no custom order is set.
@@ -176,12 +190,13 @@ private:
     };
 
     void checkId(LayerId id) const;
+    neuron_layer& neuronLayer(LayerId id);
     std::vector<LayerId> topologicalOrder() const;
 
     const layer_factory& factory;
     std::vector<Node> nodes;
     std::vector<Edge> edges_;
-    std::vector<std::shared_ptr<float>> inputs_;
+    std::vector<float> inputs_;  // every sensor, in addInputs order; layers read ranges of it
     std::vector<LayerId> outputs_;
     std::vector<BuildOp> ops_;
 
@@ -189,3 +204,5 @@ private:
     mutable std::vector<LayerId> order_;
     mutable bool orderValid = false;  // default order is recomputed after the graph changes
 };
+
+} // namespace exr

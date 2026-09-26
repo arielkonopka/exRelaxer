@@ -1,13 +1,34 @@
 #include "layer_factory.hpp"
+#include "conv2d.hpp"
 #include "dense.hpp"
+#include "locally_connected2d.hpp"
+#include "pool2d.hpp"
+#include "retina.hpp"
 #include <stdexcept>
 #include <string>
+
+namespace exr {
 
 layer_factory::layer_factory()
 {
     registerType(LayerType::Dense, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
         return std::make_unique<dense>(spec.size, spec.hasHabituation, spec.hasER,
                                        spec.recoveryJitter, spec.learningJitter, spec.alphaJitter);
+    });
+    registerType(LayerType::Conv2D, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
+        return std::make_unique<conv2d>(spec.size, spec.window, spec.hasHabituation, spec.hasER,
+                                        spec.recoveryJitter, spec.learningJitter, spec.alphaJitter);
+    });
+    registerType(LayerType::LocallyConnected2D, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
+        return std::make_unique<locally_connected2d>(spec.size, spec.window, spec.hasHabituation, spec.hasER,
+                                                     spec.recoveryJitter, spec.learningJitter, spec.alphaJitter);
+    });
+    registerType(LayerType::Pool2D, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
+        return std::make_unique<pool2d>(spec.window, spec.pool);
+    });
+    registerType(LayerType::Retina, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
+        return std::make_unique<retina>(spec.retina, spec.hasHabituation, spec.hasER,
+                                        spec.recoveryJitter, spec.learningJitter, spec.alphaJitter);
     });
 }
 
@@ -35,3 +56,5 @@ std::unique_ptr<layer> layer_factory::create(const LayerSpec& spec) const
                                     std::to_string(static_cast<int>(spec.type)));
     return it->second(spec);
 }
+
+} // namespace exr

@@ -12,8 +12,10 @@
 #include <random>
 #include <string>
 #include <vector>
-#include "../core/network.hpp"
-#include "../core/layers/dense.hpp"
+#include "network.hpp"
+#include "layers/dense.hpp"
+
+using namespace exr;
 
 namespace pattern_benchmark {
 
@@ -174,7 +176,7 @@ inline dense& asDense(network& net, network::LayerId id) { return dynamic_cast<d
 //   bands (4): per symbol, half the difference of its two ramps minus 5:
 //              +5 when |x - s| < h, -5 otherwise; plus a constant +5 (bias).
 //
-// Features are +-5 rather than 0/10 because updateWeights() only uses the
+// Features are +-5 rather than 0/10 because the learning rule only uses the
 // sign of each input, and a 0 input never teaches anything.
 // E-R and habituation are off: habituation would silence the constant.
 constexpr size_t BAND_FEATURES = 4;  // A, B, C, bias
@@ -200,24 +202,24 @@ inline ValueDetectors addSymbolDetectors(network& net, const std::vector<float>&
     net.addInputs(d.ramps, 2);  // x, bias
     net.connect(d.ramps, d.bands);
 
-    auto& ramps = asDense(net, d.ramps).getNeurons();
+    dense& ramps = asDense(net, d.ramps);
     for (size_t i = 0; i < n; ++i) {
-        ramps[2 * i].setWeights({k, -k * (symbols[i] - h)});
-        ramps[2 * i + 1].setWeights({k, -k * (symbols[i] + h)});
+        ramps.setWeights(2 * i, {k, -k * (symbols[i] - h)});
+        ramps.setWeights(2 * i + 1, {k, -k * (symbols[i] + h)});
     }
-    ramps[2 * n].setWeights({0.0f, 100.0f});  // constant +10
+    ramps.setWeights(2 * n, {0.0f, 100.0f});  // constant +10
 
-    auto& bands = asDense(net, d.bands).getNeurons();
+    dense& bands = asDense(net, d.bands);
     for (size_t i = 0; i < n; ++i) {
         std::vector<float> w(2 * n + 1, 0.0f);
         w[2 * i] = 0.5f;
         w[2 * i + 1] = -0.5f;
         w[2 * n] = -0.5f;
-        bands[i].setWeights(w);
+        bands.setWeights(i, w);
     }
     std::vector<float> bias(2 * n + 1, 0.0f);
     bias[2 * n] = 0.5f;
-    bands[n].setWeights(bias);  // constant +5
+    bands.setWeights(n, bias);  // constant +5
     return d;
 }
 
@@ -237,11 +239,11 @@ inline network::LayerId addDelayWindow(network& net, network::LayerId source, si
                                        std::vector<network::LayerId>& tapOrder)
 {
     auto identity = [&](network::LayerId id, size_t firstNeuron) {
-        auto& neurons = asDense(net, id).getNeurons();
+        dense& target = asDense(net, id);
         for (size_t i = 0; i < width; ++i) {
             std::vector<float> w(width, 0.0f);
             w[i] = 1.0f;
-            neurons[firstNeuron + i].setWeights(w);
+            target.setWeights(firstNeuron + i, w);
         }
     };
 
@@ -284,7 +286,7 @@ inline network::LayerId addDelayWindow(network& net, network::LayerId source, si
 // any memory then comes from the neurons' own state (E-R thresholds).
 // recoveryJitter spreads the neurons' E-R relaxation rates (see
 // neuron::randomizeDynamics), i.e. their memory timescales.
-// Weights come from the neuron random streams, so neuron::reseed controls them.
+// Weights come from the neuron random streams, so exr::reseed controls them.
 // The caller places the returned layer after `source` in the update order.
 inline network::LayerId addReservoir(network& net, network::LayerId source, size_t sourceWidth,
                                      size_t inputNeurons, size_t recurrentNeurons,
@@ -297,18 +299,52 @@ inline network::LayerId addReservoir(network& net, network::LayerId source, size
     if (recurrentNeurons > 0)
         net.addFeedback(res, res, recurrentNeurons);
 
-    auto& neurons = asDense(net, res).getNeurons();
+    dense& reservoir = asDense(net, res);
     const float in_factor = inputScale / std::sqrt(static_cast<float>(sourceWidth));
     const float rec_factor = recurrentScale / std::sqrt(static_cast<float>(inputNeurons + recurrentNeurons));
-    for (size_t i = 0; i < neurons.size(); ++i)
-        for (float& w : neurons[i].getWeights())
+    for (size_t i = 0; i < reservoir.size(); ++i) {
+        std::vector<float> weights = reservoir.weights(i);
+        for (float& w : weights)
             w *= i < inputNeurons ? in_factor : rec_factor;
+        reservoir.setWeights(i, weights);
+    }
     return res;
 }
 
 // With E-R on, a runaway network does not stay non-finite: once thresholds
 // become inf nothing fires and the output sits at exactly 0. So divergence
 // is detected from the response magnitude, not only from NaN/inf.
+// Frozen value detectors, plus a frozen delay window of `depth` lags when
+// depth > 0. `features` is the layer the learned part should read; `order`
+// is the update order so far.
+struct FrontEnd
+{
+    network::LayerId features;
+    std::vector<network::LayerId> order;
+};
+
+inline FrontEnd addFrontEnd(network& net, int depth)
+{
+    FrontEnd f;
+    const ValueDetectors detectors = addValueDetectors(net);
+    f.features = depth > 0 ? addDelayWindow(net, detectors.bands, BAND_FEATURES, depth, f.order) : detectors.bands;
+    f.order.push_back(detectors.ramps);
+    f.order.push_back(detectors.bands);
+    if (depth > 0)
+        f.order.push_back(f.features);
+    return f;
+}
+
+// Appends the learned layers to the update order, sets it and marks `out`
+// as the output.
+inline void finishFrontEnd(network& net, FrontEnd& f, std::initializer_list<network::LayerId> rest,
+                           network::LayerId out)
+{
+    f.order.insert(f.order.end(), rest);
+    net.setUpdateOrder(f.order);
+    net.addOutput(out);
+}
+
 inline bool isDivergent(float response) { return !std::isfinite(response) || std::abs(response) > 1e6f; }
 
 // How the reward is computed from the target on each training tick.
@@ -325,7 +361,7 @@ inline PatternScore runPatternTrial(const NetworkBuilder& build, std::uint32_t s
                                     float learningRate, size_t trainTicks = PATTERN_TRAIN_TICKS,
                                     RewardMode mode = RewardMode::Target)
 {
-    neuron::reseed(seed);
+    reseed(seed);
     const std::unique_ptr<network> net = build(hasER);
 
     // The reward is the desired sign of the response (see the Pavlovian test).
@@ -436,8 +472,17 @@ inline const char* verdict(float t, const char* better, const char* worse)
 // Shortcut rules that ignore (part of) the sequence, scored on the same test
 // streams: a network has only learned the sequence if it beats them on the
 // after-C measure.
+// Prints results with 3 significant digits within a scope, then restores
+// std::cout, so the format never depends on which tests ran before.
+struct ThreeDigits
+{
+    std::streamsize saved = std::cout.precision(3);
+    ~ThreeDigits() { std::cout.precision(saved); }
+};
+
 inline void printShortcutBaselines(int trials = PATTERN_TRIALS)
 {
+    ThreeDigits digits;
     struct Rule { const char* name; std::function<bool(const std::vector<float>&, size_t)> fires; };
     const Rule rules[] = {
         {"respond after any C", [](const std::vector<float>& v, size_t t) {
@@ -469,6 +514,7 @@ inline void printShortcutBaselines(int trials = PATTERN_TRIALS)
 
 inline void printMeasure(const char* name, const Measure& m, const char* chance_good)
 {
+    ThreeDigits digits;
     const float t_control = tStatistic(m.diff, m.stderr_diff);
     const float t_chance = tStatistic(m.mean - 0.5f, m.stderr_mean);
     std::cout << "   " << name << ": " << m.mean << " (control " << m.mean_control << "), trained - control "
@@ -482,6 +528,7 @@ inline void printMeasure(const char* name, const Measure& m, const char* chance_
 
 inline void printPatternStats(const char* title, const PatternStats& st, int trials = PATTERN_TRIALS)
 {
+    ThreeDigits digits;
     std::cout << " " << title << ": diverged " << st.diverged << "/" << trials
               << " (control " << st.diverged_control << ")\n";
     printMeasure("balanced accuracy (all ticks)", st.balanced, "ABOVE CHANCE - reacts to the pattern");
@@ -526,7 +573,7 @@ inline std::string topologySummary(const network& net)
 // Builds one instance of the topology and prints its full description.
 inline void printTopology(const NetworkBuilder& build, bool hasER)
 {
-    neuron::reseed(0);
+    reseed(0);
     const std::unique_ptr<network> net = build(hasER);
     std::cout << " Topology:\n";
     net->describe(std::cout);
