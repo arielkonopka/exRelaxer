@@ -414,11 +414,12 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //   5  + relative-spread flag per jitter
 //   6  + alpha jitter per layer
 //   7  + spatial parameters per layer (window, pooling mode, retina)
+//   8  + audio parameters per layer (cochlea)
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 7;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 8;
 // Files from this version on carry the full state; older ones load as
-// weights only. (Version 7 only added parameters of layer types that did
-// not exist before, whose defaults are right for version 6 files.)
+// weights only. (Versions 7 and 8 only added parameters of layer types that
+// did not exist before, whose defaults are right for older files.)
 constexpr std::uint32_t FIRST_FULL_STATE_VERSION = 6;
 
 // Upper bounds for counts read from a stream, so corrupt data fails with an
@@ -472,6 +473,22 @@ void writeSpatial(std::ostream& os, const LayerSpec& spec)
 
 void readSpatial(std::istream& is, LayerSpec& spec);
 
+void writeAudio(std::ostream& os, const LayerSpec& spec)
+{
+    const CochleaSpec& c = spec.cochlea;
+    writeValue(os, c.sampleRate);
+    writeCount(os, c.hop);
+    writeCount(os, c.window);
+    writeCount(os, c.bands);
+    writeValue(os, c.minFrequency);
+    writeValue(os, c.maxFrequency);
+    writeValue(os, static_cast<std::uint8_t>(c.scale));
+    writeValue(os, static_cast<std::uint8_t>(c.compression));
+    writeValue(os, c.gain);
+}
+
+void readAudio(std::istream& is, LayerSpec& spec);
+
 size_t readCount(std::istream& is, std::string_view what)
 {
     const auto value = readValue<std::uint64_t>(is);
@@ -499,6 +516,26 @@ void readSpatial(std::istream& is, LayerSpec& spec)
     spec.retina.sampling = static_cast<Sampling>(sampling);
     spec.retina.spacing = readValue<float>(is);
     spec.retina.radius = readValue<float>(is);
+}
+
+void readAudio(std::istream& is, LayerSpec& spec)
+{
+    CochleaSpec& c = spec.cochlea;
+    c.sampleRate = readValue<float>(is);
+    c.hop = readCount(is, "cochlea hop");
+    c.window = readCount(is, "cochlea window");
+    c.bands = readCount(is, "cochlea bands");
+    c.minFrequency = readValue<float>(is);
+    c.maxFrequency = readValue<float>(is);
+    const auto scale = readValue<std::uint8_t>(is);
+    if (scale > static_cast<std::uint8_t>(FrequencyScale::Linear))
+        throw std::runtime_error("network::load: unknown frequency scale " + std::to_string(scale));
+    c.scale = static_cast<FrequencyScale>(scale);
+    const auto compression = readValue<std::uint8_t>(is);
+    if (compression > static_cast<std::uint8_t>(Compression::Linear))
+        throw std::runtime_error("network::load: unknown compression " + std::to_string(compression));
+    c.compression = static_cast<Compression>(compression);
+    c.gain = readValue<float>(is);
 }
 
 Jitter readJitter(std::istream& is, std::uint32_t version)
@@ -547,6 +584,7 @@ void network::save(std::ostream& os) const
             writeJitter(os, node.spec.learningJitter);
             writeJitter(os, node.spec.alphaJitter);
             writeSpatial(os, node.spec);
+            writeAudio(os, node.spec);
             break;
         }
         case OpKind::Connect:
@@ -648,6 +686,8 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
             }
             if (version >= 7)
                 readSpatial(is, spec);
+            if (version >= 8)
+                readAudio(is, spec);
             net->addLayer(name, spec);
             break;
         }

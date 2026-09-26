@@ -18,7 +18,9 @@ enum class LayerType : std::uint8_t {
     Conv2D = 1,
     Pool2D = 2,
     LocallyConnected2D = 3,
-    Retina = 4
+    Retina = 4,
+    Cochlea = 5,
+    History = 6
 };
 
 // Layout of a layer's output: channels x height x width, channel-major

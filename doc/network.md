@@ -225,7 +225,7 @@ the building methods' exceptions.
 Binary, native endianness (not portable across platforms). Counts and ids
 are `uint64`.
 
-1. Magic `EXRN`, format version `uint32` (currently **7**).
+1. Magic `EXRN`, format version `uint32` (currently **8**).
 2. Operation count, then each operation: kind (`uint8`) and fields:
    - AddLayer: name length + bytes, `LayerType` (`uint8`), size,
      hasHabituation, hasER, frozen (`uint8` each; frozen is the state at save
@@ -234,7 +234,9 @@ are `uint64`.
      mean, min, max (`float`); then the spatial parameters: window
      (kernel height and width, strides, paddings), pooling mode (`uint8`),
      retina image shape (channels, height, width), sampling (`uint8`),
-     spacing and radius (`float`)
+     spacing and radius (`float`); then the audio parameters: cochlea sample
+     rate (`float`), hop, window, bands, min and max frequency (`float`),
+     frequency scale and compression (`uint8`), gain (`float`)
    - Connect: from, to
    - Feedback: from, to, width
    - Inputs: target, count
@@ -251,6 +253,7 @@ are `uint64`.
 | 5 | relative-spread flag per jitter |
 | 6 | alpha jitter per layer |
 | 7 | spatial parameters per layer (window, pooling mode, retina) |
+| 8 | audio parameters per layer (cochlea) |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.

@@ -12,7 +12,7 @@ layer it creates and when loading a saved network.
 struct LayerSpec
 {
     LayerType type = LayerType::Dense;
-    size_t size = 0;             // Dense: neurons; Conv2D, LocallyConnected2D: output channels
+    size_t size = 0;             // Dense: neurons; Conv2D, LocallyConnected2D: output channels; History: ticks
     bool hasHabituation = true;
     bool hasER = true;
     bool frozen = false;         // network::applyReward skips frozen layers
@@ -22,6 +22,7 @@ struct LayerSpec
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina
+    CochleaSpec cochlea = {};    // Cochlea
 };
 ```
 
@@ -84,13 +85,16 @@ public:
 | `LayerType::LocallyConnected2D` | `locally_connected2d(spec.size, spec.window, ...)` |
 | `LayerType::Pool2D` | `pool2d(spec.window, spec.pool)` |
 | `LayerType::Retina` | `retina(spec.retina, spec.hasHabituation, spec.hasER, jitters...)` |
+| `LayerType::Cochlea` | `cochlea(spec.cochlea, spec.hasHabituation, spec.hasER, jitters...)` |
+| `LayerType::History` | `history(spec.size)` |
 
 `LayerSpec` has a builder per type that fills the fields it uses:
 `LayerSpec::Dense(size)`, `Conv2D(channels, window)`,
 `LocallyConnected2D(channels, window)`, `Pool2D(window, mode)`,
-`Retina(retinaSpec)`. Fields a type does not use are ignored. `size` is the
-neuron count for Dense and the output channels for Conv2D and
-LocallyConnected2D.
+`Retina(retinaSpec)`, `Cochlea(cochleaSpec)`, `History(length)` (see
+[audio](audio.md)). Fields a type does not use are ignored. `size` is the
+neuron count for Dense, the output channels for Conv2D and
+LocallyConnected2D, and the ticks remembered for History.
 
 Built-in types are registered in the constructor, **not** by static
 self-registering objects in their own source files: in a static library the

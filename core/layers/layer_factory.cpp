@@ -1,6 +1,8 @@
 #include "layer_factory.hpp"
+#include "cochlea.hpp"
 #include "conv2d.hpp"
 #include "dense.hpp"
+#include "history.hpp"
 #include "locally_connected2d.hpp"
 #include "pool2d.hpp"
 #include "retina.hpp"
@@ -29,6 +31,13 @@ layer_factory::layer_factory()
     registerType(LayerType::Retina, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
         return std::make_unique<retina>(spec.retina, spec.hasHabituation, spec.hasER,
                                         spec.recoveryJitter, spec.learningJitter, spec.alphaJitter);
+    });
+    registerType(LayerType::Cochlea, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
+        return std::make_unique<cochlea>(spec.cochlea, spec.hasHabituation, spec.hasER,
+                                         spec.recoveryJitter, spec.learningJitter, spec.alphaJitter);
+    });
+    registerType(LayerType::History, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
+        return std::make_unique<history>(spec.size);
     });
 }
 

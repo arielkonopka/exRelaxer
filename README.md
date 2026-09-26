@@ -12,7 +12,7 @@ automatically to every downstream layer.
 
 **Documentation:** [doc/](doc/README.md) has a detailed page for each class:
 [neuron](doc/neuron.md), [layer](doc/layer.md), [dense](doc/dense.md),
-[kernels](doc/kernels.md), [spatial](doc/spatial.md),
+[kernels](doc/kernels.md), [spatial](doc/spatial.md), [audio](doc/audio.md),
 [layer_factory](doc/layer_factory.md),
 [network](doc/network.md), and the
 test-support [pattern_benchmark](doc/pattern_benchmark.md). It also has
@@ -40,6 +40,11 @@ experiment so far.
   pipeline with about 2 million neurons steps in about 18 ms. Fixed filter
   banks (Gabor, centre-surround, Gaussian) turn a Conv2D into a frozen
   feature detector (see [doc/spatial.md](doc/spatial.md)).
+- **Audio layers** – `Cochlea` reads sound a hop of samples per tick and
+  splits it (Hann window, FFT) into mel or linear frequency bands, one
+  adapting neuron per band; `History` keeps the last ticks side by side, so
+  a cochlea's bands become a spectrogram the vision layers read like an
+  image (see [doc/audio.md](doc/audio.md)).
 - **Pluggable layer types** – layers are created by `layer_factory` from a
   `LayerSpec`; new types plug in by registering a creator.
 - **Dynamic topology** – layers can be joined, grown with feedback neurons,
@@ -64,10 +69,36 @@ Both adaptation mechanisms can be toggled independently per layer.
 
 ## Building and testing
 
+One command builds everything, runs every test and installs the library:
+
+```bash
+./build.sh                   # library, unit tests, nntest; runs ctest; installs into ./install
+./build.sh --python          # ... and the Python package, with its tests and quick experiments
+./build.sh --help            # --prefix DIR, --debug, --native, --no-tests, --no-install, --clean, -j N
+```
+
+It configures `build/` (Release), builds, runs `ctest` (the unit tests, the
+quick experiments' checks, a program built against the installed package,
+and with `--python` the pytest suite) and installs into `./install`
+(`--prefix` to change). Afterwards:
+
+| To | Use |
+|----|-----|
+| run the unit tests again | `./build/exrelaxer_tests` or `ctest --test-dir build` |
+| run experiments | `./build/NNtesting/nntest list` (also `install/bin/nntest`) |
+| run Python experiments (`--python`) | `PYTHONPATH=build/EXrelaxer.py/package NNtesting/nntest.py list` |
+| use the library in another C++ program | `find_package(exrelaxer)` with `-DCMAKE_PREFIX_PATH=install` (see [below](#using-the-library)) |
+
+Arguments after `--` go to CMake, e.g.
+`./build.sh -- -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`
+to build offline. On Windows run it from Git Bash, or use the plain CMake
+steps it runs:
+
 ```bash
 cmake -S . -B build          # Release by default; add -DCMAKE_BUILD_TYPE=Debug to debug
 cmake --build build -j
 cd build && ctest --output-on-failure
+cmake --install build --prefix install
 ```
 
 | Target              | Description                          |
@@ -89,6 +120,7 @@ results are the same either way.
 | `EXRELAXER_BUILD_TESTS` | on when top-level | the GoogleTest unit tests (fetches GoogleTest) |
 | `EXRELAXER_BUILD_NNTESTING` | on when top-level | the `nntest` benchmark harness |
 | `EXRELAXER_BUILD_PYTHON` | off | the Python extension, tested by CTest as `python_tests` |
+| `EXRELAXER_INSTALL` | on when top-level | install rules: library, headers, CMake package, `nntest` |
 
 A project that adds exrelaxer with `add_subdirectory` gets only the library.
 
@@ -119,14 +151,29 @@ NNtesting/datasets/fetch.py get mnist
 NNtesting/nntest.py run mnist_gabor       # MNIST from Python: 0.90 accuracy
 ```
 
-## Quick start
+## Using the library
 
-Link against `exrelaxer_core`; its public include directory is `core/`:
+Either install it (`./build.sh --prefix DIR`) and find the package:
 
 ```cmake
-add_subdirectory(exrelaxer)
-target_link_libraries(my_app PRIVATE exrelaxer_core)
+find_package(exrelaxer 1.0 REQUIRED)       # configure with -DCMAKE_PREFIX_PATH=DIR
+target_link_libraries(my_app PRIVATE exrelaxer::core)
 ```
+
+or build it inside your project:
+
+```cmake
+add_subdirectory(exrelaxer)                # just the library, no tests
+target_link_libraries(my_app PRIVATE exrelaxer::core)
+```
+
+Either way headers are included as `"network.hpp"`, `"layers/cochlea.hpp"`,
+... (installed, they are in `DIR/include/exrelaxer`), and OpenMP comes along
+when the library was built with it. [examples/consumer](examples/consumer)
+is a complete program; the CTest test `installed_package_example` installs
+the build and compiles it against the package.
+
+## Quick start
 
 ```cpp
 #include "network.hpp"
@@ -231,6 +278,9 @@ core/
   layers/locally_connected2d.*   convolution geometry, own weights per position
   layers/pool2d.hpp/.cpp         max / average pooling
   layers/retina.hpp/.cpp         image input: grid or spiral sampling
+  layers/audio.hpp               CochleaSpec, frequency scales, compression
+  layers/cochlea.hpp/.cpp        sound input: FFT into frequency bands, one neuron per band
+  layers/history.hpp/.cpp        the last ticks of its sources side by side (spectrograms)
   filters.hpp/.cpp               fixed filter banks for Conv2D: Gaussian, difference of Gaussians, Gabor
   parallel.hpp                   splitting work between OpenMP threads
   binary_io.hpp                  binary stream I/O for serialization
@@ -245,13 +295,18 @@ tests/
   kernels.cpp                    SIMD kernels and dense layers bit-identical to scalar references
   regressions.cpp                one test per fixed bug; DISABLED_ tests for open ones
   spatial.cpp                    retina, Conv2D, LocallyConnected2D, Pool2D against scalar references
+  snake.cpp                      the headless snake game: rules, state vector, reference values shared with Python
+  audio.cpp                      Cochlea against a double-precision DFT, History, save/load of a hearing network
   filters.cpp                    filter banks, and bar-orientation learning with frozen Gabor features
   er_scales.hpp                  test inputs and timings relative to the E-R constants
+build.sh                         one command: build everything, run the tests, install
+cmake/                           package config template, the installed-package test
+examples/consumer/               a separate program using the installed library (find_package)
 EXrelaxer.py/                    Python package exrelaxer: nanobind bindings, experiment runner,
                                  dataset loader, pytest suite
 NNtesting/                       benchmark harness nntest (see NNtesting/README.md)
   harness/                       runner: parameters, trials, statistics, result files
-  tasks/                         task code shared with the unit tests (pattern_benchmark.hpp, bars.hpp)
+  tasks/                         task code shared with the unit tests (pattern_benchmark.hpp, bars.hpp, snake.hpp)
   experiments/                   one per experiment: NAME.cpp, NAME/experiment.py or NAME.py
   nntest.py                      runner for the Python experiments
   datasets/fetch.py              downloads public datasets (MNIST, CIFAR-10, Kaggle, ...) into one format
@@ -290,6 +345,57 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files from older format versions load as weights only.
 
 ## Changelog
+
+### 2026-09-27: snake
+
+- `snake` (C++, game in `NNtesting/tasks/snake.hpp`) and `snake_py`
+  (Python, `NNtesting/experiments/snake/`): a network learns to play snake
+  without a screen. It sees 23 values: the 8 cells around the head, the
+  apple's direction, 4 points it sees (forward, left, right, back) with their
+  map positions and distances, and a bias. One readout per action learns
+  from error-driven rewards. It eats 13.6 apples per game on a 10 × 10 field
+  (0.06 untrained). Both versions play the same games and give the same
+  numbers.
+- Tests: `tests/snake.cpp` and `EXrelaxer.py/tests/test_snake.py` check the
+  game rules and the same reference states in both languages.
+
+### 2026-09-27: audio layers
+
+- **`Cochlea`** (`LayerType::Cochlea = 5`): the entry point for sound. It
+  reads `hop` samples per tick, keeps the last `window`, and each tick takes
+  their power spectrum (Hann window, radix-2 FFT) and sums it into `bands`
+  triangular mel or linear bands, compressed as `log(1 + gain · energy)`.
+  One neuron per band, so habituation and E-R make a steady tone fade.
+- **`History`** (`LayerType::History = 6`): the last `length` ticks of its
+  sources side by side along the width; behind a cochlea, a bands × ticks
+  spectrogram for the spatial layers.
+- `LayerSpec` gains a `cochlea` field and the builders `Cochlea` and
+  `History`; network format version 8 saves the cochlea spec (older files
+  load as before).
+- Python: `CochleaSpec`, `FrequencyScale`, `Compression`,
+  `LayerSpec.cochlea` / `history`, `Network.cochlea_bands` /
+  `cochlea_power`, and `exrelaxer.audio` (WAV reading, test tones and
+  chirps, framing).
+- New quick experiment `chirp_direction`: rising vs falling chirps through
+  cochlea → history → frozen Gabor bank → pool → frozen mix → learned
+  readout, accuracy 0.998 (0.56 without learning).
+- Tests: `tests/audio.cpp` checks the spectrum and bands against a
+  double-precision DFT, tones landing in their band, History ordering and
+  growth, and a hearing network continuing bit-identically after save and
+  load; `EXrelaxer.py/tests/test_audio.py` checks against numpy's FFT.
+- Documentation: [doc/audio.md](doc/audio.md).
+
+### 2026-09-27: one build command, installable package
+
+- `./build.sh` builds the library, unit tests and `nntest` (and with
+  `--python` the Python package), runs every test and installs the library.
+- `cmake --install` installs `libexrelaxer_core`, its headers
+  (`include/exrelaxer`), a CMake package (`find_package(exrelaxer)`, target
+  `exrelaxer::core`) and `nntest`; the option `EXRELAXER_INSTALL` (on when
+  top-level) controls it. `exrelaxer::core` also works after
+  `add_subdirectory`. GoogleTest is no longer installed along with it.
+- `examples/consumer`: a separate program built against the installed
+  package, as the CTest test `installed_package_example`.
 
 ### 2026-09-27: Python package, Python experiments, build options
 

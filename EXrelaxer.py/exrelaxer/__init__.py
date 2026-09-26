@@ -27,9 +27,12 @@ doc/ folder); this package binds them with nanobind.
     ys = net.run(np.zeros((100, 2), np.float32))   # 100 ticks in one call: 100 x 1
 """
 from ._core import (  # noqa: F401
+    CochleaSpec,
+    Compression,
     DeserializeMode,
     Edge,
     EdgeKind,
+    FrequencyScale,
     Jitter,
     LayerSpec,
     LayerType,
@@ -46,10 +49,10 @@ from ._core import (  # noqa: F401
     set_threads,
     threads,
 )
-from . import datasets  # noqa: F401,E402
+from . import audio, datasets  # noqa: F401,E402
 
 __all__ = [
-    "DeserializeMode", "Edge", "EdgeKind", "Jitter", "LayerSpec", "LayerType", "Network", "PoolMode",
-    "RetinaSpec", "Sampling", "Shape", "Window2D", "build_info", "constants", "datasets", "filters", "reseed",
+    "CochleaSpec", "Compression", "DeserializeMode", "Edge", "EdgeKind", "FrequencyScale", "Jitter", "LayerSpec", "LayerType", "Network", "PoolMode",
+    "RetinaSpec", "Sampling", "Shape", "Window2D", "audio", "build_info", "constants", "datasets", "filters", "reseed",
     "set_threads", "threads",
 ]

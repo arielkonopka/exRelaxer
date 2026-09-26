@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# One command for everything: configures and builds the library, the unit
+# tests and the nntest harness (and optionally the Python package), runs the
+# tests, and installs the library as a CMake package so other C++ programs
+# can use it.
+#
+#   ./build.sh                    build, test, install into ./install
+#   ./build.sh --python           ... and the Python package (needs nanobind, pytest)
+#   ./build.sh --help             all options
+#
+# After it:
+#   build/exrelaxer_tests                     the unit tests (already run by ctest)
+#   build/NNtesting/nntest list               experiments (also install/bin/nntest)
+#   NNtesting/nntest.py list                  Python experiments (with --python)
+#   find_package(exrelaxer) with -DCMAKE_PREFIX_PATH=<prefix>, see examples/consumer
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+build_dir="$root/build"
+prefix="$root/install"
+build_type=Release
+jobs=""
+python=OFF
+native=OFF
+run_tests=1
+install=1
+clean=0
+extra=()
+
+usage() {
+    cat <<EOF
+Usage: ./build.sh [options] [-- extra cmake configure arguments]
+
+  --prefix DIR     install the library, headers, CMake package and nntest into DIR
+                   (default: ./install)
+  --build-dir DIR  build tree (default: ./build)
+  --debug          Debug build (default: Release)
+  --native         optimise for this machine's CPU (EXRELAXER_NATIVE)
+  --python         also build the Python extension and run its tests
+  --no-tests       build only, do not run the tests
+  --no-install     do not install
+  --clean          delete the build tree first
+  -j, --jobs N     parallel build jobs (default: all cores)
+  -h, --help       this help
+
+Environment: PYTHON selects the Python interpreter for --python (default:
+the python3 on PATH). Anything after -- goes to cmake, e.g.
+  ./build.sh -- -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest
+EOF
+}
+
+absolute() { [[ "$1" = /* ]] && echo "$1" || echo "$PWD/$1"; }
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --prefix) prefix="$(absolute "$2")"; shift 2 ;;
+        --build-dir) build_dir="$(absolute "$2")"; shift 2 ;;
+        --debug) build_type=Debug; shift ;;
+        --native) native=ON; shift ;;
+        --python) python=ON; shift ;;
+        --no-tests) run_tests=0; shift ;;
+        --no-install) install=0; shift ;;
+        --clean) clean=1; shift ;;
+        -j|--jobs) jobs="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; extra=("$@"); break ;;
+        *) echo "build.sh: unknown option $1 (see --help)" >&2; exit 2 ;;
+    esac
+done
+
+if [[ -z "$jobs" ]]; then
+    jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+fi
+
+step() { printf '\n==> %s\n' "$*"; }
+
+if [[ $clean == 1 ]]; then
+    step "Removing $build_dir"
+    rm -rf "$build_dir"
+fi
+
+configure=(-S "$root" -B "$build_dir"
+           -DCMAKE_BUILD_TYPE="$build_type"
+           -DCMAKE_INSTALL_PREFIX="$prefix"
+           -DEXRELAXER_BUILD_TESTS=ON
+           -DEXRELAXER_BUILD_NNTESTING=ON
+           -DEXRELAXER_INSTALL=ON
+           -DEXRELAXER_NATIVE="$native"
+           -DEXRELAXER_BUILD_PYTHON="$python")
+if [[ $python == ON ]]; then
+    py="${PYTHON:-$(command -v python3 || command -v python)}"
+    configure+=(-DPython_EXECUTABLE="$py" -DPython3_EXECUTABLE="$py")
+fi
+
+step "Configuring ($build_type) in $build_dir"
+cmake "${configure[@]}" "${extra[@]}"
+
+step "Building with $jobs jobs"
+cmake --build "$build_dir" --config "$build_type" -j "$jobs"
+
+if [[ $run_tests == 1 ]]; then
+    # Unit tests, the quick experiments' checks, and (with --python) pytest.
+    step "Running the tests"
+    ctest --test-dir "$build_dir" -C "$build_type" -j "$jobs" --output-on-failure
+fi
+
+if [[ $install == 1 ]]; then
+    step "Installing into $prefix"
+    cmake --install "$build_dir" --config "$build_type" --prefix "$prefix"
+fi
+
+step "Done"
+echo "  unit tests:        $build_dir/exrelaxer_tests"
+echo "  experiments:       $build_dir/NNtesting/nntest list"
+[[ $python == ON ]] && echo "  Python package:    PYTHONPATH=$build_dir/EXrelaxer.py/package  (NNtesting/nntest.py list)"
+if [[ $install == 1 ]]; then
+    echo "  library package:   $prefix  (find_package(exrelaxer) with -DCMAKE_PREFIX_PATH=$prefix;"
+    echo "                     link exrelaxer::core, see examples/consumer)"
+fi

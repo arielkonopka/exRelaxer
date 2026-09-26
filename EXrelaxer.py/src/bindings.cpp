@@ -31,6 +31,8 @@
 #include "layers/dense.hpp"
 #include "layers/locally_connected2d.hpp"
 #include "layers/retina.hpp"
+#include "layers/cochlea.hpp"
+#include "layers/history.hpp"
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -161,7 +163,13 @@ NB_MODULE(_core, m)
         .value("Conv2D", LayerType::Conv2D)
         .value("Pool2D", LayerType::Pool2D)
         .value("LocallyConnected2D", LayerType::LocallyConnected2D)
-        .value("Retina", LayerType::Retina);
+        .value("Retina", LayerType::Retina)
+        .value("Cochlea", LayerType::Cochlea)
+        .value("History", LayerType::History);
+    nb::enum_<FrequencyScale>(m, "FrequencyScale")
+        .value("Mel", FrequencyScale::Mel)
+        .value("Linear", FrequencyScale::Linear);
+    nb::enum_<Compression>(m, "Compression").value("Log", Compression::Log).value("Linear", Compression::Linear);
     nb::enum_<PoolMode>(m, "PoolMode").value("Max", PoolMode::Max).value("Average", PoolMode::Average);
     nb::enum_<Sampling>(m, "Sampling").value("Grid", Sampling::Grid).value("Spiral", Sampling::Spiral);
     nb::enum_<DeserializeMode>(m, "DeserializeMode")
@@ -218,6 +226,29 @@ NB_MODULE(_core, m)
         .def_rw("radius", &RetinaSpec::radius)
         .def("__eq__", [](const RetinaSpec& a, const RetinaSpec& b) { return a == b; });
 
+    nb::class_<CochleaSpec>(m, "CochleaSpec",
+                            "A sound input: `hop` new samples per tick, the last `window` analysed (Hann window, "
+                            "FFT) into `bands` triangular frequency bands.")
+        .def("__init__",
+             [](CochleaSpec* c, float sampleRate, size_t hop, size_t window, size_t bands, float minFrequency,
+                float maxFrequency, FrequencyScale scale, Compression compression, float gain) {
+                 new (c) CochleaSpec{sampleRate, hop, window, bands, minFrequency, maxFrequency, scale, compression,
+                                     gain};
+             },
+             "sample_rate"_a = 16000.0f, "hop"_a = 160, "window"_a = 512, "bands"_a = 40, "min_frequency"_a = 50.0f,
+             "max_frequency"_a = 0.0f, "scale"_a = FrequencyScale::Mel, "compression"_a = Compression::Log,
+             "gain"_a = 100.0f)
+        .def_rw("sample_rate", &CochleaSpec::sampleRate)
+        .def_rw("hop", &CochleaSpec::hop)
+        .def_rw("window", &CochleaSpec::window)
+        .def_rw("bands", &CochleaSpec::bands)
+        .def_rw("min_frequency", &CochleaSpec::minFrequency)
+        .def_rw("max_frequency", &CochleaSpec::maxFrequency)
+        .def_rw("scale", &CochleaSpec::scale)
+        .def_rw("compression", &CochleaSpec::compression)
+        .def_rw("gain", &CochleaSpec::gain)
+        .def("__eq__", [](const CochleaSpec& a, const CochleaSpec& b) { return a == b; });
+
     // --- Jitter --------------------------------------------------------------
     nb::class_<Jitter>(m, "Jitter", "Random per-neuron variation of E-R recovery, learning gain or alpha.")
         .def(nb::init<>())
@@ -259,6 +290,7 @@ NB_MODULE(_core, m)
         .def_rw("window", &LayerSpec::window)
         .def_rw("pool", &LayerSpec::pool)
         .def_rw("retina_spec", &LayerSpec::retina)
+        .def_rw("cochlea_spec", &LayerSpec::cochlea)
         .def_static(
             "dense",
             [](size_t size, bool habituation, bool er, bool frozen, const Jitter& rj, const Jitter& lj,
@@ -290,7 +322,17 @@ NB_MODULE(_core, m)
                 return withOptions(LayerSpec::Retina(retina, habituation, er), frozen, rj, lj, aj);
             },
             "retina"_a, "habituation"_a = true, "er"_a = true, nb::kw_only(), "frozen"_a = false,
-            "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter);
+            "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter)
+        .def_static(
+            "cochlea",
+            [](const CochleaSpec& cochlea, bool habituation, bool er, bool frozen, const Jitter& rj, const Jitter& lj,
+               const Jitter& aj) {
+                return withOptions(LayerSpec::Cochlea(cochlea, habituation, er), frozen, rj, lj, aj);
+            },
+            "cochlea"_a, "habituation"_a = true, "er"_a = true, nb::kw_only(), "frozen"_a = false,
+            "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter)
+        .def_static("history", &LayerSpec::History, "length"_a,
+                    "The last `length` ticks of its sources side by side along the width, newest last.");
 
     // --- Filters (core/filters.hpp) ------------------------------------------
     nb::module_ fm = m.def_submodule("filters", "Fixed filter banks for Conv2D layers.");
@@ -509,6 +551,24 @@ NB_MODULE(_core, m)
                 return toNumpy(std::move(xy), {r.samples(), 2});
             },
             "layer"_a, "Where each retina sample is in the image: samples x (x, y), in pixels.")
+        .def(
+            "cochlea_bands", [](network& net, LayerId id) {
+                const cochlea& c = layerAs<cochlea>(net, id, "Cochlea");
+                std::vector<float> hz;
+                for (const cochlea::Band& b : c.bands()) {
+                    hz.push_back(b.lowFrequency);
+                    hz.push_back(b.centreFrequency);
+                    hz.push_back(b.highFrequency);
+                }
+                return toNumpy(std::move(hz), {c.bands().size(), 3});
+            },
+            "layer"_a, "Each band's (low, centre, high) frequency in Hz, lowest band first: bands x 3.")
+        .def(
+            "cochlea_power", [](network& net, LayerId id) {
+                const cochlea& c = layerAs<cochlea>(net, id, "Cochlea");
+                return toNumpy(std::vector<float>(c.power()), {c.power().size()});
+            },
+            "layer"_a, "The power spectrum of the last step: window / 2 + 1 bins (bin k is k * sample_rate / window Hz).")
         .def_prop_ro("edges", [](const network& net) { return net.edges(); })
         .def_prop_ro("output_layers", [](const network& net) { return net.outputLayers(); })
         .def_prop_ro("update_order", [](const network& net) { return net.updateOrder(); })
