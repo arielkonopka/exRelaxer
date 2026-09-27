@@ -162,6 +162,7 @@ add_executable(exrelaxer_tests
     tests/spatial.cpp
     tests/filters.cpp
     tests/audio.cpp
+    tests/learning.cpp
     tests/snake.cpp
 )
 

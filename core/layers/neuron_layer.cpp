@@ -316,10 +316,16 @@ void neuron_layer::learn(Modulator m, float learningRate)
                 delta = rate * (m(i) - (r.baseline > 0.0f ? baseline_[i] : 0.0f)) * post_[i];
                 active = delta != 0.0f;
                 break;
-            case LearningRuleType::FeedbackAlignment:
-                delta = rate * m(i);
-                active = true;
+            case LearningRuleType::FeedbackAlignment: {
+                // Surrogate derivative of the neuron: 1 while it takes part
+                // (eligible: fired recently with E-R, a non-zero output
+                // without), 0 when silent or held at the output clamp in the
+                // direction the modulator pushes.
+                const float mi = m(i), y = nr.output();
+                active = nr.eligible() && !(y >= max_output && mi > 0.0f) && !(y <= -max_output && mi < 0.0f);
+                delta = active ? rate * mi : 0.0f;
                 break;
+            }
             case LearningRuleType::Perturbation:
                 delta = rate * (m(i) - (r.baseline > 0.0f ? baseline_[i] : 0.0f)) * noise_trace_[i] / r.noise;
                 active = delta != 0.0f;
