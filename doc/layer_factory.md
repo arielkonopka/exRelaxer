@@ -25,6 +25,7 @@ struct LayerSpec
     Spontaneous spontaneous = {};  // when and how strongly E-R neurons fire on their own (default: the original)
     Habituation habituationRule = {};  // how habituation suppresses repeated inputs (default: cut after 100 exact repeats)
     bool rectify = false;        // layers of neurons without E-R: ReLU, only sums above the gate pass
+    bool normalize = false;      // Dense, Conv2D, LocallyConnected2D: weighted sum / |w|
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina
@@ -54,7 +55,7 @@ LayerSpec d{LayerType::Dense, 32, false, true, false,
 | `type` | the factory, to select a creator |
 | `size`, `hasHabituation`, `hasER`, `recoveryJitter`, `learningJitter`, `alphaJitter` | the creator (for `dense`: its constructor arguments; see [per-neuron dynamics](neuron.md#per-neuron-dynamics)) |
 | `frozen` | the network only ([freezing](network.md#freezing)); creators ignore it |
-| `learningRule`, `gate`, `rectify`, `habituationRule`, `thresholdGrowth`, `spontaneous` | the network: after creating a layer of neurons it applies each non-default one through the `neuron_layer` setters ([learning](learning.md), [neuron](neuron.md#one-tick-activate), [E-R](neuron.md#excitationrelaxation-e-r)); on a layer without neurons it throws `std::invalid_argument` |
+| `learningRule`, `gate`, `rectify`, `habituationRule`, `thresholdGrowth`, `spontaneous`, `normalize` | the network: after creating a layer of neurons it applies each non-default one through the `neuron_layer` setters ([learning](learning.md), [neuron](neuron.md#one-tick-activate), [E-R](neuron.md#excitationrelaxation-e-r)); on a layer without neurons it throws `std::invalid_argument` |
 | `window`, `pool`, `retina`, `cochlea`, `resize`, `disparity` | the creators of the types listed in their comments |
 
 `network::freeze` / `unfreeze`, `network::setRecoveryJitter` /

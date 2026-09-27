@@ -48,6 +48,10 @@ experiment so far.
   and a gradual fade instead of the cut are configurable per layer
   (`LayerSpec::habituationRule`); the fade starts after `fadeAfter`
   identical steps (default 2).
+- **Normalised weighted sum** (optional, per layer: `LayerSpec::normalize`)
+  – each neuron's sum is divided by the length of its weight vector, so
+  only the weights' direction matters; the lengths are cached and
+  recomputed only after the weights change.
 - **Reward-modulated learning** – `applyReward(reward, learningRate)` moves
   the weights of recently active neurons toward the reward's sign.
 - **Learning rules per layer** – besides that sign rule, each layer can learn
@@ -397,6 +401,20 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files older than format 6 load as weights only.
 
 ## Changelog
+
+### 2026-09-27: normalised weighted sum
+
+- **Normalised weighted sum** (`LayerSpec::normalize`,
+  `neuron_layer::setNormalized`, Python `LayerSpec.normalize`): a layer
+  divides each neuron's sum by the length of its weights. Off by default.
+  Norms are cached and recomputed only after weights change. Network
+  format 16 saves it.
+- `nl_static`, `nl_temporal` and the activity experiments take
+  `normalize=true` (hidden layers).
+- Findings ([research log §19](doc/research.md#19-normalised-weighted-sum)):
+  about half as many runs diverge at large learning rates, but the best
+  results do not improve and E-R loses accuracy in networks with many
+  inputs per neuron.
 
 ### 2026-09-27: early fading, spontaneous firing settings, rerun
 

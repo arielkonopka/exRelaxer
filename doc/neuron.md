@@ -41,7 +41,14 @@ void setOutput(float value);         // drive the output by hand
 A layer computes the neuron's weighted sum, `Σ inputs[i] × weights[i]` summed
 in index order (so results are bit-reproducible, see
 [kernels](kernels.md#determinism)), and passes it to `activate()`, which
-runs these stages in order:
+runs these stages in order. A layer with a **normalised weighted sum**
+(`LayerSpec::normalize`, off by default) first divides the sum by the
+length of the neuron's weight vector, `Σ x·w / |w|` (before the bias of
+rules that have one), so only the weights' direction matters and the sum
+is at most the length of the inputs. The layer caches `1 / |w|` per
+neuron and recomputes it only after the weights change (learning,
+`setWeights`, wiring or growth); a weight vector shorter than
+`normalization_epsilon` (1e-6) keeps the raw sum.
 
 1. **Output clamp.** `sum` is clamped to `[-max_output, max_output]` (±10).
    Neurons have no other bounded activation; without the clamp, networks

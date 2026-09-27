@@ -12,6 +12,8 @@
 #include <stdexcept>
 #include "../core/network.hpp"
 #include "../core/layers/dense.hpp"
+#include "../core/layers/conv2d.hpp"
+#include <numeric>
 #include "pattern_benchmark.hpp"
 #include "er_scales.hpp"
 
@@ -1688,7 +1690,7 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
     const size_t at = bytes.find(ruleBytes);
     ASSERT_NE(at, std::string::npos);
     ASSERT_EQ(bytes.find(ruleBytes, at + 1), std::string::npos);
-    bytes.erase(at, ruleBytes.size() + sizeof(std::uint32_t) + 3 * sizeof(float));
+    bytes.erase(at, ruleBytes.size() + sizeof(std::uint32_t) + 3 * sizeof(float) + sizeof(std::uint8_t));
     const std::uint32_t v13 = 13;
     bytes.replace(4, sizeof v13, reinterpret_cast<const char*>(&v13), sizeof v13);
     std::stringstream old(bytes);
@@ -1700,4 +1702,71 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
     LayerSpec bad = LayerSpec::Dense(1, false, true);
     bad.thresholdGrowth.amount = -1.0f;
     EXPECT_THROW(net.addLayer("bad", bad), std::invalid_argument);
+}
+
+TEST(NormalizedSumTest, DividesByWeightLengthAndFollowsChanges)
+{
+    // Linear neurons (no E-R, no habituation) show the normalised sum as is.
+    network net;
+    LayerSpec spec = LayerSpec::Dense(1, false, false);
+    spec.normalize = true;
+    const auto id = net.addLayer("h", spec);
+    net.addInputs(id, 2);
+    auto& layer = net.layerAs<dense>(id);
+    layer.setWeights(0, {3.0f, 4.0f});
+    net.setInputs({1.0f, 1.0f});
+    net.step();
+    EXPECT_FLOAT_EQ(layer.neurons()[0].output(), 7.0f / 5.0f);
+    layer.setWeights(0, {6.0f, 8.0f});  // same direction, twice as long: same output
+    net.step();
+    EXPECT_FLOAT_EQ(layer.neurons()[0].output(), 7.0f / 5.0f);
+    layer.setWeights(0, {0.0f, 0.0f});  // no weights: the raw sum (0), not a division by 0
+    net.step();
+    EXPECT_EQ(layer.neurons()[0].output(), 0.0f);
+
+    // After learning, the next step uses the new weights' length.
+    layer.setWeights(0, {3.0f, 4.0f});
+    net.addOutput(id);
+    net.step();
+    net.applyReward(1.0f, 0.5f);
+    const std::vector<float> w = layer.weights(0);
+    ASSERT_NE(w[0], 3.0f);
+    net.step();
+    EXPECT_FLOAT_EQ(layer.neurons()[0].output(), (w[0] + w[1]) / std::hypot(w[0], w[1]));
+
+    // Saved and loaded with the network.
+    std::stringstream data;
+    net.save(data);
+    auto loaded = network::load(data);
+    EXPECT_TRUE(loaded->layerSpec(id).normalize);
+    EXPECT_TRUE(loaded->layerAs<neuron_layer>(id).normalized());
+    loaded->setInputs({1.0f, 1.0f});
+    loaded->step();
+    EXPECT_FLOAT_EQ(loaded->layerAs<neuron_layer>(id).neurons()[0].output(), (w[0] + w[1]) / std::hypot(w[0], w[1]));
+
+    // Off by default; fixed-filter layers refuse it.
+    network plain;
+    EXPECT_FALSE(plain.layerAs<neuron_layer>(plain.addLayer("p", LayerSpec::Dense(1))).normalized());
+    LayerSpec retina = LayerSpec::Retina(RetinaSpec{Shape{1, 4, 4}}, false, false);
+    retina.normalize = true;
+    EXPECT_THROW(plain.addLayer("r", retina), std::invalid_argument);
+}
+
+TEST(NormalizedSumTest, ConvolutionUsesItsKernelLength)
+{
+    network net;
+    const auto image = net.addLayer("image", LayerSpec::Retina(RetinaSpec{Shape{1, 2, 2}}, false, false));
+    LayerSpec c = LayerSpec::Conv2D(1, Window2D::square(2), false, false);
+    c.normalize = true;
+    const auto conv = net.addLayer("conv", c);
+    net.addInputs(image, Shape{1, 2, 2});
+    net.connect(image, conv);
+    auto& layer = net.layerAs<conv2d>(conv);
+    ASSERT_EQ(layer.size(), 1u);
+    layer.setKernel(0, {1.0f, 1.0f, 1.0f, 1.0f});
+    net.setInputs({1.0f, 1.0f, 1.0f, 1.0f});
+    net.step();
+    net.step();  // the retina's output reaches the convolution
+    const float retinaSum = std::accumulate(net.getLayer(image).output().begin(), net.getLayer(image).output().end(), 0.0f);
+    EXPECT_FLOAT_EQ(layer.neurons()[0].output(), retinaSum / 2.0f);
 }

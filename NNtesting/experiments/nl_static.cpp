@@ -66,6 +66,7 @@ nnt::Register experiment({
         {"habituation_tolerance", "0", "habituation: relative change still counted as a repeat (0: exact)"},
         {"habituation_decay", "0", "habituation: 0 cuts; a value in (0, 1] fades the input by that factor per repeat"},
         {"habituation_fade_after", "2", "habituation with a decay: repeats before fading starts"},
+        {"normalize", "false", "hidden layers divide each weighted sum by the length of the neuron's weights"},
         {"learn_ticks", "last", "training: learn from the last tick's error (last) or from every tick at lr/ticks (all)"},
         {"depth", "2", "hidden layers"},
         {"width", "16", "neurons per hidden layer"},
@@ -107,7 +108,7 @@ nnt::Register experiment({
             p.getDouble("spontaneous_below"), p.getDouble("spontaneous_amplitude"), p.getDouble("spontaneous_rate"));
         Mlp net(model, task.inputs, depth, width, static_cast<float>(p.getDouble("gate")),
                 er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
-                habituationRule);
+                habituationRule, p.getBool("normalize"));
         const std::string learnTicks = p.getString("learn_ticks");
         if (learnTicks != "last" && learnTicks != "all")
             throw std::invalid_argument("learn_ticks must be last or all");
@@ -153,7 +154,7 @@ nnt::Register experiment({
         if (pretrain > 0) {
             Mlp pre(pretrainModel, task.inputs, depth, width, static_cast<float>(p.getDouble("gate")),
                     er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
-                habituationRule);
+                habituationRule, p.getBool("normalize"));
             cur = &pre;
             trainSamples(pretrain);
             const double preMse = mseOf(validation, nullptr, nullptr, 0);
@@ -290,6 +291,7 @@ nnt::Register experiment({
         t.record("er_spontaneous_below_threshold", min_threshold);
         t.record("er_spontaneous_amplitude", spontaneous_min_amplitude);
         t.record("habituation", habituationRule ? 1.0 : 0.0);
+        t.record("normalize", p.getBool("normalize") ? 1.0 : 0.0);
         t.record("learning_gain", default_learning_gain);
         t.record("max_output", max_output);
         t.record("max_weight", max_weight);

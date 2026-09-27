@@ -37,12 +37,24 @@ void conv2d::setKernel(size_t channel, const std::vector<float>& weights)
         throw std::invalid_argument("conv2d::setKernel: the kernel has " + std::to_string(windowSize()) +
                                     " weights, got " + std::to_string(weights.size()));
     std::ranges::copy(weights, kernels_.begin() + static_cast<std::ptrdiff_t>(channel * windowSize()));
+    weightsChanged();
 }
 
 void conv2d::createWeights()
 {
     kernels_.resize(outputChannels() * windowSize());
     rng::drawWeights(rng::WeightStream::Initial, kernels_);
+    weightsChanged();
+}
+
+float conv2d::squaredWeightNorm(size_t index) const
+{
+    if (!wired())
+        return 0.0f;
+    float s = 0.0f;
+    for (float x : kernelRow(index / positions()))
+        s += x * x;
+    return s;
 }
 
 void conv2d::appendInputs(size_t count)
@@ -60,6 +72,7 @@ void conv2d::appendInputs(size_t count)
         grown.insert(grown.end(), new_row.begin(), new_row.end());
     }
     kernels_ = std::move(grown);
+    weightsChanged();
 }
 
 void conv2d::forward()

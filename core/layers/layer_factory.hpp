@@ -37,6 +37,7 @@ struct LayerSpec
     Spontaneous spontaneous = {};  // when and how strongly E-R neurons fire on their own (default: the original)
     Habituation habituationRule = {};  // how habituation suppresses repeated inputs (default: cut after 100 exact repeats)
     bool rectify = false;        // neurons without E-R: ReLU, only sums above the gate pass (see neuron::rectified)
+    bool normalize = false;      // Dense, Conv2D, LocallyConnected2D: weighted sum / |w| (see neuron_layer::setNormalized)
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina
