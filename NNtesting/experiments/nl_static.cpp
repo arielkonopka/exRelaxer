@@ -56,6 +56,16 @@ nnt::Register experiment({
         {"gate", "0.2", "gate model: the fixed threshold (default: E-R's resting threshold, baseline_threshold)"},
         {"growth", "linear", "E-R threshold growth on firing: linear (default), log (original), fixed, multiplicative"},
         {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
+        {"spontaneous_below", "1e-10", "E-R: a silent neuron fires spontaneously once its threshold is at or below this"},
+        {"spontaneous_amplitude", "0.01", "E-R: spontaneous output drawn uniformly in +- this"},
+        {"spontaneous_rate", "0", "E-R: extra probability of a spontaneous firing on any silent tick"},
+        {"pretrain_model", "", "train first with these hidden neurons (relu, gate, clamp, er), then copy the weights into `model` (empty: no pretraining)"},
+        {"pretrain", "0", "samples (steps) of pretraining with pretrain_model"},
+        {"habituation", "false", "habituation in the hidden layers (every model)"},
+        {"habituation_steps", "100", "habituation, cut mode: repeats before the input is cut"},
+        {"habituation_tolerance", "0", "habituation: relative change still counted as a repeat (0: exact)"},
+        {"habituation_decay", "0", "habituation: 0 cuts; a value in (0, 1] fades the input by that factor per repeat"},
+        {"habituation_fade_after", "2", "habituation with a decay: repeats before fading starts"},
         {"learn_ticks", "last", "training: learn from the last tick's error (last) or from every tick at lr/ticks (all)"},
         {"depth", "2", "hidden layers"},
         {"width", "16", "neurons per hidden layer"},
@@ -87,8 +97,17 @@ nnt::Register experiment({
         const size_t evalEvery = std::max<size_t>(1, static_cast<size_t>(p.getInt("eval_every")));
         const double target = p.getDouble("target_mse");
 
+        std::optional<Habituation> habituationRule;
+        if (p.getBool("habituation"))
+            habituationRule = Habituation{static_cast<std::uint32_t>(p.getInt("habituation_steps")),
+                                          static_cast<float>(p.getDouble("habituation_tolerance")),
+                                          static_cast<float>(p.getDouble("habituation_decay")),
+                                          static_cast<std::uint32_t>(p.getInt("habituation_fade_after"))};
+        const Spontaneous spontaneousSetting = er_options::spontaneous(
+            p.getDouble("spontaneous_below"), p.getDouble("spontaneous_amplitude"), p.getDouble("spontaneous_rate"));
         Mlp net(model, task.inputs, depth, width, static_cast<float>(p.getDouble("gate")),
-                er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")));
+                er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
+                habituationRule);
         const std::string learnTicks = p.getString("learn_ticks");
         if (learnTicks != "last" && learnTicks != "all")
             throw std::invalid_argument("learn_ticks must be last or all");
@@ -96,6 +115,9 @@ nnt::Register experiment({
         const Dataset validation(task, static_cast<size_t>(p.getInt("validation")), dataSeed + 1);
         const Dataset test(task, static_cast<size_t>(p.getInt("test")), dataSeed + 2);
 
+        // The network being trained or measured: `net`, or while pretraining
+        // the pretraining network.
+        Mlp* cur = &net;
         auto mseOf = [&](const Dataset& d, Activity* meter, std::ostream* trace, size_t traced) {
             double sum = 0.0;
             for (size_t i = 0; i < d.y.size(); ++i) {
@@ -103,7 +125,7 @@ nnt::Register experiment({
                 const std::string prefix = tr ? model + ',' + std::to_string(depth) + ',' + std::to_string(width) + ',' +
                                                     std::to_string(t.seed()) + ',' + std::to_string(i)
                                               : std::string();
-                const float y = net.present(d.x[i], hold, meter, tr, prefix);
+                const float y = cur->present(d.x[i], hold, meter, tr, prefix);
                 const double e = static_cast<double>(y) - d.y[i];
                 sum += e * e;
             }
@@ -114,6 +136,34 @@ nnt::Register experiment({
         std::mt19937 g(dataSeed);
         std::uniform_real_distribution<float> u(-1.0f, 1.0f);
         std::vector<float> x(task.inputs);
+        auto trainSamples = [&](size_t n) {
+            for (size_t i = 0; i < n; ++i) {
+                for (float& v : x)
+                    v = u(g);
+                if (learnTicks == "all")
+                    cur->presentLearningEveryTick(x, hold, task(x), lr);
+                else
+                    cur->learn(task(x), cur->present(x, hold), lr);
+            }
+        };
+        // Optional pretraining with other hidden neurons, on the start of the
+        // same training stream; then `net` takes over the weights and biases.
+        const std::string pretrainModel = p.getString("pretrain_model");
+        const size_t pretrain = pretrainModel.empty() ? 0 : static_cast<size_t>(p.getInt("pretrain"));
+        if (pretrain > 0) {
+            Mlp pre(pretrainModel, task.inputs, depth, width, static_cast<float>(p.getDouble("gate")),
+                    er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
+                habituationRule);
+            cur = &pre;
+            trainSamples(pretrain);
+            const double preMse = mseOf(validation, nullptr, nullptr, 0);
+            t.record("pretrain_validation_mse", std::isfinite(preMse) ? preMse : 1e30);
+            net.copyFrom(pre);
+            cur = &net;
+            const double switched = mseOf(validation, nullptr, nullptr, 0);
+            t.record("switch_validation_mse", std::isfinite(switched) ? switched : 1e30);
+        }
+        t.record("pretrain_samples", static_cast<double>(pretrain));
         double validationMse = mseOf(validation, nullptr, nullptr, 0);
         t.record("initial_validation_mse", validationMse);
         size_t trained = 0;
@@ -122,14 +172,7 @@ nnt::Register experiment({
         size_t bestAt = 0;
         while (trained < train && !(earlyStop && validationMse <= target) && std::isfinite(validationMse)) {
             const size_t block = std::min(evalEvery, train - trained);
-            for (size_t i = 0; i < block; ++i) {
-                for (float& v : x)
-                    v = u(g);
-                if (learnTicks == "all")
-                    net.presentLearningEveryTick(x, hold, task(x), lr);
-                else
-                    net.learn(task(x), net.present(x, hold), lr);
-            }
+            trainSamples(block);
             trained += block;
             validationMse = mseOf(validation, nullptr, nullptr, 0);
             // The learning curve: validation MSE after every block.
@@ -246,7 +289,7 @@ nnt::Register experiment({
         t.record("er_recovery", recovery_factor);
         t.record("er_spontaneous_below_threshold", min_threshold);
         t.record("er_spontaneous_amplitude", spontaneous_min_amplitude);
-        t.record("habituation", 0.0);
+        t.record("habituation", habituationRule ? 1.0 : 0.0);
         t.record("learning_gain", default_learning_gain);
         t.record("max_output", max_output);
         t.record("max_weight", max_weight);

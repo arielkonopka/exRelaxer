@@ -48,6 +48,7 @@ from ._core import (  # noqa: F401
     RetinaSpec,
     Sampling,
     Shape,
+    Spontaneous,
     ThresholdGrowth,
     Window2D,
     build_info,
@@ -63,6 +64,6 @@ __all__ = [
     "CochleaSpec", "Compression", "DeserializeMode", "DisparityMeasure", "DisparitySpec", "Edge", "EdgeKind",
     "FrequencyScale", "Habituation", "Interpolation", "Jitter", "LayerSpec", "LayerType", "LearningRule",
     "LearningRuleType", "Network", "PoolMode", "ResizeSpec",
-    "RetinaSpec", "Sampling", "Shape", "ThresholdGrowth", "Window2D", "audio", "build_info", "constants", "datasets", "filters", "reseed",
+    "RetinaSpec", "Sampling", "Shape", "Spontaneous", "ThresholdGrowth", "Window2D", "audio", "build_info", "constants", "datasets", "filters", "reseed",
     "set_threads", "threads",
 ]

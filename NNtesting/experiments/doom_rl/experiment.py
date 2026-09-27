@@ -80,32 +80,79 @@ class Player:
         self.hop = STEP_SAMPLES // self.ticks
         self.net = net = exr.Network()
         self.sound = p["sound"]
-        hidden = exr.LayerSpec.dense(width, False, model == "er", frozen=not p["learn_hidden"],
-                                     learning_rule=exr.LearningRule.traced(p["trace"]))
-        hidden.rectify = model == "relu"
-        if model == "gate":
-            hidden.gate = p["gate"]
-        self.hidden = net.add_layer("hidden", hidden)
-        net.add_inputs(self.hidden, self.eye_size, "eye")
-        fan_in = self.eye_size
+        def neurons(size, frozen=True):
+            spec = exr.LayerSpec.dense(size, False, model == "er", frozen=frozen,
+                                       learning_rule=exr.LearningRule.traced(p["trace"]))
+            spec.rectify = model == "relu"
+            if model == "gate":
+                spec.gate = p["gate"]
+            return spec
+
+        # Hidden stack h1 .. h<depth>: h1 reads the eye (and the ears), each
+        # further layer the one below. All frozen unless learn_hidden.
+        if p["feedback"] not in ("none", "recurrent", "topdown", "both"):
+            raise ValueError("feedback must be none, recurrent, topdown or both")
+        self.layers = []
+        for l in range(p["depth"]):
+            h = net.add_layer(f"h{l + 1}", neurons(width, not p["learn_hidden"]))
+            if l == 0:
+                net.add_inputs(h, self.eye_size, "eye")
+            else:
+                net.connect(self.layers[-1], h)
+            self.layers.append(h)
+        self.hidden = self.layers[0]  # metered layer set below
         if self.sound:
             spec = exr.CochleaSpec(sample_rate=SAMPLE_RATE, hop=self.hop, window=512, bands=p["bands"], channels=2)
             self.ear = net.add_layer("ear", exr.LayerSpec.cochlea(spec, False, False))
             net.add_inputs(self.ear, 2 * self.hop, "mic")
-            net.connect(self.ear, self.hidden)
-            fan_in += 2 * p["bands"]
+            net.connect(self.ear, self.layers[0])
+        # Feedback lines. recurrent: every neuron of a hidden layer also reads
+        # that layer's previous output. topdown: `feedback_width` extra neurons
+        # in each layer read the layer above (the top layer is read by the
+        # layer below it). Both are frozen and random, like the stack.
+        recurrent = p["feedback"] in ("recurrent", "both")
+        if p["feedback"] in ("topdown", "both"):
+            for l in range(p["depth"] - 1):
+                net.add_feedback(self.layers[l + 1], self.layers[l], p["feedback_width"])
+        if recurrent:
+            for h in self.layers:
+                net.connect(h, h)
+        # Reservoir (echo state): `reservoir` input neurons read the top hidden
+        # layer, `reservoir_recurrent` more read the whole reservoir.
+        self.reservoir = None
+        if p["reservoir"] > 0:
+            self.reservoir = net.add_layer("reservoir", neurons(p["reservoir"]))
+            net.connect(self.layers[-1], self.reservoir)
+            if p["reservoir_recurrent"] > 0:
+                net.add_feedback(self.reservoir, self.reservoir, p["reservoir_recurrent"])
         rule = exr.LearningRule.sign() if p["rule"] == "sign" else exr.LearningRule.traced(p["trace"])
         self.readouts = []
         for name in ACTIONS:
             out = net.add_layer(name.lower(), exr.LayerSpec.dense(1, False, False, learning_rule=rule))
-            net.connect(self.hidden, out)
+            net.connect(self.layers[-1], out)
+            if self.reservoir is not None:
+                net.connect(self.reservoir, out)
             net.add_output(out)
             self.readouts.append(out)
-        # Uniform weights with variance 1 / fan-in, as in the other dynamic experiments.
-        for layer, n, fan in [(self.hidden, width, fan_in)] + [(r, 1, width) for r in self.readouts]:
-            scale = math.sqrt(3.0 / fan)
-            for i in range(n):
-                net.set_weights(layer, i, net.weights(layer, i) * scale)
+        # Uniform weights with variance 1 / fan-in. Recurrent weights (a
+        # layer reading itself, the reservoir's recurrent neurons) get
+        # recurrent_scale / sqrt(layer size) instead: below 1 the echo fades.
+        rs = p["recurrent_scale"]
+        for layer in self.layers + ([self.reservoir] if self.reservoir is not None else []) + self.readouts:
+            size = net.layer_size(layer)
+            for i in range(size):
+                w = np.asarray(net.weights(layer, i), dtype=np.float32)
+                own = size if recurrent and layer in self.layers else 0
+                if layer == self.reservoir and i >= p["reservoir"]:
+                    w = w * rs * math.sqrt(3.0 / len(w))
+                elif own:
+                    w[:-own] *= math.sqrt(3.0 / (len(w) - own))
+                    w[-own:] *= rs * math.sqrt(3.0 / own)
+                else:
+                    w = w * math.sqrt(3.0 / len(w))
+                net.set_weights(layer, i, w)
+        self.metered = self.layers + ([self.reservoir] if self.reservoir is not None else [])
+        self.neurons = sum(net.layer_size(l) for l in self.metered)
         self.spikes = self.ticks_seen = 0
 
     def act(self, state, rng, explore, meter=False):
@@ -125,7 +172,8 @@ class Player:
                 self.net.set_inputs("mic", np.concatenate([chunk[:, 0], chunk[:, 1]]))
             self.net.step()
             if meter:
-                self.spikes += np.count_nonzero(np.abs(self.net.layer_output(self.hidden)) > 1e-6)
+                for layer in self.metered:
+                    self.spikes += np.count_nonzero(np.abs(self.net.layer_output(layer)) > 1e-6)
                 self.ticks_seen += 1
         self.y = y = np.asarray(self.net.outputs())
         if explore > 0 and rng.random() < explore:
@@ -183,6 +231,13 @@ PARAMS = {
     "model": ("er", "hidden neurons: relu, er, gate or clamp"),
     "width": (256, "hidden neurons"),
     "gate": (0.2, "gate model: the fixed threshold"),
+    "depth": (1, "hidden layers (each `width` neurons)"),
+    "feedback": ("none", "feedback lines in the hidden stack: none, recurrent (each layer reads itself), topdown "
+                         "(extra neurons read the layer above), both"),
+    "feedback_width": (32, "topdown: extra neurons per layer that read the layer above"),
+    "reservoir": (0, "echo-state reservoir after the stack: neurons reading the top layer (0: none)"),
+    "reservoir_recurrent": (128, "reservoir neurons that read the whole reservoir"),
+    "recurrent_scale": (0.5, "scale of recurrent weights (x sqrt(3 / layer size))"),
     "learn_hidden": (False, "the hidden layer learns from the reward too (default: a frozen random mix)"),
     "sound": (True, "hear the game: stereo audio through a two-ear cochlea"),
     "bands": (16, "cochlea bands per ear"),
@@ -239,7 +294,8 @@ def run(t):
     for k, v in parts.items():
         t.record("reward_" + k, v)
     t.record("spikes_per_step", player.spikes / max(player.ticks_seen, 1) * p["ticks"])
-    t.record("active_fraction", player.spikes / max(player.ticks_seen, 1) / p["width"])
+    t.record("active_fraction", player.spikes / max(player.ticks_seen, 1) / player.neurons)
+    t.record("hidden_neurons", player.neurons)
     game.close()
 
     # The same network, never trained, on the same test games.

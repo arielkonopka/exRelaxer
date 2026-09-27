@@ -1,0 +1,14 @@
+== static.jsonl test_mse
+l1 ('1', '16') none+20k=0.0418 | none+80k=0.0517 | relu+0k=0.139(pre 0.00537) | relu+20k=0.0414 | relu+80k=0.0332 | clamp+0k=0.124(pre 0.116) | clamp+20k=0.0385 | gate+0k=0.0731(pre 0.11) | gate+20k=0.0528
+l1 ('1', '32') none+20k=0.0309 | none+80k=0.0315 | relu+0k=0.115(pre 0.00485) | relu+20k=0.0276 | relu+80k=0.0293 | clamp+0k=0.124(pre 0.117) | clamp+20k=0.0323 | gate+0k=0.0645(pre 0.107) | gate+20k=0.0369
+l1 ('2', '16') none+20k=0.0776 | none+80k=0.0848 | relu+0k=0.328(pre 0.00462) | relu+20k=0.0798 | relu+80k=0.0861 | clamp+0k=0.211(pre 0.116) | clamp+20k=0.0801 | gate+0k=0.224(pre 0.0895) | gate+20k=0.0788
+l1 ('2', '32') none+20k=0.0614 | none+80k=0.069 | relu+0k=0.223(pre 0.00528) | relu+20k=0.0568 | relu+80k=0.0828 | clamp+0k=0.244(pre 0.124) | clamp+20k=0.0624 | gate+0k=0.197(pre 0.1) | gate+20k=0.0749
+l2 ('1', '16') none+20k=0.0404 | none+80k=0.0456 | relu+0k=0.122(pre 0.00225) | relu+20k=0.0338 | relu+80k=0.0286 | clamp+0k=0.113(pre 0.102) | clamp+20k=0.0338 | gate+0k=0.0622(pre 0.0964) | gate+20k=0.0457
+l2 ('1', '32') none+20k=0.0353 | none+80k=0.0565 | relu+0k=0.104(pre 0.00334) | relu+20k=0.0246 | relu+80k=0.0223 | clamp+0k=0.112(pre 0.103) | clamp+20k=0.0273 | gate+0k=0.0562(pre 0.0916) | gate+20k=0.0315
+l2 ('2', '16') none+20k=0.0705 | none+80k=0.0677 | relu+0k=0.319(pre 0.00334) | relu+20k=0.0822 | relu+80k=0.076 | clamp+0k=0.196(pre 0.102) | clamp+20k=0.0759 | gate+0k=0.212(pre 0.0768) | gate+20k=0.0704
+l2 ('2', '32') none+20k=0.0549 | none+80k=0.094 | relu+0k=0.219(pre 0.00365) | relu+20k=0.0514 | relu+80k=0.0624 | clamp+0k=0.232(pre 0.108) | clamp+20k=0.0587 | gate+0k=0.171(pre 0.0851) | gate+20k=0.0606
+== temporal.jsonl test_accuracy
+t1 ('1', '16') none+20k=0.999 | none+80k=0.999 | relu+0k=0.496(pre 0.518) | relu+20k=1 | relu+80k=1 | clamp+0k=0.58(pre 0.518) | clamp+20k=0.999 | gate+0k=0.614(pre 0.504) | gate+20k=1
+t1 ('1', '64') none+20k=1 | none+80k=0.999 | relu+0k=0.496(pre 0.518) | relu+20k=0.995 | relu+80k=0.506 | clamp+0k=0.495(pre 0.518) | clamp+20k=1 | gate+0k=0.504(pre 0.504) | gate+20k=1
+t2 ('1', '16') none+20k=0.743 | none+80k=0.743 | relu+0k=0.744(pre 0.754) | relu+20k=0.774 | relu+80k=0.746 | clamp+0k=0.755(pre 0.752) | clamp+20k=0.748 | gate+0k=0.759(pre 0.752) | gate+20k=0.748
+t2 ('1', '64') none+20k=0.744 | none+80k=0.837 | relu+0k=0.743(pre 0.752) | relu+20k=0.778 | relu+80k=0.839 | clamp+0k=0.758(pre 0.752) | clamp+20k=0.842 | gate+0k=0.758(pre 0.752) | gate+20k=0.83

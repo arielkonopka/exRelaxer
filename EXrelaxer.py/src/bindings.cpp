@@ -292,18 +292,32 @@ NB_MODULE(_core, m)
 
     // --- Jitter --------------------------------------------------------------
     nb::class_<Habituation>(m, "Habituation",
-                            "How habituation suppresses a repeated input: after `steps` ticks of the same sum "
-                            "(within `tolerance`, relative), the input is scaled by decay^ticks (0: cut).")
+                            "How habituation suppresses a repeated input (the same sum within `tolerance`, "
+                            "relative): decay 0 cuts it after `steps` ticks; decay > 0 fades it by decay^ticks "
+                            "from the `fade_after`-th tick on.")
         .def(nb::init<>())
         .def("__init__",
-             [](Habituation* h, std::uint32_t steps, float tolerance, float decay) {
-                 new (h) Habituation{steps, tolerance, decay};
+             [](Habituation* h, std::uint32_t steps, float tolerance, float decay, std::uint32_t fadeAfter) {
+                 new (h) Habituation{steps, tolerance, decay, fadeAfter};
              },
-             "steps"_a = habituation_steps, "tolerance"_a = 0.0f, "decay"_a = 0.0f)
+             "steps"_a = habituation_steps, "tolerance"_a = 0.0f, "decay"_a = 0.0f, "fade_after"_a = 2u)
+        .def_rw("fade_after", &Habituation::fadeAfter)
         .def_rw("steps", &Habituation::steps)
         .def_rw("tolerance", &Habituation::tolerance)
         .def_rw("decay", &Habituation::decay)
         .def("__eq__", [](const Habituation& a, const Habituation& b) { return a == b; });
+
+    nb::class_<Spontaneous>(m, "Spontaneous",
+                            "Spontaneous E-R firing: a silent neuron fires with a value in [-amplitude, amplitude] "
+                            "once its threshold is <= `below`, and with probability `rate` on any silent tick.")
+        .def(nb::init<>())
+        .def("__init__",
+             [](Spontaneous* s, float below, float amplitude, float rate) { new (s) Spontaneous{below, amplitude, rate}; },
+             "below"_a = min_threshold, "amplitude"_a = spontaneous_min_amplitude, "rate"_a = 0.0f)
+        .def_rw("below", &Spontaneous::below)
+        .def_rw("amplitude", &Spontaneous::amplitude)
+        .def_rw("rate", &Spontaneous::rate)
+        .def("__eq__", [](const Spontaneous& a, const Spontaneous& b) { return a == b; });
 
     nb::class_<ThresholdGrowth> growth(m, "ThresholdGrowth",
                                        "How an E-R threshold grows on firing with magnitude s: LINEAR thr + amount*(s - thr) "
@@ -401,6 +415,8 @@ NB_MODULE(_core, m)
                 "Neurons without E-R: fixed firing threshold (|sum| <= gate gives 0); 0 = linear.")
         .def_rw("habituation_rule", &LayerSpec::habituationRule,
                 "How habituation suppresses repeated inputs (Habituation; default: cut after 100 exact repeats).")
+        .def_rw("spontaneous", &LayerSpec::spontaneous,
+                "When and how strongly E-R neurons fire on their own (Spontaneous; default: the original).")
         .def_rw("threshold_growth", &LayerSpec::thresholdGrowth,
                 "How E-R thresholds grow on firing (ThresholdGrowth; default: linear, amount 0.5).")
         .def_rw("rectify", &LayerSpec::rectify,

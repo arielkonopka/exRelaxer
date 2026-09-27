@@ -39,12 +39,15 @@ experiment so far.
   threshold. Firing raises it (fatigue / spike-frequency adaptation; by
   default linearly, halfway towards the firing's magnitude, with log, fixed
   and multiplicative growth selectable per layer), silence lets it decay. When it decays to ~0 the neuron fires
-  spontaneously at a small amplitude, which re-excites the threshold.
+  spontaneously at a small amplitude, which re-excites the threshold; the
+  trigger level, the amplitude and an optional random firing rate are
+  configurable per layer (`LayerSpec::spontaneous`).
 - **Habituation** – if a neuron's weighted input stays unchanged for
   `habituation_steps` consecutive steps, the input is treated as zero until
   the signal changes again. The streak length, a tolerance for "unchanged"
   and a gradual fade instead of the cut are configurable per layer
-  (`LayerSpec::habituationRule`).
+  (`LayerSpec::habituationRule`); the fade starts after `fadeAfter`
+  identical steps (default 2).
 - **Reward-modulated learning** – `applyReward(reward, learningRate)` moves
   the weights of recently active neurons toward the reward's sign.
 - **Learning rules per layer** – besides that sign rule, each layer can learn
@@ -410,7 +413,28 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   from hurt, death, kills, ammo, armor, items, keys, doors, level exit and
   idling.
 - `NNtesting/tools/dyn_summary.py`; [doc/dynamic.md](doc/dynamic.md);
-  [research log §17](doc/research.md#17-dynamic-ladder-time-varying-input-and-doom).
+  [research log §19](doc/research.md#19-dynamic-ladder-time-varying-input-and-doom).
+
+### 2026-09-27: early fading, spontaneous firing settings, rerun
+
+- **Habituation fade starts after `fadeAfter` identical steps** (default 2,
+  Python `Habituation(..., fade_after=2)`); the cut still happens after
+  `steps`. The library's default habituation is unchanged (cut after 100).
+- **Spontaneous firing is configurable** (`Spontaneous`,
+  `LayerSpec::spontaneous`): the threshold level that triggers it, its
+  amplitude and a random per-tick firing rate for silent neurons. A
+  spontaneous firing no longer lowers a threshold.
+- Network format 15 saves both; older files load as before (a saved fade
+  starts at its `steps`).
+- `nl_static` / `nl_temporal`: habituation options, spontaneous-firing
+  options, and `pretrain_model` / `pretrain` to train without E-R first and
+  switch to E-R.
+- Result files now live in [`results/`](results/README.md) instead of
+  outside the repository; the research log links to them.
+- Every E-R experiment rerun with linear growth and three habituation
+  variants (off, cut after 5, fade from the 2nd repeat): see [research log
+  §17–18](doc/research.md#18-rerun-with-linear-growth-and-three-habituation-variants)
+  and [`results/rerun/summary.md`](results/rerun/summary.md).
 
 ### 2026-09-27: temporal tasks, threshold growth rules
 

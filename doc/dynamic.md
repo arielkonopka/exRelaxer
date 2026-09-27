@@ -7,7 +7,7 @@ state wins there. These experiments add the control that matters: the same
 stateless networks shown the last frame as well (a frame window, the
 standard trick in game-playing networks). Each task's answer lies in how
 the input changes, never in one frame. Results: research log
-[§17](research.md#17-dynamic-ladder-time-varying-input-and-doom).
+[§19](research.md#19-dynamic-ladder-time-varying-input-and-doom).
 
 ## Models
 

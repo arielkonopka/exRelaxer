@@ -96,19 +96,47 @@ struct Jitter
     bool operator==(const Jitter&) const = default;
 };
 
-// How habituation works (for neurons that have it). The defaults are the
-// original behaviour: after `steps` consecutive ticks whose raw sums differ by
-// at most habituation_epsilon, the input is cut to 0 until it changes.
+// How habituation works (for neurons that have it). Two modes:
+//   cut (decay == 0, the default and the original behaviour): after `steps`
+//     consecutive ticks whose raw sums are "the same", the input is cut to 0
+//     until it changes;
+//   fade (decay > 0): from the `fadeAfter`-th such tick on, the input is
+//     scaled by decay^(ticks habituated), so it fades instead of vanishing.
 struct Habituation
 {
-    std::uint32_t steps = habituation_steps;  // streak length (ticks) before the input is suppressed; >= 1
+    std::uint32_t steps = habituation_steps;  // cut mode: streak length (ticks) before the input is cut; >= 1
     float tolerance = 0.0f;  // "the same signal": |sum - previous| <= max(habituation_epsilon,
                              // tolerance * max(|sum|, |previous|)); 0 = exact (up to the epsilon)
-    float decay = 0.0f;      // once habituated, the input is scaled by decay^(ticks habituated):
-                             // 0 cuts it at once (the original), closer to 1 fades it slowly; [0, 1]
+    float decay = 0.0f;      // 0 = cut mode; in (0, 1]: fade mode, the factor per habituated tick
+    std::uint32_t fadeAfter = 2;  // fade mode: streak length (ticks) before fading starts; >= 1
 
-    bool valid() const { return steps >= 1 && tolerance >= 0.0f && tolerance < 1.0f && decay >= 0.0f && decay <= 1.0f; }
+    bool valid() const
+    {
+        return steps >= 1 && fadeAfter >= 1 && tolerance >= 0.0f && tolerance < 1.0f && decay >= 0.0f && decay <= 1.0f;
+    }
+    // The streak length at which suppression starts in this rule's mode.
+    std::uint32_t onset() const { return decay > 0.0f ? fadeAfter : steps; }
     bool operator==(const Habituation&) const = default;
+};
+
+// Spontaneous E-R firing: a silent neuron fires on its own with a random
+// output in [-amplitude, amplitude] when its threshold has relaxed to `below`
+// or lower, and, with `rate` > 0, also with that probability on any silent
+// tick. The defaults are the original behaviour (only after the threshold
+// has decayed to min_threshold, amplitude spontaneous_min_amplitude). A
+// spontaneous firing never lowers the threshold.
+struct Spontaneous
+{
+    float below = min_threshold;                 // threshold at or below which a silent neuron fires; >= 0
+    float amplitude = spontaneous_min_amplitude; // output drawn uniformly in [-amplitude, amplitude]; [0, max_output]
+    float rate = 0.0f;                           // extra per-silent-tick firing probability; [0, 1]
+
+    bool valid() const
+    {
+        return below >= 0.0f && below <= max_output && amplitude >= 0.0f && amplitude <= max_output &&
+               rate >= 0.0f && rate <= 1.0f;
+    }
+    bool operator==(const Spontaneous&) const = default;
 };
 
 // How an E-R threshold grows when the neuron fires with magnitude s > thr.
@@ -213,6 +241,10 @@ public:
     // layer-level setting (LayerSpec::thresholdGrowth), like the gate.
     const ThresholdGrowth& thresholdGrowth() const { return growth_; }
     void setThresholdGrowth(const ThresholdGrowth& value) { growth_ = value; }
+    // When and how strongly the neuron fires spontaneously (see Spontaneous).
+    // A layer-level setting (LayerSpec::spontaneous), like the gate.
+    const Spontaneous& spontaneous() const { return spontaneous_; }
+    void setSpontaneous(const Spontaneous& value) { spontaneous_ = value; }
 
     // --- Serialization --------------------------------------------------
     // One record: flags, alpha, the weights (count + values, passed in since
@@ -229,7 +261,7 @@ public:
 
 private:
     void excite(float effectiveSum); // shared by real and spontaneous excitation: sets output, lifts threshold
-    float spontaneousOutput();       // random output at a fixed baseline amplitude
+    float spontaneousOutput();       // random output in [-amplitude, amplitude] (see Spontaneous)
 
     float threshold_;             // E-R: current firing threshold, starts at baseline_threshold
     float previous_input_ = 0.0f; // habituation only: last raw (pre-habituation) weighted sum
@@ -244,6 +276,7 @@ private:
     bool rectified_ = false;
     Habituation habituation_;
     ThresholdGrowth growth_;
+    Spontaneous spontaneous_;
     std::minstd_rand rng_;        // per neuron, so neurons can step in parallel; seeded from rng::spontaneousSeed()
 };
 

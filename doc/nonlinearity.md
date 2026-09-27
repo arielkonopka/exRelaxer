@@ -59,7 +59,15 @@ growth rule (`linear`, the default, with amount 0.5; `log`, `fixed`,
 `multiplicative`; `alpha` affects only `log`; see
 [neuron](neuron.md#excitationrelaxation-e-r)), and `learn_ticks=all` (off
 by default: `last`) learns on every tick of a presentation at `lr / ticks`
-instead of once from the last tick.
+instead of once from the last tick. `spontaneous_below`,
+`spontaneous_amplitude` and `spontaneous_rate` set E-R's spontaneous firing
+(see [neuron](neuron.md#one-tick-activate)). `pretrain_model` (`relu`,
+`gate`, `clamp` or `er`) with `pretrain` samples trains a network of those
+neurons first, on the start of the same training stream, then copies its
+weights and biases into `model` and continues for `train` samples
+(`train=0`: switch without further training). It records
+`pretrain_validation(_mse)` and `switch_validation(_mse)`, the validation
+error just before and just after the switch.
 
 ## Tasks (`nl_static`)
 

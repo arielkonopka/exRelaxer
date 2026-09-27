@@ -21,6 +21,7 @@ of known limitations, see the [project README](../README.md).
 | [pattern_benchmark](pattern_benchmark.md) | Task support (`NNtesting/tasks/pattern_benchmark.hpp`): gapped-pattern benchmark, frozen value detectors, delay window |
 | [NNtesting](../NNtesting/README.md) | The `nntest` benchmark harness: experiments, parameter sweeps, result files, comparisons |
 | [research](research.md) | Research log: parameter changes, mechanisms, topologies, jitter and what each showed |
+| [appendix 1](appendix1.md) | Audit of the execution semantics, topology rules, reproducibility and the evidence behind the E-R findings (2026-09-27) |
 
 ## How the pieces fit together
 
