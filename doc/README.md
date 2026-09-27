@@ -12,6 +12,7 @@ of known limitations, see the [project README](../README.md).
 | [spatial](spatial.md) | image layers: `retina` (grid and spiral sampling), `conv2d`, `locally_connected2d`, `pool2d`, `Window2D` |
 | [audio](audio.md) | sound layers: `cochlea` (FFT into mel or linear frequency bands), `history` (the last ticks side by side: a spectrogram) |
 | [multimodal](multimodal.md) | several senses in one network: named input sources, microphones, `resize2d`, stereo `disparity` |
+| [nonlinearity](nonlinearity.md) | experiments on whether E-R dynamics replace network size: static tasks, ReLU / E-R / fixed threshold / clamp, depth × width grid, minimum architectures |
 | [activity](activity.md) | experiments on E-R activity without a penalty: sparsity, path choice, fatigue, history; the fixed-threshold control `gate` |
 | [kernels](kernels.md) | weight layout, SIMD kernels, determinism, parallelism, performance, random streams |
 | [layer_factory](layer_factory.md) | `layer_factory`, `LayerSpec`: creating layers by type, registering new types |

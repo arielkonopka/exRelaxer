@@ -68,8 +68,13 @@ runs these stages in order:
    with a fixed threshold that never adapts. It is a control for
    experiments that separate thresholding from adaptation
    ([activity](activity.md)); layers set it through `LayerSpec::gate`.
+5. **Rectification** (only without E-R, if set). With `setRectified(true)`
+   the neuron is a ReLU: the output is 0 whenever `sum ≤ gate` (0 by
+   default), otherwise `sum`. Off by default; layers set it through
+   `LayerSpec::rectify`. It is the conventional baseline of the
+   [nonlinearity experiments](nonlinearity.md).
 
-Without E-R (and without a gate) the output is simply the (clamped,
+Without E-R (and without a gate or rectification) the output is simply the (clamped,
 possibly habituated) sum.
 
 For one neuron with caller-owned weights, `step(inputs, weights)` is

@@ -20,6 +20,7 @@ constants in force at the time, the constants are given.
 - [11. Learning rules](#11-learning-rules)
 - [12. Several senses and stereo vision](#12-several-senses-and-stereo-vision)
 - [13. Activity economy and path selection](#13-activity-economy-and-path-selection)
+- [14. Dynamic nonlinearity substitution: static tasks](#14-dynamic-nonlinearity-substitution-static-tasks)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -557,6 +558,106 @@ activity around recently used neurons and respond differently depending
 on recent history, which fixed nonlinearities cannot. The fixed-threshold
 control (`LayerSpec::gate`, network format 11) was added for this.
 
+## 14. Dynamic nonlinearity substitution: static tasks
+
+Can E-R dynamics replace network size? Milestone 1 of the
+[nonlinearity suite](nonlinearity.md): how large must a network be to
+reach test MSE ≤ 1e-3 (in ≥ 80 % of seeds) on known static functions,
+with ReLU, E-R, fixed-threshold (`gate` 0.2) or plain clamped hidden
+neurons? The runs covered:
+
+- 9 tasks: l0–l3, and l4 with K = 1, 2, 4, 8, 16;
+- depth {1, 2, 3, 4, 6, 8} × width {4, …, 128};
+- 4 learning rates, the best chosen per model and architecture on
+  validation;
+- 5 seeds, for 25 920 trials.
+
+Every model uses the same data, initial weights, feedback-alignment
+learning and stopping rule. Result files are in
+`/mnt/project-files/reports/nonlinearity/` in the project.
+
+**Minimum architecture.**
+
+- ReLU solves every task. Its smallest solving networks:
+  - l0: 1 × 4;
+  - l1: 2 × 8;
+  - l2: 1 × 16;
+  - l3: 1 × 64;
+  - l4: 1 × 32 for every K except K = 2 (1 × 128).
+- The plain clamped neuron solves only l0, the linear task.
+- The fixed threshold solves l0 at 1 × 32.
+- **E-R solves none, not even l0.**
+
+So in this setting E-R does not reduce the topology needed. It does not
+reach the predefined error at any size.
+
+**Best test MSE on any architecture** (median over seeds; 1 tick after the
+input arrives):
+
+| Task | relu | er | gate | clamp |
+|------|------|----|------|-------|
+| l0 x1+x2 | 3.7e-4 | 0.045 | 7.7e-4 | 3e-15 |
+| l1 x1·x2 | 6.6e-4 | 0.088 | 0.088 | 0.11 |
+| l2 sin(x1·x2) | 6.7e-4 | 0.077 | 0.077 | 0.099 |
+| l3 + exp(−x3²) | 8.5e-4 | 0.055 | 0.11 | 0.14 |
+| l4 K=1 | 8.3e-4 | 0.30 | 0.24 | 0.33 |
+| l4 K=2 | 8.9e-4 | 0.33 | 0.23 | 0.30 |
+| l4 K=4 | 7.2e-4 | 0.22 | 0.14 | 0.20 |
+| l4 K=8 | 9.1e-4 | 0.22 | 0.19 | 0.25 |
+| l4 K=16 | 8.8e-4 | 0.17 | 0.10 | 0.13 |
+
+The target variances are 0.11 (l1), about 0.5 (l4) and 0.67 (l0), so
+E-R's l1 error (0.088) is about 80 % of the variance: it learns little of
+the product. On l1 it matches the fixed threshold.
+
+**More ticks per sample** (E-R only; the other models' outputs do not
+change with extra ticks, which was checked). Holding each sample longer
+lowers E-R's error by 2–4×:
+
+| Task | 1 extra tick | 7 | 15 |
+|------|--------------|---|----|
+| l0 | 0.045 | 0.012 | 0.0064 |
+| l1 | 0.088 | 0.029 | 0.033 |
+| l3 | 0.055 | 0.047 | 0.068 |
+| l4 K=4 | 0.22 | 0.094 | 0.074 |
+| l4 K=16 | 0.17 | 0.072 | 0.060 |
+
+With 7 ticks E-R represents x1·x2 better than any static threshold
+network (0.029 vs 0.088) and better than every model but ReLU on l3 and
+l4. That is nonlinear capacity bought with **more time**, not more
+neurons. It still never reaches 1e-3; at a relaxed 1e-2 only l0 is
+solved (1 × 4, 15 extra ticks).
+
+**Activity** at 2 × 32, l1:
+
+| Model | Active fraction | Spikes per sample | Event synaptic operations | Test MSE |
+|-------|-----------------|-------------------|--------------------------|----------|
+| ReLU | 0.40 | 102 | 2200 | 6.5e-4 |
+| E-R | 0.16 | 41 | 1000 | 0.093 |
+| gate | 0.77 | 198 | 3400 | 0.091 |
+
+With 7 or 15 extra ticks, E-R's spikes per sample rise to 121 and 260.
+E-R is the sparsest per tick, but at the error it reaches it spends
+comparable or more spikes per answer once it needs more ticks. Wall time
+per inference is similar (3–4 µs at this size) and grows with the ticks.
+
+**Divergence.** With linear-looking units (clamp, gate, E-R) at rates
+≥ 0.01, and at depth 6–8, feedback alignment often diverges to the ±10
+clamp. The per-model rate choice avoids most of this; ReLU tolerates the
+largest rates (0.03).
+
+**Reading.** For static functions, trained this way (feedback alignment,
+one error per sample on the last tick), E-R does not substitute for
+topology. It supplies some nonlinearity that grows with the time it is
+given, beyond a fixed threshold's. Following the spec, the next step is
+the temporal tasks, with the memoryless E-R control. Two open causes
+remain to test:
+
+- the readout-on-the-last-tick protocol, since E-R's output fluctuates
+  from tick to tick;
+- the learning signal, since an E-R neuron only learns on the ticks it
+  fires.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -592,6 +693,11 @@ control (`LayerSpec::gate`, network format 11) was added for this.
     recently fatigued paths (recovering in ≈ 10–30 ticks), the leading
     path changes under a constant input, and the same input gets a
     different response after a different history.
+
+11. **E-R does not replace topology on static functions.** No network
+    size reached test MSE 1e-3 with E-R, where ReLU needs 5–129 neurons.
+    More ticks per sample buy E-R some nonlinearity (x1·x2: 0.029, vs
+    0.088 for a fixed threshold), paid in time and spikes.
 
 ## Open questions and next steps
 

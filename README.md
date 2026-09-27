@@ -25,7 +25,7 @@ audio-visual objects.
 [neuron](doc/neuron.md), [layer](doc/layer.md), [dense](doc/dense.md),
 [learning](doc/learning.md), [kernels](doc/kernels.md), [spatial](doc/spatial.md), [audio](doc/audio.md),
 [multimodal and stereo](doc/multimodal.md),
-[activity economy](doc/activity.md),
+[activity economy](doc/activity.md), [nonlinearity](doc/nonlinearity.md),
 [layer_factory](doc/layer_factory.md),
 [network](doc/network.md), and the
 test-support [pattern_benchmark](doc/pattern_benchmark.md). It also has
@@ -380,6 +380,21 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files from older format versions load as weights only.
 
 ## Changelog
+
+### 2026-09-27: nonlinearity substitution, milestone 1
+
+- **ReLU neurons** (optional): `LayerSpec::rectify`, `neuron::setRectified`,
+  `neuron_layer::setRectified`, Python `LayerSpec.rectify`. Only sums above
+  the gate (0 by default) pass. Off by default, so the plain clamped neuron
+  is unchanged. Network format 12 saves it.
+- Feedback alignment: a silent gated or rectified neuron takes no step,
+  like a silent E-R neuron.
+- `nntest run nl_static` and `NNtesting/tools/capacity.py`: how large must
+  a network be to reach test MSE 1e-3 on known static functions, with
+  ReLU, E-R, fixed-threshold or clamped neurons? ReLU solves every task
+  (5–129 neurons); E-R reaches none at any size. More ticks per sample
+  lower E-R's error 2–4×. See [doc/nonlinearity.md](doc/nonlinearity.md)
+  and [research log §14](doc/research.md#14-dynamic-nonlinearity-substitution-static-tasks).
 
 ### 2026-09-27: activity economy experiments
 

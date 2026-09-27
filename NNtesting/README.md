@@ -15,6 +15,7 @@ NNtesting/
                  NAME/experiment.py or NAME.py (Python)
   datasets/      fetch.py: downloads public datasets into one format (see datasets/README.md)
   tools/         compare.py: tables and comparisons of result files
+                 capacity.py: minimum architectures and capacity curves (nl_static)
                  spiral.py: spiral sampling of images, exactly as the Spiral retina
   data/          downloaded datasets (not in git)
 ```
@@ -194,6 +195,7 @@ experiment. With `EXRELAXER_BUILD_PYTHON=ON`, the Python experiments tagged
 | `er_paths` | er, activity, paths, learning | three paths (12, 20, 35 neurons): drive per neuron per path (≈ 1.0, no preference), switching of the leading path over 3000 samples and under one held input |
 | `er_fatigue` | er, activity, paths | fatigue one path or all, then probe: the path's share drops to 0.05–0.44, others take over, recovery ≈ 10 ticks (recovery 0.9) or ≈ 30 (0.97) |
 | `er_history` | er, activity, state | the same inputs after rest, ordinary activity or stimulation: change of pattern, evidence, decision, spikes and latency (always 0 for the controls) |
+| `nl_static` | er, nonlinearity, learning | known static functions (l0 x1+x2 … l4 sum of K sines) with relu, E-R, fixed-threshold or plain clamped hidden neurons on a depth × width grid: test MSE, success at MSE ≤ 1e-3, size, activity, cost. Analyse with `tools/capacity.py`. See [doc/nonlinearity.md](../doc/nonlinearity.md) |
 | `snake_rules` | control, learning, rules | `snake` with a learning rule per layer: `readout` = sign, trace, fa, perturbation; `mix` = frozen or any rule (also oja, bcm); apples, steps and apples per 100 steps per game. The defaults play exactly the games of `snake` |
 | `snake_py` (Python folder) | control, learning, quick | `snake` written in Python, playing the same games with the same results |
 | `vision_throughput` | performance, vision | ms per step, per step + reward and per layer of a 320 × 200 camera pipeline |
