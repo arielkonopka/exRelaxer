@@ -25,7 +25,7 @@ audio-visual objects.
 [neuron](doc/neuron.md), [layer](doc/layer.md), [dense](doc/dense.md),
 [learning](doc/learning.md), [kernels](doc/kernels.md), [spatial](doc/spatial.md), [audio](doc/audio.md),
 [multimodal and stereo](doc/multimodal.md),
-[activity economy](doc/activity.md), [nonlinearity](doc/nonlinearity.md),
+[activity economy](doc/activity.md), [nonlinearity](doc/nonlinearity.md), [dynamic ladder](doc/dynamic.md),
 [layer_factory](doc/layer_factory.md),
 [network](doc/network.md), and the
 test-support [pattern_benchmark](doc/pattern_benchmark.md). It also has
@@ -394,6 +394,23 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files older than format 6 load as weights only.
 
 ## Changelog
+
+### 2026-09-27: dynamic ladder and Doom
+
+- `nntest run dyn_ladder`: motion direction, change detection, velocity
+  and a closed-loop catch game, with relu, E-R, memoryless E-R or gate
+  neurons and an optional window of past frames (the control §16 lacked).
+  Only E-R beats the single-frame ceiling without a window, clearly only on
+  change detection (0.98 vs 0.70); with one past frame ReLU solves all four
+  and E-R on top of a window hurts.
+- `doom` (Python, ViZDoom): `basic` and `predict_position` from 40 × 30
+  pixels, imitating an oracle that reads object positions.
+- `doom_rl` (Python, ViZDoom): Doom from reward, with the screen at the
+  smallest settings and stereo sound through a two-ear cochlea; reward
+  from hurt, death, kills, ammo, armor, items, keys, doors, level exit and
+  idling.
+- `NNtesting/tools/dyn_summary.py`; [doc/dynamic.md](doc/dynamic.md);
+  [research log §17](doc/research.md#17-dynamic-ladder-time-varying-input-and-doom).
 
 ### 2026-09-27: temporal tasks, threshold growth rules
 
