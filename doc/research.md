@@ -1073,12 +1073,12 @@ tables in [`summary.md`](../results/normalize/summary.md).
 | the same, gate at lr 0.01 / 0.03 | 55 % / 91 % | 27 % / 56 % |
 
 - **It stabilises learning.** At the larger learning rates, half as
-  many E-R, gate and clamp runs diverge. The runs that still diverge do so
-  through the readout, whose sum is not normalised.
+  many E-R, gate and clamp runs diverge. The rest probably diverge through
+  the readout, whose sum is not normalised (inferred, not tested).
 - **It does not improve the best results.** With the learning rate chosen
   on validation, E-R's static error rises by about half on l1–l3 and is
-  unchanged on l4. ReLU is unchanged (it is scale-invariant), and so are the
-  gate and clamp. On temporal tasks E-R is unchanged, slightly better on t2
+  unchanged on l4. ReLU is unchanged or slightly better (it is scale-invariant), the gate
+  slightly worse (l1 0.091 → 0.101) and clamp unchanged. On temporal tasks E-R is unchanged, slightly better on t2
   (0.80 vs 0.76).
 - **It hurts E-R in the activity experiments** (accuracy 1.0 → 0.85–0.87,
   and 0.33 once all paths are fatigued), while the gate and the linear
