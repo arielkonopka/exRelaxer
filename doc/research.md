@@ -22,6 +22,7 @@ constants in force at the time, the constants are given.
 - [13. Activity economy and path selection](#13-activity-economy-and-path-selection)
 - [14. Dynamic nonlinearity substitution: static tasks](#14-dynamic-nonlinearity-substitution-static-tasks)
 - [15. How E-R behaves: learning, silence, state, habituation](#15-how-e-r-behaves-learning-silence-state-habituation)
+- [16. Temporal tasks and the threshold growth rule](#16-temporal-tasks-and-the-threshold-growth-rule)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -762,6 +763,83 @@ recognition at onset / summed / at the end:
   1 % tolerance). E-R's thresholds keep it out of saturation, and it did
   not suffer.
 
+## 16. Temporal tasks and the threshold growth rule
+
+**Question.** Milestone 1 found no topology advantage on static functions.
+The spec's next step: when the target depends on earlier inputs, does E-R's
+state substitute for memory the network does not otherwise have, and is
+that effect due to the state or to E-R's transfer function? A second
+question comes from the user: should the threshold rule be logarithmic?
+
+**Setup.** `nntest run nl_temporal` ([nonlinearity](nonlinearity.md#temporal-tasks-nl_temporal)):
+delayed XOR `t1` (x(t) XOR x(t−1)), `t2` x(t) AND NOT x(t−3), parity of the
+last n `t3` (n = 4, 8, 16), `t4` sin(x(t)·x(t−2)). Each step is held for
+depth + 2 ticks, so a feed-forward network without neuron state sees only
+x(t). Models: `relu`, `er`, `er_memoryless` (the same E-R neurons reset to
+rest before every step: a test-only wrapper), `gate`, `clamp`. Depth
+{1, 2, 3, 4, 6, 8} × width {4 … 128}, 5 seeds, lr {0.001, 0.003, 0.01,
+0.03} chosen per architecture on validation, 20 000 training steps.
+Success, fixed in advance: accuracy ≥ 0.95 (MSE ≤ 1e-3 on `t4`) in ≥ 80 %
+of seeds. `input_ceiling_accuracy` is the best any function of x(t) alone
+can do. 21 600 trials; raw results in
+`/mnt/project-files/reports/nonlinearity/temporal/`.
+
+**Results** (median test accuracy at each model's best architecture):
+
+| Task | Ceiling without memory | relu | gate | clamp | er_memoryless | er |
+|------|------|------|------|------|------|------|
+| t1 delayed XOR | 0.51 | 0.51 | 0.51 | 0.51 | 0.51 | **0.952** (1×64; solved) |
+| t2 x(t) ∧ ¬x(t−3) | 0.748 | 0.748 | 0.748 | 0.743 | 0.743 | 0.844 (1×32) |
+| t3 parity 4 | 0.511 | 0.49 | 0.511 | 0.511 | 0.511 | 0.621 (1×64) |
+| t3 parity 8 / 16 | 0.52 / 0.51 | chance | chance | chance | chance | chance |
+| t4 sin(x(t)·x(t−2)), NMSE | 1 | 0.99 | 1.0 | 1.0 | 0.99 | 1.0 |
+
+- Only E-R with state goes above the memoryless ceiling, on t1, t2 and
+  parity 4. The memoryless E-R control stays at the ceiling everywhere, so
+  the effect comes from the **state**, not from E-R's transfer function
+  (spec §16: "E-R with state > memoryless E-R ≈ static").
+- It solves only delayed XOR, and only with one hidden layer (64 or 128
+  neurons; 1×32 gives 0.94). Deeper E-R networks lose it: depth 4 and more
+  stay at chance. E-R's memory lasts about one step: x(t−3) is only
+  partly available, parity beyond 4 not at all, and the continuous t4 not
+  at all.
+- Deeper or wider E-R networks on t2 and t4 often diverge (NMSE in the
+  hundreds), like the 2-layer runs in §15.
+- Activity: at its best t1 architecture E-R has 48 % of hidden neurons
+  active per tick, 91 spikes per step.
+
+**Threshold growth rules.** `ThresholdGrowth` (network format 14; log stays
+the default) offers `linear` thr + a(s − thr), `fixed` thr + a and
+`multiplicative` thr·(1 + a), a = 0.5. Swept on t1, t2, t3 n=4, t4 and the
+static l1, l2 with depth {1, 2} × width {8 … 64}, the same lr grid and 5
+seeds, with learning from the last tick or from every tick at lr / ticks
+(`learn_ticks=all`). Raw results in `/mnt/project-files/reports/nonlinearity/growth/`.
+
+| Rule | t1 best (solved architectures) | t2 | t3 n=4 | l1 MSE (settle 7) | l2 MSE |
+|------|------|------|------|------|------|
+| log | 0.952 (1: 1×64) | 0.844 | 0.621 | 0.037 | 0.032 |
+| linear | **0.9995 (5, from 1×8)** | 0.755 | 0.586 | 0.038 | **0.026** |
+| fixed | 0.70 (0) | 0.784 | 0.617 | 0.082 | 0.068 |
+| multiplicative | 0.69 (0) | 0.756 | 0.567 | 0.107 | 0.096 |
+
+- The linear rule solves delayed XOR with 8 neurons, eight times fewer
+  than the log rule needs; on the static tasks it is as good as log or
+  slightly better. The rules that ignore the firing's magnitude (fixed,
+  multiplicative) lose both the memory and the static accuracy: the
+  information E-R carries is how strongly a neuron fired.
+- Learning from every tick did not help under any rule.
+- After a long silence (`er_silence`, recovery 0.97), the log rule's
+  overshoot drops accuracy to 0.5; with linear, fixed or multiplicative
+  growth it stays at 1.0. These rules instead fire 2–20× more on the first
+  sample after the silence (their thresholds come back low).
+
+**Takeaway.** E-R's state is a real, short memory that no stateless
+control has: it solves delayed XOR, which no static model can. But it
+reaches only about one step back, fails for deeper networks, and does not
+help with continuous-valued history. A linear growth rule makes that memory
+much cheaper (8 neurons) and removes the post-silence blindness, without
+costing static accuracy.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -811,6 +889,14 @@ recognition at onset / summed / at the end:
     at the cost of the stimulus's representation; it needs a tolerance
     to work on noisy sensors. On static tasks, a third to a half of E-R's
     remaining error is state-dependent.
+13. **E-R's state is a one-step memory; a linear threshold rule makes it
+    cheap.** On temporal tasks only E-R with state beats the ceiling of a
+    network without memory (delayed XOR solved; x(t−3) and parity 4
+    partly); resetting its state removes the gain, so it is the state, not
+    the transfer function. It does not reach further back, fails in deep
+    networks, and does not help continuous history. With linear threshold
+    growth, delayed XOR needs 8 neurons instead of 64, and a long silence
+    no longer blinds the network.
 
 ## Open questions and next steps
 
@@ -820,9 +906,9 @@ recognition at onset / summed / at the end:
   signal strength (strong features want ≈ 0.5, weak inputs ≤ 0.2); only
   recovery, learning gain and alpha are per neuron today, and baseline is
   global.
-- **A threshold-growth rule with non-vanishing jumps** as an option, to test
-  whether frequency diversity helps (e.g. telling apart pulse trains with
-  different periods).
+- **Threshold growth rules** exist now (§16); linear growth is the
+  candidate for a new default, not yet changed. Next: sweep its amount and
+  recovery, and repeat the temporal grid with it.
 - **Deserialization of older files** (next version): read everything a file
   contains and default only what is missing; version-3 jitter widths become
   uniform jitter settings.

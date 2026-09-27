@@ -381,6 +381,19 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-09-27: temporal tasks, threshold growth rules
+
+- **Threshold growth rule** (`ThresholdGrowth`, `LayerSpec::thresholdGrowth`,
+  Python `ThresholdGrowth`): log (the original, default), linear, fixed or
+  multiplicative growth on firing. Network format 14 saves it. Python now
+  also exports `Habituation`.
+- `nntest run nl_temporal`: delayed XOR, x(t) AND NOT x(t−3), parity, and
+  sin(x(t)·x(t−2)), with a memoryless E-R control. Only E-R with state beats
+  the no-memory ceiling; it solves delayed XOR (1×64 neurons, 8 with linear
+  growth) but not longer lags or continuous history.
+- `nl_static` / `nl_temporal`: `growth`, `growth_amount`, `learn_ticks=all`.
+- See [research log §16](doc/research.md#16-temporal-tasks-and-the-threshold-growth-rule).
+
 ### 2026-09-27: E-R behaviour: learning curves, silence, state, habituation
 
 - **Configurable habituation** (`neuron::Habituation`, `LayerSpec::habituationRule`,
