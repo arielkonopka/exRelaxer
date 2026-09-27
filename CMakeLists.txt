@@ -70,6 +70,10 @@ add_library(exrelaxer_core STATIC
     core/layers/cochlea.hpp
     core/layers/history.cpp
     core/layers/history.hpp
+    core/layers/resize2d.cpp
+    core/layers/resize2d.hpp
+    core/layers/disparity.cpp
+    core/layers/disparity.hpp
     core/layers/layer_factory.cpp
     core/layers/layer_factory.hpp
     core/network.cpp
@@ -163,6 +167,7 @@ add_executable(exrelaxer_tests
     tests/filters.cpp
     tests/audio.cpp
     tests/learning.cpp
+    tests/multimodal.cpp
     tests/snake.cpp
 )
 

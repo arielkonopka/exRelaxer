@@ -46,8 +46,9 @@ the network hands out references to its layers. Use
 | `LayerId addLayer(const std::string& name, const LayerSpec& spec)` | create a layer through the factory. Names must be unique and non-empty. Ids are consecutive from 0. |
 | `void connect(LayerId from, LayerId to)` | `to` reads `from`'s output (`to.join(from)`): a **forward edge**. Every neuron `to` has now reads `from`, in addition to what it already reads (one weighted sum over all its sources); neurons added later by feedback are not wired. Each pair once. `connect(x, x)` makes every neuron of x read x (recurrence). |
 | `void addFeedback(LayerId from, LayerId to, size_t width)` | add `width` new neurons to `to`, reading `from`: a **feedback edge**. Layers already reading `to` are extended automatically. |
-| `size_t addInputs(LayerId target, size_t count)` | create `count` sensors (owned by the network, initially 0) and attach them to `target`. Returns the index of the first new sensor. |
-| `size_t addInputs(LayerId target, const Shape& image)` | the same for an image (`image.size()` sensors, channel after channel, row after row), e.g. for a [retina](spatial.md#retina) |
+| `size_t addInputs(LayerId target, size_t count, const std::string& name = "")` | create `count` sensors (owned by the network, initially 0) and attach them to `target`. Returns the index of the first new sensor. With a `name` they are a [named input source](#input-sources). |
+| `size_t addInputs(LayerId target, const Shape& image, const std::string& name = "")` | the same for an image (`image.size()` sensors, channel after channel, row after row), e.g. for a [retina](spatial.md#retina); the source keeps the shape |
+| `void connectInputs(const std::string& name, LayerId target)` | the named source's sensors also feed `target` (one camera read by several layers) |
 | `void addOutput(LayerId id)` | mark a layer as output. `outputs()` concatenates output layers in marking order. |
 
 The wiring semantics are those of `dense`; read
@@ -60,12 +61,36 @@ inputs → `std::invalid_argument`; connecting a pair twice →
 `std::logic_error`; a layer type that does not support the operation →
 `std::logic_error`.
 
+## Input sources
+
+Each `addInputs` call creates one block of sensors, an `InputSource`: its
+name (`""` if unnamed), the index of its first sensor, its shape
+(`Shape::flat(count)` unless created from a shape) and the layers it feeds.
+A network with several senses names them and sets each on its own:
+
+```cpp
+net.addInputs(leftRetina, Shape{1, 48, 64}, "left_eye");
+net.addInputs(rightRetina, Shape{1, 48, 64}, "right_eye");
+net.addInputs(ears, 2 * earSpec.hop, "microphones");   // a cochlea with 2 channels
+net.connectInputs("left_eye", peripheral);            // the same sensors, read by one more layer
+
+net.setInputs("left_eye", leftImage);
+net.setInputs("right_eye", rightImage);
+net.setInputs("microphones", sound);
+net.step();
+```
+
+Names are unique; an unknown name throws `std::out_of_range`, a wrong value
+count `std::invalid_argument`. `setInputs(values)` still sets every sensor
+at once, sources in creation order. See [multimodal](multimodal.md).
+
 ## Running
 
 | Method | Effect |
 |--------|--------|
 | `setInput(i, v)` | set sensor `i` |
 | `setInputs(values)` | set all sensors; the count must equal `inputCount()` (span or `{...}` list) |
+| `setInputs(name, values)` | set one named source's sensors; the count must equal its size |
 | `step()` | call `forward()` on every layer once, in [update order](#update-order) |
 | `applyReward(reward, learningRate)` | call `applyReward` on every layer that is **not frozen** |
 | `applyError(errors, learningRate)` | one error per output: each unfrozen layer learns by its [learning rule](learning.md#driving-learning) |
@@ -170,6 +195,7 @@ with the network.
 | `edges()` | every connection in creation order: `{from, to, kind, width}`, kind `Forward` or `Feedback` |
 | `outputLayers()` | output layer ids in marking order |
 | `inputCount()`, `inputs()` | number of sensors, their current values (one contiguous buffer, in `addInputs` order) |
+| `inputSources()`, `inputSource(name)`, `inputs(name)` | every `addInputs` block (`name`, `first`, `shape`, `targets`), one by name, a named source's values |
 | `updateOrder()` | the order `step()` uses |
 | `describe(os)` | human-readable dump: layers (outputs, shape of spatial layers, habituation, E-R, learning or frozen, recovery / learning-gain / alpha distributions of layers with neurons), where inputs attach, edges, outputs, update order |
 
@@ -199,8 +225,8 @@ static std::unique_ptr<network> load(std::istream& is,
                                      const layer_factory& factory = layer_factory::instance());
 ```
 
-The network records every successful `addLayer`, `connect`, `addFeedback`
-and `addInputs` call. `save` writes that history, then the rest of the
+The network records every successful `addLayer`, `connect`, `addFeedback`,
+`addInputs` and `connectInputs` call. `save` writes that history, then the rest of the
 state; `load` **replays the history** on a new network, which reproduces the
 exact wiring (groups, feedback neurons, sensor attachment), then restores each
 layer's state in place.
@@ -240,10 +266,14 @@ are `uint64`.
      rate (`float`), hop, window, bands, min and max frequency (`float`),
      frequency scale and compression (`uint8`), gain (`float`); then the
      learning rule: type and bias (`uint8`), decay, trace, baseline, noise,
-     bcmRate (`float`), winners (`uint32`)
+     bcmRate (`float`), winners (`uint32`); then (version 10) cochlea
+     channels, resize height and width, interpolation (`uint8`), min and
+     max disparity (`int32`), disparity window, measure (`uint8`)
    - Connect: from, to
    - Feedback: from, to, width
-   - Inputs: target, count
+   - Inputs: target, count; then (version 10) name length + name, shape
+     channels, height, width
+   - ConnectInputs (version 10): source index, target
 3. Output count + ids; custom-order flag (`uint8`), and if set, count + ids.
 4. Input count + values (`float`).
 5. Each layer's `serialize()` output, in id order. Layers of neurons end
@@ -261,6 +291,7 @@ are `uint64`.
 | 7 | spatial parameters per layer (window, pooling mode, retina) |
 | 8 | audio parameters per layer (cochlea) |
 | 9 | learning rule per layer; layers of neurons append the rule's state (neuron format 3) |
+| 10 | cochlea channels, resize and disparity parameters per layer; input source names and shapes; `connectInputs` |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.

@@ -23,6 +23,8 @@ struct LayerSpec
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina
     CochleaSpec cochlea = {};    // Cochlea
+    ResizeSpec resize = {};      // Resize2D
+    DisparitySpec disparity = {};  // Disparity
 };
 ```
 
@@ -87,12 +89,15 @@ public:
 | `LayerType::Retina` | `retina(spec.retina, spec.hasHabituation, spec.hasER, jitters...)` |
 | `LayerType::Cochlea` | `cochlea(spec.cochlea, spec.hasHabituation, spec.hasER, jitters...)` |
 | `LayerType::History` | `history(spec.size)` |
+| `LayerType::Resize2D` | `resize2d(spec.resize)` |
+| `LayerType::Disparity` | `disparity(spec.disparity)` |
 
 `LayerSpec` has a builder per type that fills the fields it uses:
 `LayerSpec::Dense(size)`, `Conv2D(channels, window)`,
 `LocallyConnected2D(channels, window)`, `Pool2D(window, mode)`,
 `Retina(retinaSpec)`, `Cochlea(cochleaSpec)`, `History(length)` (see
-[audio](audio.md)). Fields a type does not use are ignored. `size` is the
+[audio](audio.md)), `Resize2D(height, width, interpolation)` and
+`Disparity(disparitySpec)` (see [multimodal](multimodal.md)). Fields a type does not use are ignored. `size` is the
 neuron count for Dense, the output channels for Conv2D and
 LocallyConnected2D, and the ticks remembered for History.
 

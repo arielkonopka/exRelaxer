@@ -16,10 +16,17 @@ __all__ = ["chirp", "frames", "read_wav", "resample", "tone"]
 
 
 def frames(signal, hop):
-    """`signal` as ticks x hop float32 frames; a partial last frame is zero-padded."""
-    signal = np.asarray(signal, dtype=np.float32).reshape(-1)
+    """`signal` as ticks x hop float32 frames; a partial last frame is zero-padded.
+
+    Several microphones (a channels x samples array) give ticks x (channels *
+    hop) frames, channel after channel within each tick: the sensor layout of
+    a cochlea with `channels` microphones."""
+    signal = np.asarray(signal, dtype=np.float32)
     if hop < 1:
         raise ValueError("hop must be at least 1")
+    if signal.ndim == 2:
+        return np.concatenate([frames(channel, hop) for channel in signal], axis=1)
+    signal = signal.reshape(-1)
     count = -(-len(signal) // hop)
     out = np.zeros((count, hop), dtype=np.float32)
     out.reshape(-1)[:len(signal)] = signal
@@ -27,8 +34,12 @@ def frames(signal, hop):
 
 
 def resample(signal, rate, new_rate):
-    """Linear-interpolation resampling (enough for experiments, not for hi-fi)."""
-    signal = np.asarray(signal, dtype=np.float32).reshape(-1)
+    """Linear-interpolation resampling (enough for experiments, not for hi-fi).
+    A channels x samples array is resampled channel by channel."""
+    signal = np.asarray(signal, dtype=np.float32)
+    if signal.ndim == 2:
+        return np.stack([resample(channel, rate, new_rate) for channel in signal])
+    signal = signal.reshape(-1)
     if rate == new_rate or len(signal) == 0:
         return signal
     count = int(round(len(signal) * new_rate / rate))
@@ -36,9 +47,11 @@ def resample(signal, rate, new_rate):
     return np.interp(t, np.arange(len(signal)), signal).astype(np.float32)
 
 
-def read_wav(path, sample_rate=None):
-    """A PCM WAV file (8, 16, 24 or 32 bit) as mono float32 in [-1, 1] and its
-    sample rate; channels are averaged. With `sample_rate`, resampled to it."""
+def read_wav(path, sample_rate=None, mono=True):
+    """A PCM WAV file (8, 16, 24 or 32 bit) as float32 in [-1, 1] and its
+    sample rate: mono (channels averaged), or with mono=False channels x
+    samples (for a cochlea with several microphones). With `sample_rate`,
+    resampled to it."""
     with wave.open(str(path), "rb") as f:
         channels, width, rate = f.getnchannels(), f.getsampwidth(), f.getframerate()
         raw = f.readframes(f.getnframes())
@@ -54,7 +67,8 @@ def read_wav(path, sample_rate=None):
         data = np.frombuffer(raw, "<i4").astype(np.float32) / float(1 << 31)
     else:
         raise ValueError(f"{path}: unsupported sample width {width}")
-    data = data.reshape(-1, channels).mean(axis=1)
+    data = data.reshape(-1, channels)
+    data = data.mean(axis=1) if mono else np.ascontiguousarray(data.T)
     if sample_rate is not None and sample_rate != rate:
         return resample(data, rate, sample_rate), sample_rate
     return data.astype(np.float32), rate

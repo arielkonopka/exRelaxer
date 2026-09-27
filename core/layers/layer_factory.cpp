@@ -2,9 +2,11 @@
 #include "cochlea.hpp"
 #include "conv2d.hpp"
 #include "dense.hpp"
+#include "disparity.hpp"
 #include "history.hpp"
 #include "locally_connected2d.hpp"
 #include "pool2d.hpp"
+#include "resize2d.hpp"
 #include "retina.hpp"
 #include <stdexcept>
 #include <string>
@@ -38,6 +40,12 @@ layer_factory::layer_factory()
     });
     registerType(LayerType::History, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
         return std::make_unique<history>(spec.size);
+    });
+    registerType(LayerType::Resize2D, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
+        return std::make_unique<resize2d>(spec.resize);
+    });
+    registerType(LayerType::Disparity, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
+        return std::make_unique<disparity>(spec.disparity);
     });
 }
 

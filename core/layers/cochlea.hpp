@@ -15,8 +15,11 @@
 //   4. compression: log(1 + gain * energy) (Log) or gain * energy (Linear),
 //      the neuron's weighted sum.
 //
-// Output shape: 1 x bands x 1 (frequency as the height), so a History layer
-// turns it into a bands x ticks spectrogram for spatial layers. The filters
+// Several microphones (CochleaSpec::channels) are analysed independently, one
+// output channel each, with the same bands.
+//
+// Output shape: channels x bands x 1 (frequency as the height), so a History
+// layer turns it into a channels x bands x ticks spectrogram for spatial layers. The filters
 // are fixed: the cochlea does not learn.
 #pragma once
 #include <optional>
@@ -35,7 +38,7 @@ public:
                      const Jitter& alphaJitter = {});
 
     LayerType type() const override { return LayerType::Cochlea; }
-    Shape shape() const override { return {1, spec_.bands, 1}; }
+    Shape shape() const override { return {spec_.channels, spec_.bands, 1}; }
     const CochleaSpec& spec() const { return spec_; }
 
     // A band's triangular filter over the FFT bins (bin k is k * sampleRate /
@@ -50,13 +53,15 @@ public:
     };
     const std::vector<Band>& bands() const { return bands_; }
 
-    // The last `window` samples, oldest first (the analysis window's input).
+    // The last `window` samples of each channel, oldest first, channel after
+    // channel (the analysis windows' input).
     const std::vector<float>& samples() const { return samples_; }
-    // The power spectrum of the last forward(): window / 2 + 1 bins.
+    // The power spectrum of the last forward(): window / 2 + 1 bins per
+    // channel, channel after channel.
     const std::vector<float>& power() const { return power_; }
 
-    // The sound: exactly spec().hop sensors, read once per tick. Once; the
-    // cochlea reads nothing else.
+    // The sound: exactly channels * hop sensors (hop per channel, channel
+    // after channel), read once per tick. Once; the cochlea reads nothing else.
     void attachInputs(const InputRange& sensors) override;
     void forward() override;
 

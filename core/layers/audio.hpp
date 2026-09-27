@@ -16,8 +16,8 @@ enum class Compression : std::uint8_t {
     Linear = 1  // gain * energy (no compression)
 };
 
-// A Cochlea reads `hop` new audio samples per tick and keeps the last
-// `window` samples. Each tick it takes their spectrum (Hann window, FFT) and
+// A Cochlea reads `hop` new audio samples per tick from each of `channels`
+// microphones and keeps the last `window` samples of each. Each tick it takes their spectrum (Hann window, FFT) and
 // sums the power into `bands` triangular bands between minFrequency and
 // maxFrequency.
 struct CochleaSpec
@@ -31,6 +31,7 @@ struct CochleaSpec
     FrequencyScale scale = FrequencyScale::Mel;
     Compression compression = Compression::Log;
     float gain = 100.0f;          // band energy multiplier before compression
+    size_t channels = 1;          // microphones (e.g. 2 for stereo): hop sensors each, channel after channel
 
     bool operator==(const CochleaSpec&) const = default;
 };

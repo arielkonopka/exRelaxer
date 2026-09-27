@@ -33,6 +33,8 @@
 #include "layers/retina.hpp"
 #include "layers/cochlea.hpp"
 #include "layers/history.hpp"
+#include "layers/disparity.hpp"
+#include "layers/resize2d.hpp"
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -166,13 +168,23 @@ NB_MODULE(_core, m)
         .value("LocallyConnected2D", LayerType::LocallyConnected2D)
         .value("Retina", LayerType::Retina)
         .value("Cochlea", LayerType::Cochlea)
-        .value("History", LayerType::History);
+        .value("History", LayerType::History)
+        .value("Resize2D", LayerType::Resize2D)
+        .value("Disparity", LayerType::Disparity);
     nb::enum_<FrequencyScale>(m, "FrequencyScale")
         .value("Mel", FrequencyScale::Mel)
         .value("Linear", FrequencyScale::Linear);
     nb::enum_<Compression>(m, "Compression").value("Log", Compression::Log).value("Linear", Compression::Linear);
     nb::enum_<PoolMode>(m, "PoolMode").value("Max", PoolMode::Max).value("Average", PoolMode::Average);
     nb::enum_<Sampling>(m, "Sampling").value("Grid", Sampling::Grid).value("Spiral", Sampling::Spiral);
+    nb::enum_<Interpolation>(m, "Interpolation")
+        .value("Nearest", Interpolation::Nearest)
+        .value("Bilinear", Interpolation::Bilinear)
+        .value("Area", Interpolation::Area);
+    nb::enum_<DisparityMeasure>(m, "DisparityMeasure")
+        .value("Correlation", DisparityMeasure::Correlation)
+        .value("Difference", DisparityMeasure::Difference)
+        .value("Normalized", DisparityMeasure::Normalized);
     nb::enum_<DeserializeMode>(m, "DeserializeMode")
         .value("WeightsOnly", DeserializeMode::WeightsOnly)
         .value("FullState", DeserializeMode::FullState);
@@ -232,13 +244,13 @@ NB_MODULE(_core, m)
                             "FFT) into `bands` triangular frequency bands.")
         .def("__init__",
              [](CochleaSpec* c, float sampleRate, size_t hop, size_t window, size_t bands, float minFrequency,
-                float maxFrequency, FrequencyScale scale, Compression compression, float gain) {
+                float maxFrequency, FrequencyScale scale, Compression compression, float gain, size_t channels) {
                  new (c) CochleaSpec{sampleRate, hop, window, bands, minFrequency, maxFrequency, scale, compression,
-                                     gain};
+                                     gain, channels};
              },
              "sample_rate"_a = 16000.0f, "hop"_a = 160, "window"_a = 512, "bands"_a = 40, "min_frequency"_a = 50.0f,
              "max_frequency"_a = 0.0f, "scale"_a = FrequencyScale::Mel, "compression"_a = Compression::Log,
-             "gain"_a = 100.0f)
+             "gain"_a = 100.0f, "channels"_a = 1)
         .def_rw("sample_rate", &CochleaSpec::sampleRate)
         .def_rw("hop", &CochleaSpec::hop)
         .def_rw("window", &CochleaSpec::window)
@@ -248,7 +260,35 @@ NB_MODULE(_core, m)
         .def_rw("scale", &CochleaSpec::scale)
         .def_rw("compression", &CochleaSpec::compression)
         .def_rw("gain", &CochleaSpec::gain)
+        .def_rw("channels", &CochleaSpec::channels)
         .def("__eq__", [](const CochleaSpec& a, const CochleaSpec& b) { return a == b; });
+
+    nb::class_<ResizeSpec>(m, "ResizeSpec", "Resize2D: every input channel resampled to height x width.")
+        .def("__init__",
+             [](ResizeSpec* r, size_t height, size_t width, Interpolation interpolation) {
+                 new (r) ResizeSpec{height, width, interpolation};
+             },
+             "height"_a, "width"_a, "interpolation"_a = Interpolation::Bilinear)
+        .def_rw("height", &ResizeSpec::height)
+        .def_rw("width", &ResizeSpec::width)
+        .def_rw("interpolation", &ResizeSpec::interpolation)
+        .def("__eq__", [](const ResizeSpec& a, const ResizeSpec& b) { return a == b; });
+
+    nb::class_<DisparitySpec>(m, "DisparitySpec",
+                              "Disparity: channel d compares left pixel x with right pixel x - (min_disparity + d) "
+                              "over a window x window box.")
+        .def("__init__",
+             [](DisparitySpec* d, int minDisparity, int maxDisparity, size_t window, DisparityMeasure measure) {
+                 new (d) DisparitySpec{minDisparity, maxDisparity, window, measure};
+             },
+             "min_disparity"_a = 0, "max_disparity"_a = 4, "window"_a = 3,
+             "measure"_a = DisparityMeasure::Correlation)
+        .def_rw("min_disparity", &DisparitySpec::minDisparity)
+        .def_rw("max_disparity", &DisparitySpec::maxDisparity)
+        .def_rw("window", &DisparitySpec::window)
+        .def_rw("measure", &DisparitySpec::measure)
+        .def_prop_ro("count", &DisparitySpec::count)
+        .def("__eq__", [](const DisparitySpec& a, const DisparitySpec& b) { return a == b; });
 
     // --- Jitter --------------------------------------------------------------
     nb::class_<Jitter>(m, "Jitter", "Random per-neuron variation of E-R recovery, learning gain or alpha.")
@@ -330,6 +370,8 @@ NB_MODULE(_core, m)
         .def_rw("pool", &LayerSpec::pool)
         .def_rw("retina_spec", &LayerSpec::retina)
         .def_rw("cochlea_spec", &LayerSpec::cochlea)
+        .def_rw("resize_spec", &LayerSpec::resize)
+        .def_rw("disparity_spec", &LayerSpec::disparity)
         .def_static(
             "dense",
             [](size_t size, bool habituation, bool er, bool frozen, const Jitter& rj, const Jitter& lj,
@@ -376,7 +418,12 @@ NB_MODULE(_core, m)
             "cochlea"_a, "habituation"_a = true, "er"_a = true, nb::kw_only(), "frozen"_a = false,
             "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter)
         .def_static("history", &LayerSpec::History, "length"_a,
-                    "The last `length` ticks of its sources side by side along the width, newest last.");
+                    "The last `length` ticks of its sources side by side along the width, newest last.")
+        .def_static("resize2d", &LayerSpec::Resize2D, "height"_a, "width"_a,
+                    "interpolation"_a = Interpolation::Bilinear,
+                    "Every channel of its sources resampled to height x width.")
+        .def_static("disparity", &LayerSpec::Disparity, "disparity"_a,
+                    "Stereo matching: the first source joined is the left view, the second the right.");
 
     // --- Filters (core/filters.hpp) ------------------------------------------
     nb::module_ fm = m.def_submodule("filters", "Fixed filter banks for Conv2D layers.");
@@ -431,10 +478,14 @@ NB_MODULE(_core, m)
              "target reads source's output (only the neurons target has now).")
         .def("add_feedback", &network::addFeedback, "source"_a, "target"_a, "width"_a,
              "Adds width new neurons to target, reading source.")
-        .def("add_inputs", nb::overload_cast<LayerId, size_t>(&network::addInputs), "target"_a, "count"_a,
-             "Creates count sensors feeding target; returns the index of the first.")
-        .def("add_inputs", nb::overload_cast<LayerId, const Shape&>(&network::addInputs), "target"_a, "image"_a,
-             "Sensors for an image (channel after channel, row after row).")
+        .def("add_inputs", nb::overload_cast<LayerId, size_t, const std::string&>(&network::addInputs), "target"_a,
+             "count"_a, "name"_a = "",
+             "Creates count sensors feeding target; returns the index of the first. A name makes them a named "
+             "input source (set_inputs(name, values), connect_inputs).")
+        .def("add_inputs", nb::overload_cast<LayerId, const Shape&, const std::string&>(&network::addInputs),
+             "target"_a, "image"_a, "name"_a = "", "Sensors for an image (channel after channel, row after row).")
+        .def("connect_inputs", &network::connectInputs, "name"_a, "target"_a,
+             "The named input source also feeds target.")
         .def("add_output", &network::addOutput, "layer"_a)
         .def("freeze", &network::freeze, "layer"_a)
         .def("unfreeze", &network::unfreeze, "layer"_a)
@@ -454,6 +505,14 @@ NB_MODULE(_core, m)
             "Sets every sensor; values (any shape) must have input_count entries.")
         .def(
             "set_inputs", [](network& net, const std::vector<float>& values) { net.setInputs(values); }, "values"_a)
+        .def(
+            "set_inputs",
+            [](network& net, const std::string& name, const FloatIn& values) { net.setInputs(name, flat(values)); },
+            "name"_a, "values"_a, "Sets the named input source; values (any shape) must have its size.")
+        .def(
+            "set_inputs",
+            [](network& net, const std::string& name, const std::vector<float>& values) { net.setInputs(name, values); },
+            "name"_a, "values"_a)
         .def("step", &network::step, nb::call_guard<nb::gil_scoped_release>(),
              "forward() on every layer, in update order.")
         .def("apply_reward", &network::applyReward, "reward"_a, "learning_rate"_a,
@@ -550,6 +609,28 @@ NB_MODULE(_core, m)
                 return toNumpy(std::vector<float>(in.begin(), in.end()));
             },
             nb::rv_policy::move, "The sensor values (a copy).")
+        .def(
+            "input_values",
+            [](const network& net, const std::string& name) {
+                const auto in = net.inputs(name);
+                return toNumpy(std::vector<float>(in.begin(), in.end()));
+            },
+            "name"_a, nb::rv_policy::move, "The named input source's sensor values (a copy).")
+        .def_prop_ro(
+            "input_sources",
+            [](const network& net) {
+                nb::list sources;
+                for (const network::InputSource& s : net.inputSources()) {
+                    nb::dict source;
+                    source["name"] = s.name;
+                    source["first"] = s.first;
+                    source["shape"] = s.shape;
+                    source["targets"] = s.targets;
+                    sources.append(source);
+                }
+                return sources;
+            },
+            "Every addInputs block: dicts with name ('' if unnamed), first sensor index, shape and target layers.")
         .def("find_layer", &network::findLayer, "name"_a)
         .def("layer_name", &network::layerName, "layer"_a)
         .def("layer_spec", &network::layerSpec, "layer"_a)
@@ -653,9 +734,14 @@ NB_MODULE(_core, m)
         .def(
             "cochlea_power", [](network& net, LayerId id) {
                 const cochlea& c = layerAs<cochlea>(net, id, "Cochlea");
-                return toNumpy(std::vector<float>(c.power()), {c.power().size()});
+                const size_t channels = c.spec().channels;
+                if (channels == 1)
+                    return toNumpy(std::vector<float>(c.power()), {c.power().size()});
+                return toNumpy(std::vector<float>(c.power()), {channels, c.power().size() / channels});
             },
-            "layer"_a, "The power spectrum of the last step: window / 2 + 1 bins (bin k is k * sample_rate / window Hz).")
+            "layer"_a,
+            "The power spectrum of the last step: window / 2 + 1 bins (bin k is k * sample_rate / window Hz); "
+            "channels x bins with several microphones.")
         .def_prop_ro("edges", [](const network& net) { return net.edges(); })
         .def_prop_ro("output_layers", [](const network& net) { return net.outputLayers(); })
         .def_prop_ro("update_order", [](const network& net) { return net.updateOrder(); })

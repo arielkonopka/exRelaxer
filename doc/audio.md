@@ -46,19 +46,28 @@ struct CochleaSpec {
     FrequencyScale scale = FrequencyScale::Mel;
     Compression compression = Compression::Log;
     float gain = 100.0f;          // band energy multiplier before compression
+    size_t channels = 1;          // microphones: hop sensors each, channel after channel
 };
 
 class cochlea final : public neuron_layer {
 public:
     explicit cochlea(const CochleaSpec&, bool hasHabituation = true, bool hasER = true, jitters...);
-    Shape shape() const;                            // 1 x bands x 1
+    Shape shape() const;                            // channels x bands x 1
     const CochleaSpec& spec() const;
     const std::vector<Band>& bands() const;         // each band's filter (Hz edges, bin weights)
-    const std::vector<float>& samples() const;      // the last `window` samples, oldest first
-    const std::vector<float>& power() const;        // last tick's power spectrum, window / 2 + 1 bins
-    void attachInputs(const InputRange& sensors);   // exactly `hop` sensors, once
+    const std::vector<float>& samples() const;      // the last `window` samples per channel, oldest first
+    const std::vector<float>& power() const;        // last tick's power spectrum, window / 2 + 1 bins per channel
+    void attachInputs(const InputRange& sensors);   // exactly channels * hop sensors, once
 };
 ```
+
+**Several microphones.** With `channels = N` the cochlea reads `N · hop`
+sensors per tick, microphone after microphone, and analyses each exactly
+like a single-microphone cochlea with the same bands: the output is
+N × bands × 1, one channel per microphone, so a spatial layer or a `History`
+reads them as channels. Everything below happens per channel. From Python,
+`audio.frames(sound, hop)` turns a channels × samples array into rows of
+that layout, and `audio.read_wav(path, mono=False)` keeps a file's channels.
 
 Each tick:
 

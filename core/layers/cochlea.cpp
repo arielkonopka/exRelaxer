@@ -24,6 +24,8 @@ CochleaSpec validated(CochleaSpec spec)
                                     std::to_string(spec.window));
     if (spec.bands == 0)
         throw std::invalid_argument("cochlea: bands must be at least 1");
+    if (spec.channels == 0)
+        throw std::invalid_argument("cochlea: channels must be at least 1");
     const float nyquist = spec.sampleRate / 2.0f;
     if (spec.maxFrequency == 0.0f)
         spec.maxFrequency = nyquist;
@@ -42,7 +44,7 @@ CochleaSpec validated(CochleaSpec spec)
 
 cochlea::cochlea(const CochleaSpec& spec, bool hasHabituation, bool hasER, const Jitter& recoveryJitter,
                  const Jitter& learningJitter, const Jitter& alphaJitter)
-    : neuron_layer(validated(spec).bands, hasHabituation, hasER, recoveryJitter, learningJitter, alphaJitter),
+    : neuron_layer(validated(spec).bands * spec.channels, hasHabituation, hasER, recoveryJitter, learningJitter, alphaJitter),
       spec_(validated(spec))
 {
     const size_t N = spec_.window, bins = N / 2 + 1;
@@ -110,18 +112,19 @@ cochlea::cochlea(const CochleaSpec& spec, bool hasHabituation, bool hasER, const
         bands_.push_back(std::move(band));
     }
 
-    samples_.assign(N, 0.0f);
+    samples_.assign(spec_.channels * N, 0.0f);
     re_.resize(N);
     im_.resize(N);
-    power_.assign(bins, 0.0f);
+    power_.assign(spec_.channels * bins, 0.0f);
 }
 
 void cochlea::attachInputs(const InputRange& sensors)
 {
     if (sensors_)
         throw std::logic_error("cochlea: it already reads its sound");
-    if (sensors.count != spec_.hop)
-        throw std::invalid_argument("cochlea: hop is " + std::to_string(spec_.hop) + " samples, got " +
+    if (sensors.count != spec_.hop * spec_.channels)
+        throw std::invalid_argument("cochlea: hop is " + std::to_string(spec_.hop) + " samples x " +
+                                    std::to_string(spec_.channels) + " channels, got " +
                                     std::to_string(sensors.count) + " sensors");
     sensors_ = sensors;
 }
@@ -154,27 +157,31 @@ void cochlea::forward()
 {
     if (!sensors_)
         return;
-    const size_t N = spec_.window, hop = spec_.hop;
-    std::copy(samples_.begin() + static_cast<std::ptrdiff_t>(hop), samples_.end(), samples_.begin());
+    const size_t N = spec_.window, hop = spec_.hop, bins = N / 2 + 1, B = bands_.size();
     const std::span<const float> sound = sensors_->values();
-    std::ranges::copy(sound, samples_.end() - static_cast<std::ptrdiff_t>(hop));
+    for (size_t c = 0; c < spec_.channels; ++c) {
+        const auto samples = samples_.begin() + static_cast<std::ptrdiff_t>(c * N);
+        std::copy(samples + static_cast<std::ptrdiff_t>(hop), samples + static_cast<std::ptrdiff_t>(N), samples);
+        std::ranges::copy(sound.subspan(c * hop, hop), samples + static_cast<std::ptrdiff_t>(N - hop));
 
-    for (size_t n = 0; n < N; ++n) {
-        re_[n] = samples_[n] * hann_[n];
-        im_[n] = 0.0f;
-    }
-    fft();
-    for (size_t k = 0; k < power_.size(); ++k)
-        power_[k] = (re_[k] * re_[k] + im_[k] * im_[k]) * power_scale_;
+        for (size_t n = 0; n < N; ++n) {
+            re_[n] = samples[static_cast<std::ptrdiff_t>(n)] * hann_[n];
+            im_[n] = 0.0f;
+        }
+        fft();
+        float* power = power_.data() + c * bins;
+        for (size_t k = 0; k < bins; ++k)
+            power[k] = (re_[k] * re_[k] + im_[k] * im_[k]) * power_scale_;
 
-    for (size_t b = 0; b < bands_.size(); ++b) {
-        const Band& band = bands_[b];
-        float energy = 0.0f;
-        for (size_t i = 0; i < band.weights.size(); ++i)
-            energy += band.weights[i] * power_[band.firstBin + i];
-        const float value = spec_.compression == Compression::Log ? std::log1p(spec_.gain * energy)
-                                                                  : spec_.gain * energy;
-        output_[b] = neurons_[b].activate(value);
+        for (size_t b = 0; b < B; ++b) {
+            const Band& band = bands_[b];
+            float energy = 0.0f;
+            for (size_t i = 0; i < band.weights.size(); ++i)
+                energy += band.weights[i] * power[band.firstBin + i];
+            const float value = spec_.compression == Compression::Log ? std::log1p(spec_.gain * energy)
+                                                                      : spec_.gain * energy;
+            output_[c * B + b] = neurons_[c * B + b].activate(value);
+        }
     }
 }
 

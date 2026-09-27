@@ -1,11 +1,22 @@
 # exrelaxer
 
-A small C++20 library for experimenting with **biologically inspired neural networks**.
-Instead of backpropagation, neurons adapt through two local mechanisms —
-**excitation–relaxation** and **habituation** — and learn through a
-**reward-modulated Hebbian** rule. Layers can grow at runtime and be wired
-with arbitrary feedback (recurrent) connections; growth propagates
-automatically to every downstream layer.
+A C++20 library, with Python bindings, for building and studying
+**biologically inspired neural networks** that see, hear and act.
+Instead of backpropagation, neurons adapt through two local mechanisms,
+**excitation–relaxation** and **habituation**, and each layer learns by a
+local rule of its choice: reward-modulated Hebbian learning, eligibility
+traces, feedback alignment, node perturbation, or the unsupervised Oja and
+BCM rules.
+
+Networks are graphs of layers that can grow at runtime and be wired with
+arbitrary feedback (recurrent) connections. Vision layers (retina,
+convolution, pooling, fixed filter banks), audio layers (a cochlea with one
+or more microphones, spectrograms), stereo vision (binocular disparity) and
+named input sources let one network combine several senses. Kernels are
+SIMD and multithreaded, results are deterministic, and whole networks save
+and load. A benchmark harness (`nntest`, in C++ and Python) runs
+experiments such as MNIST, snake, chirp direction, stereograms and
+audio-visual objects.
 
 > Status: experimental / research code. APIs and the binary serialization
 > format may change without notice.
@@ -13,6 +24,7 @@ automatically to every downstream layer.
 **Documentation:** [doc/](doc/README.md) has a detailed page for each class:
 [neuron](doc/neuron.md), [layer](doc/layer.md), [dense](doc/dense.md),
 [learning](doc/learning.md), [kernels](doc/kernels.md), [spatial](doc/spatial.md), [audio](doc/audio.md),
+[multimodal and stereo](doc/multimodal.md),
 [layer_factory](doc/layer_factory.md),
 [network](doc/network.md), and the
 test-support [pattern_benchmark](doc/pattern_benchmark.md). It also has
@@ -45,11 +57,18 @@ experiment so far.
   pipeline with about 2 million neurons steps in about 18 ms. Fixed filter
   banks (Gabor, centre-surround, Gaussian) turn a Conv2D into a frozen
   feature detector (see [doc/spatial.md](doc/spatial.md)).
-- **Audio layers** – `Cochlea` reads sound a hop of samples per tick and
-  splits it (Hann window, FFT) into mel or linear frequency bands, one
-  adapting neuron per band; `History` keeps the last ticks side by side, so
-  a cochlea's bands become a spectrogram the vision layers read like an
-  image (see [doc/audio.md](doc/audio.md)).
+- **Audio layers** – `Cochlea` reads sound a hop of samples per tick from
+  one or more microphones and splits it (Hann window, FFT) into mel or
+  linear frequency bands, one adapting neuron per band and microphone;
+  `History` keeps the last ticks side by side, so a cochlea's bands become
+  a spectrogram the vision layers read like an image (see
+  [doc/audio.md](doc/audio.md)).
+- **Several senses in one network** – named input sources
+  (`addInputs(eye, shape, "camera")`, `setInputs("camera", image)`) can each
+  feed several layers; `Resize2D` brings maps of different sizes (a camera
+  image, a spectrogram) to one grid so a convolution reads them together;
+  `Disparity` matches a left and a right view at a range of shifts for
+  stereo depth (see [doc/multimodal.md](doc/multimodal.md)).
 - **Pluggable layer types** – layers are created by `layer_factory` from a
   `LayerSpec`; new types plug in by registering a creator.
 - **Dynamic topology** – layers can be joined, grown with feedback neurons,
@@ -286,6 +305,8 @@ core/
   layers/audio.hpp               CochleaSpec, frequency scales, compression
   layers/cochlea.hpp/.cpp        sound input: FFT into frequency bands, one neuron per band
   layers/history.hpp/.cpp        the last ticks of its sources side by side (spectrograms)
+  layers/resize2d.hpp/.cpp       resampling to a fixed height x width (nearest, bilinear, area)
+  layers/disparity.hpp/.cpp      binocular disparity: left and right views matched at a range of shifts
   filters.hpp/.cpp               fixed filter banks for Conv2D: Gaussian, difference of Gaussians, Gabor
   parallel.hpp                   splitting work between OpenMP threads
   binary_io.hpp                  binary stream I/O for serialization
@@ -302,6 +323,7 @@ tests/
   spatial.cpp                    retina, Conv2D, LocallyConnected2D, Pool2D against scalar references
   snake.cpp                      the headless snake game: rules, state vector, reference values shared with Python
   audio.cpp                      Cochlea against a double-precision DFT, History, save/load of a hearing network
+  multimodal.cpp                 named input sources, multichannel cochlea, Resize2D, Disparity, save/load
   filters.cpp                    filter banks, and bar-orientation learning with frozen Gabor features
   er_scales.hpp                  test inputs and timings relative to the E-R constants
 build.sh                         one command: build everything, run the tests, install
@@ -357,6 +379,35 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files from older format versions load as weights only.
 
 ## Changelog
+
+### 2026-09-27: several senses and stereo vision
+
+- **Named input sources**: `network::addInputs(target, count | shape, name)`,
+  `setInputs(name, values)`, `connectInputs(name, layer)` (one camera or
+  microphone feeding several layers), `inputSource(name)`, `inputs(name)`.
+  `describe()` lists each source with its shape and the layers it feeds.
+- **Several microphones**: `CochleaSpec::channels`; the cochlea's output is
+  channels × bands × 1, each microphone analysed like a single one.
+- **`Resize2D`** (`LayerType::Resize2D = 7`): every input channel resampled
+  to a fixed height × width (nearest, bilinear or area), so maps of
+  different sizes can be read together.
+- **`Disparity`** (`LayerType::Disparity = 8`): binocular matching of a
+  left and a right view at disparities `min..max` (correlation, absolute
+  difference or normalized cross-correlation over a window).
+- Network format 10 saves the new parameters, source names and shapes, and
+  `connectInputs`; older files load as before.
+- `nntest run stereo_depth`: where is the near square in a random-dot
+  stereogram? 0.98 with the Disparity layer, 0.49–0.50 with one eye or both
+  eyes without matching. `nntest run audiovisual`: objects that look and
+  sound different; seeing and hearing (0.96) beat sight (0.79) or sound
+  (0.95) alone, and readouts on sound that learn only from what sight says,
+  without labels, name objects by sound 0.66 of the time (chance 0.25). See
+  [research log §12](doc/research.md#12-several-senses-and-stereo-vision).
+- Python: `add_inputs(..., name=)`, `set_inputs(name, values)`,
+  `connect_inputs`, `input_values`, `input_sources`, `ResizeSpec`,
+  `DisparitySpec`, `LayerSpec.resize2d` / `.disparity`,
+  `CochleaSpec(channels=)`; `audio.frames` and `audio.read_wav(mono=False)`
+  handle several channels.
 
 ### 2026-09-27: learning rules per layer
 

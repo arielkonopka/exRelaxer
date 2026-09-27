@@ -18,6 +18,8 @@ namespace exr {
 //   net.addLayer("pool", LayerSpec::Pool2D(Window2D::square(2, 2)));
 //   net.addLayer("ear", LayerSpec::Cochlea({.sampleRate = 16000, .hop = 160, .bands = 40}));
 //   net.addLayer("spectrogram", LayerSpec::History(32));
+//   net.addLayer("fit", LayerSpec::Resize2D(32, 32));
+//   net.addLayer("depth", LayerSpec::Disparity({.minDisparity = 0, .maxDisparity = 8}));
 struct LayerSpec
 {
     LayerType type = LayerType::Dense;
@@ -34,6 +36,8 @@ struct LayerSpec
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina
     CochleaSpec cochlea = {};    // Cochlea
+    ResizeSpec resize = {};      // Resize2D
+    DisparitySpec disparity = {};  // Disparity
 
     static LayerSpec Dense(size_t size, bool hasHabituation = true, bool hasER = true)
     {
@@ -74,6 +78,18 @@ struct LayerSpec
     static LayerSpec History(size_t length)
     {
         return {LayerType::History, length, false, false};
+    }
+    static LayerSpec Resize2D(size_t height, size_t width, Interpolation interpolation = Interpolation::Bilinear)
+    {
+        LayerSpec s{LayerType::Resize2D, 0, false, false};
+        s.resize = {height, width, interpolation};
+        return s;
+    }
+    static LayerSpec Disparity(const DisparitySpec& disparity)
+    {
+        LayerSpec s{LayerType::Disparity, 0, false, false};
+        s.disparity = disparity;
+        return s;
     }
 };
 
