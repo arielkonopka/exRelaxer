@@ -437,3 +437,57 @@ TEST(LearningRuleTest, SpatialLayersLearnWithEveryRule)
         EXPECT_NE(net.layerAs<conv2d>(conv).kernel(0), before) << describeLearningRule(rule);
     }
 }
+
+TEST(LearningRuleTest, OneNetworkMixesEveryRule)
+{
+    // Each layer learns its own way, in one network driven by both rewards
+    // and errors; it still saves and continues exactly.
+    reseed(17);
+    network net;
+    auto add = [&](const std::string& name, size_t size, const LearningRule& rule) {
+        LayerSpec spec = LayerSpec::Dense(size, false, true);
+        spec.learningRule = rule;
+        return net.addLayer(name, spec);
+    };
+    const auto oja = add("oja", 8, LearningRule::oja(2));
+    const auto bcm = add("bcm", 8, LearningRule::bcm(0.05f));
+    const auto trace = add("trace", 6, LearningRule::traced(0.5f).withBias());
+    const auto perturb = add("perturbation", 6, LearningRule::perturbation(0.1f));
+    const auto fa = add("fa", 6, LearningRule::feedbackAlignment());
+    const auto out = add("out", 2, LearningRule::sign().withBias());
+    net.addInputs(oja, 4);
+    net.connect(oja, bcm);
+    net.connect(bcm, trace);
+    net.connect(trace, perturb);
+    net.connect(perturb, fa);
+    net.connect(fa, out);
+    net.addOutput(out);
+
+    std::vector<std::vector<float>> before;
+    for (auto id : {oja, bcm, trace, perturb, fa, out})
+        before.push_back(net.layerAs<dense>(id).weights(0));
+    std::mt19937 gen(2);
+    std::uniform_real_distribution<float> d(-1.0f, 1.0f);
+    auto tick = [&](network& n, std::mt19937& g) {
+        n.setInputs({d(g), d(g), d(g), d(g)});
+        n.step();
+        n.applyReward(d(g), 0.01f);
+        n.applyError(std::vector<float>{d(g), d(g)}, 0.01f);
+    };
+    for (int t = 0; t < 30; ++t)
+        tick(net, gen);
+    size_t i = 0;
+    for (auto id : {oja, bcm, trace, perturb, fa, out})
+        EXPECT_NE(net.layerAs<dense>(id).weights(0), before[i++]) << net.layerName(id);
+    EXPECT_EQ(net.layerAs<dense>(fa).feedbackRow(0).size(), 2u);
+
+    std::stringstream ss;
+    net.save(ss);
+    const auto restored = network::load(ss, DeserializeMode::FullState);
+    std::mt19937 gen_a = gen, gen_b = gen;
+    for (int t = 0; t < 10; ++t) {
+        tick(net, gen_a);
+        tick(*restored, gen_b);
+        ASSERT_EQ(net.outputs(), restored->outputs()) << t;
+    }
+}

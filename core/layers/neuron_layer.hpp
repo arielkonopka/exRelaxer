@@ -4,9 +4,9 @@
 // layers decide how neurons are wired and own the weights.
 #pragma once
 #include <cstdint>
-#include <random>
 #include <span>
 #include <vector>
+#include "../kernels.hpp"
 #include "../learning.hpp"
 #include "layer.hpp"
 
@@ -92,12 +92,16 @@ protected:
     // Activates neuron i with its weighted sum (plus bias and noise) and
     // updates its traces; returns the output. Safe to call for different
     // neurons in parallel.
-    float fire(size_t i, float sum)
+    float fire(size_t i, float sum) { return fire(i, sum, plain_); }
+    // The same with plainForward() read once by the caller: hoisted out of a
+    // layer's loop, the plain case costs nothing over activate().
+    float fire(size_t i, float sum, bool plain)
     {
-        if (plain_)
+        if (plain)
             return neurons_[i].activate(sum);
         return fireWithRule(i, sum);
     }
+    bool plainForward() const { return plain_; }
     // Whether the rule keeps input traces (then forward() calls
     // traceInputs() on its input snapshot), and the trace decay.
     bool tracesInputs() const { return rule_.usesTraces(); }
@@ -110,7 +114,7 @@ protected:
     bool scaledUpdates() const { return rule_.type != LearningRuleType::Sign || rule_.decay > 0.0f; }
 
     // Filled for every neuron before updateWeights() runs: whether it
-    // learns, its step and its shrink factor (1 unless scaledUpdates()).
+    // learns, its step and (only when scaledUpdates()) its shrink factor.
     std::vector<float> step_delta_, step_keep_;
     std::vector<std::uint8_t> step_active_;
 
@@ -148,6 +152,9 @@ private:
     template <typename Modulator>
     void learn(Modulator m, float learningRate);
     void selectWinners();
+    // Neuron i's step under a rule other than plain Sign: sets delta and
+    // keep, returns whether it learns.
+    bool ruleStep(size_t i, float m, float learningRate, float& delta, float& keep) const;
     float fireWithRule(size_t i, float sum);
     void drawNoise();
     // Sizes the rule's per-neuron state to the neuron count; new entries
@@ -169,10 +176,9 @@ private:
     std::vector<float> noise_trace_;  // Perturbation: noise trace Z
     std::vector<float> baseline_;     // Trace, Perturbation: reward baseline b
     std::vector<float> theta_;        // BCM: sliding threshold
-    std::vector<float> feedback_;     // feedback alignment: neurons x feedback_cols_, row-major
-    size_t feedback_cols_ = 0;
+    kernels::weight_matrix feedback_; // feedback alignment: neurons x errors
     std::vector<float> scratch_;      // applyFeedback: modulators
-    std::minstd_rand noise_rng_;      // Perturbation; seeded from rng::learning() by setLearningRule
+    std::uint64_t noise_state_ = 0x9E3779B97F4A7C15ull;  // Perturbation noise (xorshift64*); seeded from rng::learning()
 };
 
 } // namespace exr

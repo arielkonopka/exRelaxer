@@ -69,6 +69,7 @@ void conv2d::forward()
     beginForward();
     gatherInputs();
     traceSnapshot();
+    const bool plain = plainForward();
     const size_t P = positions(), K = windowSize(), C = outputChannels();
     const size_t tiles = (P + tile_positions - 1) / tile_positions;
     parallelChunks(tiles, kernels::threadsFor(P * K * C), [&](size_t t0, size_t t1) {
@@ -86,7 +87,7 @@ void conv2d::forward()
                 patches.multiply(kernelRow(c), sums, 0, patches.blocks());
                 for (size_t r = 0; r < rows; ++r) {
                     const size_t i = neuronAt(c, first + r);
-                    output_[i] = fire(i, sums[r]);
+                    output_[i] = fire(i, sums[r], plain);
                 }
             }
         }
@@ -100,9 +101,10 @@ void conv2d::updateWeights()
     const size_t P = positions(), K = windowSize(), C = outputChannels();
     const bool scaled = scaledUpdates();
 
-    // Each neuron's step (0 when it does not learn), neurons that learn per
-    // channel, and (scaled rules) the sum of their shrink factors.
-    std::vector<float> delta(C * P, 0.0f);
+    // Each neuron's step is step_delta_[neuronAt(c, p)] = step_delta_[c * P + p]
+    // (0 when it does not learn); count the neurons that learn per channel
+    // and (scaled rules) sum their shrink factors.
+    const std::span<const float> delta = step_delta_;
     std::vector<size_t> eligible(C, 0);
     std::vector<float> keep_sum(C, 0.0f);
     parallelChunks(C, kernels::threadsFor(P * C * 16), [&](size_t c0, size_t c1) {
@@ -111,11 +113,9 @@ void conv2d::updateWeights()
             float keep = 0.0f;
             for (size_t p = 0; p < P; ++p) {
                 const size_t i = neuronAt(c, p);
-                if (step_active_[i]) {
-                    delta[c * P + p] = step_delta_[i];
+                count += step_active_[i];
+                if (scaled && step_active_[i])
                     keep += step_keep_[i];
-                    ++count;
-                }
             }
             eligible[c] = count;
             keep_sum[c] = keep;
@@ -148,7 +148,7 @@ void conv2d::updateWeights()
                 }
                 sums.resize(signs.paddedRows());
                 for (size_t c = 0; c < C; ++c) {
-                    const std::span<const float> d = std::span<const float>(delta).subspan(c * P + first, count);
+                    const std::span<const float> d = delta.subspan(c * P + first, count);
                     if (eligible[c] == 0 || std::ranges::all_of(d, [](float v) { return v == 0.0f; }))
                         continue;
                     signs.multiply(d, sums, 0, signs.blocks());

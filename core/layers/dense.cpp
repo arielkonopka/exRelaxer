@@ -163,6 +163,7 @@ void dense::forward()
     // Groups run one after another; a later group of this layer sees the
     // outputs earlier groups just wrote.
     beginForward();
+    const bool plain = plainForward();
     for (Group& group : groups_) {
         const std::span<const float> x = group.gather();
         if (tracesInputs())
@@ -173,7 +174,7 @@ void dense::forward()
             group.weights.multiply(x, group.scratch, b0, b1);
             const size_t end = std::min(b1 * kernels::weight_matrix::lanes, count);
             for (size_t r = b0 * kernels::weight_matrix::lanes; r < end; ++r)
-                output_[first + r] = fire(first + r, group.scratch[r]);
+                output_[first + r] = fire(first + r, group.scratch[r], plain);
         });
     }
 }

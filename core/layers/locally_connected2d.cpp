@@ -41,6 +41,7 @@ void locally_connected2d::forward()
     beginForward();
     gatherInputs();
     traceSnapshot();
+    const bool plain = plainForward();
     const size_t P = positions(), K = windowSize(), C = outputChannels();
     parallelChunks(P, kernels::threadsFor(P * K * C), [&](size_t p0, size_t p1) {
         std::vector<float> window(K), sums(weights_.empty() ? 0 : weights_[0].paddedRows());
@@ -49,7 +50,7 @@ void locally_connected2d::forward()
             weights_[p].multiply(window, sums, 0, weights_[p].blocks());
             for (size_t c = 0; c < C; ++c) {
                 const size_t i = neuronAt(c, p);
-                output_[i] = fire(i, sums[c]);
+                output_[i] = fire(i, sums[c], plain);
             }
         }
     });
@@ -75,7 +76,7 @@ void locally_connected2d::updateWeights()
                 if (step_active_[i]) {
                     active[c] = 1;
                     delta[c] = step_delta_[i];
-                    keep[c] = step_keep_[i];
+                    keep[c] = scaled ? step_keep_[i] : 1.0f;
                     any = true;
                 }
             }

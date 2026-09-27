@@ -10,9 +10,11 @@
 //
 //   Sign                the original rule: delta = rate * gain * m * eligibility,
 //                       pre = sign(input now); only E-R-eligible neurons learn.
-//   Trace               graded three-factor rule: delta = rate * gain * (m - b) * P,
+//   Trace               graded three-factor rule: delta = rate * gain * (m - b) * |P|,
 //                       pre = X, where P and X are traces of the neuron's output
-//                       and of its inputs and b a running reward baseline.
+//                       and of its inputs and b a running reward baseline. Like
+//                       Sign, the modulator is the direction to move the output
+//                       in; |P| grades how much the neuron took part.
 //   FeedbackAlignment   per-neuron credit from an error vector (network::applyError):
 //                       output layers get their own error, hidden layers
 //                       m = B * error through a fixed random matrix B;

@@ -2,6 +2,9 @@
 // learning. Machine-dependent, so no checks; compare runs with
 // tools/compare.py.
 #include "experiment.hpp"
+#include <stdexcept>
+#include <string>
+#include <vector>
 #include "network.hpp"
 
 namespace {
@@ -16,6 +19,7 @@ nnt::Register experiment({
         {"n", "1000", "neurons in each of the two layers"},
         {"er", "true", "E-R in the layers"},
         {"iterations", "200", "steps per timed repeat"},
+        {"rule", "sign", "learning rule of both layers: sign, trace, fa, perturbation, oja, bcm"},
     },
     .trials = 3,
     .run = [](nnt::Trial& t) {
@@ -23,16 +27,30 @@ nnt::Register experiment({
         const size_t n = static_cast<size_t>(p.getInt("n"));
         const bool er = p.getBool("er");
         const int iterations = static_cast<int>(p.getInt("iterations"));
+        const std::string name = p.getString("rule");
+        LearningRule rule;
+        if (name == "trace") rule = LearningRule::traced(0.5f);
+        else if (name == "fa") rule = LearningRule::feedbackAlignment();
+        else if (name == "perturbation") rule = LearningRule::perturbation();
+        else if (name == "oja") rule = LearningRule::oja();
+        else if (name == "bcm") rule = LearningRule::bcm();
+        else if (name != "sign") throw std::invalid_argument("unknown rule " + name);
+        LayerSpec spec = LayerSpec::Dense(n, false, er);
+        spec.learningRule = rule;
         network net;
-        const auto a = net.addLayer("a", LayerSpec::Dense(n, false, er));
-        const auto b = net.addLayer("b", LayerSpec::Dense(n, false, er));
+        const auto a = net.addLayer("a", spec);
+        const auto b = net.addLayer("b", spec);
         net.addInputs(a, 1);
         net.connect(a, b);
         net.setInputs({0.5f});
         const double step = nnt::Trial::bestMs(5, iterations, [&] { net.step(); });
         const double both = nnt::Trial::bestMs(5, iterations, [&] { net.step(); net.applyReward(1.0f, 0.001f); });
+        net.addOutput(b);
+        const std::vector<float> errors(n, 0.1f);
+        const double error = nnt::Trial::bestMs(5, iterations, [&] { net.step(); net.applyError(errors, 0.001f); });
         t.record("step_ms", step);
         t.record("step_reward_ms", both);
+        t.record("step_error_ms", error);
         t.record("gmac_per_s", static_cast<double>(n) * n / (step * 1e6));
     },
 });
