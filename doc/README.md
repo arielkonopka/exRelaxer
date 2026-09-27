@@ -13,6 +13,7 @@ of known limitations, see the [project README](../README.md).
 | [audio](audio.md) | sound layers: `cochlea` (FFT into mel or linear frequency bands), `history` (the last ticks side by side: a spectrogram) |
 | [multimodal](multimodal.md) | several senses in one network: named input sources, microphones, `resize2d`, stereo `disparity` |
 | [nonlinearity](nonlinearity.md) | experiments on whether E-R dynamics replace network size: static tasks, ReLU / E-R / fixed threshold / clamp, depth × width grid, minimum architectures |
+| [dynamic](dynamic.md) | the dynamic ladder: time-varying input tasks (motion, change, velocity, catch) and Doom, E-R against stateless networks with and without a frame window |
 | [activity](activity.md) | experiments on E-R activity without a penalty: sparsity, path choice, fatigue, history; the fixed-threshold control `gate` |
 | [kernels](kernels.md) | weight layout, SIMD kernels, determinism, parallelism, performance, random streams |
 | [layer_factory](layer_factory.md) | `layer_factory`, `LayerSpec`: creating layers by type, registering new types |

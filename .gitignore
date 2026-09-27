@@ -433,3 +433,4 @@ build*/
 
 # ./build.sh installs here by default
 /install/
+_vizdoom.ini
