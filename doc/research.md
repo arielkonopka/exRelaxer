@@ -21,6 +21,7 @@ constants in force at the time, the constants are given.
 - [12. Several senses and stereo vision](#12-several-senses-and-stereo-vision)
 - [13. Activity economy and path selection](#13-activity-economy-and-path-selection)
 - [14. Dynamic nonlinearity substitution: static tasks](#14-dynamic-nonlinearity-substitution-static-tasks)
+- [15. How E-R behaves: learning, silence, state, habituation](#15-how-e-r-behaves-learning-silence-state-habituation)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -658,6 +659,109 @@ remain to test:
 - the learning signal, since an E-R neuron only learns on the ticks it
   fires.
 
+## 15. How E-R behaves: learning, silence, state, habituation
+
+Four questions that followed §13 and §14. There is no activity term in any
+of these experiments. Result files are in `/mnt/project-files/reports/` in
+the project: `nonlinearity/curves`, `nonlinearity/state`, `er-silence` and
+`er-habituation`.
+
+**Learning curves** (`nl_static`, `early_stop=false`, 100 000 samples,
+5 seeds, the learning rate chosen on validation). Validation MSE after
+2k / 10k / 20k / 50k / 100k samples, 1 × 32:
+
+| Task | Model | 2k | 10k | 20k | 50k | 100k |
+|------|-------|----|-----|-----|-----|------|
+| x1·x2 | relu | 5.2e-3 | 1.3e-3 | 1.7e-3 | 2.4e-4 | 1.9e-4 |
+| | er, 1 extra tick | 0.119 | 0.109 | 0.107 | 0.082 | 0.072 |
+| | er, 7 extra ticks | 0.111 | 0.051 | 0.044 | 0.034 | 0.034 |
+| | gate | 0.116 | 0.108 | 0.112 | 0.106 | 0.122 |
+| sin(x1·x2) | relu | 3.5e-3 | 8.9e-4 | 4.5e-4 | 1.6e-4 | 5.6e-5 |
+| | er, 7 extra ticks | 0.063 | 0.033 | 0.033 | 0.030 | 0.028 |
+
+The curves have different shapes, not just different levels:
+
+- ReLU keeps improving through 100k samples.
+- E-R with extra ticks drops quickly, then plateaus from about 20k.
+- The fixed threshold barely learns.
+
+At two hidden layers, E-R is unstable. On l4 (K = 4) and on some l1/l2
+runs it diverges to the ±10 clamp after 5–50k samples, even at lr 0.001.
+ReLU does not.
+
+**Same stimulus, different state** (`nl_static`, `state_probes=200`).
+Each stimulus is shown after 20 different random histories of 10 samples,
+10 seeds, stable networks only. For each stimulus, the error splits into
+the squared bias of its mean output and the variance across histories,
+which is the part that depends on state. For the static models that
+variance is exactly 0.
+
+- E-R, 1 extra tick: the state accounts for 6–14 % of the error. Outputs
+  for the same stimulus span 0.3–0.5.
+- E-R, 7 extra ticks: the state accounts for **30–57 %** of the error. The
+  span is 0.5–0.7, and spikes for the same stimulus vary with an SD of
+  12–42.
+
+More ticks remove bias but add dependence on the past. With enough time,
+about half of what E-R gets "wrong" on a static task is its history, not
+its mapping.
+
+**Zeroed inputs** (`er_silence`, 3000 ticks of zero input after training,
+10 seeds):
+
+- **Without recurrence**, every model is silent from the first tick. After
+  about 214 ticks (recovery 0.9) E-R starts firing spontaneously, and it is
+  the only model that does. The firing is a slow, self-paced rhythm, and
+  every neuron takes part:
+  - recovery 0.9: 268 firings per 1000 ticks, bursts every 73–110 ticks;
+  - recovery 0.97: 67 per 1000 ticks, bursts every 250–340 ticks.
+- The firings are tiny (±0.01) and never grow into ordinary activity. With
+  recurrence at gain 1, 3 or 10, E-R activity dies within 3–10 ticks.
+  Linear recurrent networks, by contrast, ring for 600–1300 ticks before
+  decaying. **E-R does not sustain its own activity**, but it keeps
+  "idling" at a low, rhythmic rate.
+- The silence changes the next answers:
+  - During the silence, thresholds decay to about 1e-5. The first input
+    then fires every neuron, and the logarithmic rule raises their
+    thresholds by about 1.2 × ln(|s| / 1e-5) ≈ 14.
+  - At recovery 0.97 that leaves the network refractory for about 90
+    ticks. Accuracy on the first 5 samples drops from 0.92–1.0 to
+    **0.44–0.52**.
+  - At recovery 0.9 it recovers within a sample or two (0.98).
+
+  This comes straight from the logarithmic threshold growth, because the
+  ratio to a near-zero threshold is huge.
+
+**Habituation** (`er_habituation`, stimuli held for 4–500 ticks, 10
+seeds). New options: `steps`, `tolerance` and `decay` (§ neuron).
+Results at a 500-tick hold for E-R, reported as spikes per stimulus, then
+recognition at onset / summed / at the end:
+
+| Rule | Exact input | With ±0.001 flicker |
+|------|-------------|---------------------|
+| off | 27 077; 0.98 / 1.00 / 1.00 | 25 789; 0.99 / 1.00 / 0.99 |
+| cut after 100 (original) | 4 533; 1.00 / 1.00 / **0.00** | 25 678: never triggers |
+| cut after 5 | **296**; 0.98 / 0.99 / 0.00 | 25 652: never triggers |
+| cut after 5, 1 % tolerance | 295; 0.99 / 0.99 / 0.00 | **607**; 0.98 / 0.96 / 0.15 |
+| fade 0.99 after 5 | 8 585; 0.98 / 1.00 / 0.28 | 25 715: never triggers |
+
+- Habituation is an effective activity saver, with no penalty:
+  - E-R uses up to **90× fewer** spikes on a held stimulus;
+  - onset and summed recognition stay at about 0.98.
+- The cost is that the stimulus is no longer represented at the end of the
+  hold.
+- Fading instead of cutting keeps a weak trace. For linear neurons it keeps
+  end accuracy at 0.99 while saving 2–3×, because a scaled pattern keeps
+  its winner. E-R's thresholds drop a faded input below firing, so it gains
+  little (0.28 at the end).
+- The original exact rule never triggers on a flickering sensor. Only a
+  tolerance restores the saving (607 spikes).
+- The clamp comes before habituation, so neurons saturated at ±10 always
+  see the same sum and habituate across samples. That silenced part of the
+  linear network and cost it accuracy (0.82 with flicker; 0.28–0.6 with a
+  1 % tolerance). E-R's thresholds keep it out of saturation, and it did
+  not suffer.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -698,6 +802,15 @@ remain to test:
     size reached test MSE 1e-3 with E-R, where ReLU needs 5–129 neurons.
     More ticks per sample buy E-R some nonlinearity (x1·x2: 0.029, vs
     0.088 for a fixed threshold), paid in time and spikes.
+
+12. **E-R idles but does not sustain itself; habituation is the activity
+    saver.** Without input E-R keeps a slow spontaneous rhythm, but
+    recurrence does not turn it into self-sustained activity. After a long
+    silence the logarithmic threshold rule overshoots and blinds the
+    network for a while. Habituation cuts spikes up to 90× on held stimuli,
+    at the cost of the stimulus's representation; it needs a tolerance
+    to work on noisy sensors. On static tasks, a third to a half of E-R's
+    remaining error is state-dependent.
 
 ## Open questions and next steps
 

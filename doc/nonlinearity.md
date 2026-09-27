@@ -69,7 +69,8 @@ model and seed, and are written into every result line (`task_a<k>_<j>`,
 
 - Training: up to `train` samples (20 000) from the training stream. Every
   `eval_every` samples (1000) the validation MSE (500 samples) is measured,
-  and training stops once it is ≤ `target_mse`.
+  and training stops once it is ≤ `target_mse` (`early_stop=false` keeps
+  training for the whole budget, for learning curves).
 - Test: 1000 samples, presented once.
 - **Success**: test MSE ≤ 1e-3, fixed before any comparison.
 - **Solved**: an architecture solves a task when ≥ 80 % of its seeds
@@ -95,6 +96,8 @@ the machine, compiler, build and git commit.
 | Activity (test set) | `active_neurons_mean` (per tick), `active_fraction`, `spikes_per_sample`, `unique_neurons_per_sample`, `fraction_of_neurons_used`, `never_active` |
 | Cost proxies | `dense_synops_per_sample` (every connection, every tick), `event_synops_per_sample` (active sources × fan-out), `inference_us` (wall time). These are proxies only, not energy. |
 | E-R state | `threshold_mean`, `threshold_p10/p50/p90` (end of each test sample) |
+| Learning curve | `curve_<n>`: validation MSE after n training samples, `best_validation_mse`, `best_validation_at` |
+| State test (`state_probes` > 0) | each of `state_probes` test inputs is presented after `state_histories` (20) different random histories of `state_history_len` (10) samples: `state_variance` (output variance across histories), `state_bias2`, `state_share` (variance / MSE: the part of the error that comes from state), `state_output_range`, `state_spike_sd`. Always 0 for models without state. |
 | Configuration | E-R and neuron constants, `task_complexity`, the l4 coefficients |
 
 A neuron is **active** on a tick when |output| > `firing_epsilon`. For

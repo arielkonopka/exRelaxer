@@ -195,6 +195,8 @@ experiment. With `EXRELAXER_BUILD_PYTHON=ON`, the Python experiments tagged
 | `er_paths` | er, activity, paths, learning | three paths (12, 20, 35 neurons): drive per neuron per path (≈ 1.0, no preference), switching of the leading path over 3000 samples and under one held input |
 | `er_fatigue` | er, activity, paths | fatigue one path or all, then probe: the path's share drops to 0.05–0.44, others take over, recovery ≈ 10 ticks (recovery 0.9) or ≈ 30 (0.97) |
 | `er_history` | er, activity, state | the same inputs after rest, ordinary activity or stimulation: change of pattern, evidence, decision, spikes and latency (always 0 for the controls) |
+| `er_silence` | er, activity, state | zero the inputs of a trained network, optionally with recurrence: does activity continue (spontaneous E-R firing), and how does it answer afterwards? |
+| `er_habituation` | er, activity, habituation | hold each stimulus for up to 500 ticks: spikes saved by habituation vs accuracy at onset, over the sample and at its end |
 | `nl_static` | er, nonlinearity, learning | known static functions (l0 x1+x2 … l4 sum of K sines) with relu, E-R, fixed-threshold or plain clamped hidden neurons on a depth × width grid: test MSE, success at MSE ≤ 1e-3, size, activity, cost. Analyse with `tools/capacity.py`. See [doc/nonlinearity.md](../doc/nonlinearity.md) |
 | `snake_rules` | control, learning, rules | `snake` with a learning rule per layer: `readout` = sign, trace, fa, perturbation; `mix` = frozen or any rule (also oja, bcm); apples, steps and apples per 100 steps per game. The defaults play exactly the games of `snake` |
 | `snake_py` (Python folder) | control, learning, quick | `snake` written in Python, playing the same games with the same results |

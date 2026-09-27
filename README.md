@@ -381,6 +381,28 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-09-27: E-R behaviour: learning curves, silence, state, habituation
+
+- **Configurable habituation** (`neuron::Habituation`, `LayerSpec::habituationRule`,
+  Python `Habituation`): the streak of identical ticks before it acts
+  (default 100, as before), a relative tolerance for "identical" (default
+  0), and fading by a factor per tick instead of cutting (default: cut).
+  Network format 13 saves it. Defaults behave exactly as before.
+- `nntest run er_silence`: inputs zeroed after training. All models go
+  silent at once; E-R alone restarts, with spontaneous bursts every
+  73–110 ticks from about tick 214 (recovery 0.9). Afterwards its thresholds
+  jump and accuracy drops to 0.44–0.52 at recovery 0.97.
+- `nntest run er_habituation`: long-held stimuli. Habituation after 5
+  identical ticks cuts E-R's spikes 90× with onset accuracy 0.98, but the
+  stimulus is gone by the end of the hold, and sensor flicker stops exact
+  repeats unless a tolerance is set.
+- `nl_static`: learning curves (`curve_<n>`, `early_stop=false`) and a
+  state test (`state_probes`): with 7 extra ticks, 30–57 % of E-R's error
+  comes from the state left by earlier samples.
+- Fix: spontaneous E-R firings are drawn in ±0.01, not exactly ±0.01;
+  the activity meters now detect them.
+- See [research log §15](doc/research.md#15-how-e-r-behaves-learning-silence-state-habituation).
+
 ### 2026-09-27: nonlinearity substitution, milestone 1
 
 - **ReLU neurons** (optional): `LayerSpec::rectify`, `neuron::setRectified`,

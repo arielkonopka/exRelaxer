@@ -253,7 +253,7 @@ the building methods' exceptions.
 Binary, native endianness (not portable across platforms). Counts and ids
 are `uint64`.
 
-1. Magic `EXRN`, format version `uint32` (currently **12**).
+1. Magic `EXRN`, format version `uint32` (currently **13**).
 2. Operation count, then each operation: kind (`uint8`) and fields:
    - AddLayer: name length + bytes, `LayerType` (`uint8`), size,
      hasHabituation, hasER, frozen (`uint8` each; frozen is the state at save
@@ -269,7 +269,8 @@ are `uint64`.
      bcmRate (`float`), winners (`uint32`); then (version 10) cochlea
      channels, resize height and width, interpolation (`uint8`), min and
      max disparity (`int32`), disparity window, measure (`uint8`); then
-     (version 11) gate (`float`); (version 12) rectify (`uint8`)
+     (version 11) gate (`float`); (version 12) rectify (`uint8`); (version 13) habituation
+     steps (`uint32`), tolerance, decay (`float`)
    - Connect: from, to
    - Feedback: from, to, width
    - Inputs: target, count; then (version 10) name length + name, shape
@@ -295,6 +296,7 @@ are `uint64`.
 | 10 | cochlea channels, resize and disparity parameters per layer; input source names and shapes; `connectInputs` |
 | 11 | fixed firing threshold (`gate`) per layer |
 | 12 | rectification (`rectify`, ReLU) per layer |
+| 13 | habituation rule (steps, tolerance, decay) per layer |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.

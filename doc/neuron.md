@@ -48,11 +48,24 @@ runs these stages in order:
    with feedback loops diverge within a few dozen ticks. The clamp is also
    the only non-adaptive nonlinearity, which is why hand-wired detectors use
    it (a high-gain neuron saturates at ±10).
-2. **Habituation** (if enabled). If `|sum − previous sum| ≤
-   habituation_epsilon`, a streak counter increments, otherwise it resets to
-   0. Once the streak reaches `habituation_steps` (100), `sum` is replaced by
-   0 until the signal changes. The previous sum stored is the raw one, before
-   suppression. The update is branchless.
+2. **Habituation** (if enabled). If the sum is "the same" as the previous
+   one, a streak counter increments; otherwise it resets to 0. Once the
+   streak reaches the rule's `steps`, the sum is suppressed until the
+   signal changes. The previous sum stored is the raw one, from before
+   suppression. The rule (`Habituation`, set per layer through
+   `LayerSpec::habituationRule` or with `neuron::setHabituation`) has three
+   fields:
+   - `steps`: the streak length before suppression. Default
+     `habituation_steps`, 100.
+   - `tolerance`: "the same" means `|sum − previous| ≤ max(habituation_epsilon,
+     tolerance × max(|sum|, |previous|))`. Default 0, i.e. exact; a small
+     tolerance lets a flickering sensor habituate too.
+   - `decay`: a suppressed sum is scaled by `decay^(ticks habituated)`.
+     Default 0, which cuts it at once; closer to 1 fades it slowly.
+
+   The defaults are the original behaviour. Note that the clamp comes
+   first, so a neuron held at ±`max_output` sees an identical sum even when
+   its input changes, and habituates.
 3. **E-R** (if enabled):
    - if `|sum| > threshold`: the neuron **fires**. Output = `sum`, and the
      threshold is raised (see [E-R](#excitationrelaxation-e-r));
