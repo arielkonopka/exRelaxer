@@ -160,6 +160,11 @@ public:
     // the neuron.
     float gate() const { return gate_; }
     void setGate(float value) { gate_ = value; }
+    // Without E-R: rectification (ReLU). Only sums above the gate (0 by
+    // default) pass; the rest give output 0. Ignored with E-R. A layer-level
+    // setting (LayerSpec::rectify), like the gate.
+    bool rectified() const { return rectified_; }
+    void setRectified(bool value) { rectified_ = value; }
 
     // --- Serialization --------------------------------------------------
     // One record: flags, alpha, the weights (count + values, passed in since
@@ -188,6 +193,7 @@ private:
     float recovery_ = recovery_factor;
     float learning_gain_ = default_learning_gain;
     float gate_ = 0.0f;
+    bool rectified_ = false;
     std::minstd_rand rng_;        // per neuron, so neurons can step in parallel; seeded from rng::spontaneousSeed()
 };
 

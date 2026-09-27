@@ -1480,3 +1480,45 @@ TEST(GateTest, LayerSpecGateIsAppliedSavedAndChecked)
     bad.gate = -1.0f;
     EXPECT_THROW(net.addLayer("negative", bad), std::invalid_argument);
 }
+
+TEST(GateTest, RectifiedNeuronIsAReLU)
+{
+    neuron n(false, false);
+    n.setRectified(true);
+    EXPECT_EQ(n.activate(-0.5f), 0.0f);
+    EXPECT_FALSE(n.eligible());
+    EXPECT_EQ(n.activate(0.0f), 0.0f);
+    EXPECT_EQ(n.activate(0.3f), 0.3f);
+    EXPECT_EQ(n.activate(20.0f), max_output);  // still clamped
+    n.setGate(0.5f);                           // with a gate: only sums above it
+    EXPECT_EQ(n.activate(0.4f), 0.0f);
+    EXPECT_EQ(n.activate(-0.9f), 0.0f);
+    EXPECT_EQ(n.activate(0.6f), 0.6f);
+
+    network net;
+    LayerSpec spec = LayerSpec::Dense(2, false, false);
+    spec.rectify = true;
+    const auto relu = net.addLayer("relu", spec);
+    net.addInputs(relu, 1);
+    net.addOutput(relu);
+    net.layerAs<dense>(relu).setWeights(0, {1.0f});
+    net.layerAs<dense>(relu).setWeights(1, {-1.0f});
+    net.setInputs(std::vector<float>{0.7f});
+    net.step();
+    EXPECT_EQ(net.outputs()[0], 0.7f);
+    EXPECT_EQ(net.outputs()[1], 0.0f);
+    std::ostringstream text;
+    net.describe(text);
+    EXPECT_NE(text.str().find("relu"), std::string::npos) << text.str();
+
+    std::stringstream data;
+    net.save(data);
+    auto loaded = network::load(data);
+    EXPECT_TRUE(loaded->layerSpec(relu).rectify);
+    for (const neuron& n2 : loaded->layerAs<neuron_layer>(relu).neurons())
+        EXPECT_TRUE(n2.rectified());
+
+    LayerSpec bad = LayerSpec::Dense(1, false, true);
+    bad.rectify = true;
+    EXPECT_THROW(net.addLayer("er", bad), std::invalid_argument);
+}

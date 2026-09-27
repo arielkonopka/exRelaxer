@@ -1,0 +1,268 @@
+#pragma once
+// Shared by the nonlinearity-substitution experiments (nl_static): known
+// target functions, a stack of equal-width hidden layers with one linear
+// output, and meters for activity and cost on the test set.
+//
+//   x (d inputs) --> hidden 1 --> ... --> hidden depth --> output (1, linear)
+//
+// The compared models differ only in their hidden neurons:
+//   relu    conventional: output = max(0, sum)   (LayerSpec::rectify)
+//   er      production E-R, habituation off: adaptive threshold, state across ticks
+//   gate    static threshold: output = sum if |sum| > gate, else 0 (LayerSpec::gate)
+//   clamp   the library's plain neuron: output = sum, clamped to +-max_output
+//           (nearly linear for these inputs; "linear" is the same model)
+// Everything else is the same: the task data, the weight initialization
+// (uniform, variance 1 / fan-in, drawn from the trial seed), feedback
+// alignment with a learned bias in every layer, the learning rate, the
+// training budget and the stopping rule. No term anywhere counts activity.
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <fstream>
+#include <memory>
+#include <numbers>
+#include <random>
+#include <stdexcept>
+#include <string>
+#include <vector>
+#include "experiment.hpp"
+#include "layers/dense.hpp"
+#include "network.hpp"
+
+namespace nonlinearity {
+
+using namespace exr;
+
+// A static regression task: y = f(x), x uniform in [-1, 1]^d.
+//   l0  y = x1 + x2
+//   l1  y = x1 * x2
+//   l2  y = sin(x1 * x2)
+//   l3  y = sin(x1 * x2) + exp(-x3^2)
+//   l4  y = K^-1/2 * sum_k sin(a_k . x + b_k), a_k uniform in [-2, 2]^d,
+//       b_k uniform in [-pi, pi], drawn from task_seed (fixed per task, never
+//       redrawn between models). The 1/sqrt(K) keeps the target's variance
+//       near 0.5 for every K.
+struct StaticTask
+{
+    std::string level;
+    size_t k = 0;         // l4 components
+    size_t inputs = 2;    // d
+    std::vector<float> a; // l4: K x d
+    std::vector<float> b; // l4: K
+
+    StaticTask(const std::string& level_, size_t k_, size_t l4Inputs, std::uint32_t taskSeed) : level(level_), k(k_)
+    {
+        if (level == "l0" || level == "l1" || level == "l2")
+            inputs = 2;
+        else if (level == "l3")
+            inputs = 3;
+        else if (level == "l4") {
+            if (k == 0 || l4Inputs == 0)
+                throw std::invalid_argument("l4 needs k >= 1 and l4_inputs >= 1");
+            inputs = l4Inputs;
+            std::mt19937 g(taskSeed);
+            std::uniform_real_distribution<float> freq(-2.0f, 2.0f), phase(-std::numbers::pi_v<float>, std::numbers::pi_v<float>);
+            a.resize(k * inputs);
+            b.resize(k);
+            for (size_t c = 0; c < k; ++c) {
+                for (size_t j = 0; j < inputs; ++j)
+                    a[c * inputs + j] = freq(g);
+                b[c] = phase(g);
+            }
+        } else
+            throw std::invalid_argument("task must be l0, l1, l2, l3 or l4");
+    }
+
+    // Complexity on one axis for capacity curves: the level, or K for l4.
+    double complexity() const { return level == "l4" ? static_cast<double>(k) : static_cast<double>(level[1] - '0'); }
+
+    float operator()(const std::vector<float>& x) const
+    {
+        if (level == "l0")
+            return x[0] + x[1];
+        if (level == "l1")
+            return x[0] * x[1];
+        if (level == "l2")
+            return std::sin(x[0] * x[1]);
+        if (level == "l3")
+            return std::sin(x[0] * x[1]) + std::exp(-x[2] * x[2]);
+        float y = 0.0f;
+        for (size_t c = 0; c < k; ++c) {
+            float s = b[c];
+            for (size_t j = 0; j < inputs; ++j)
+                s += a[c * inputs + j] * x[j];
+            y += std::sin(s);
+        }
+        return y / std::sqrt(static_cast<float>(k));
+    }
+};
+
+// n samples, x uniform in [-1, 1]^d, from their own seed.
+struct Dataset
+{
+    std::vector<std::vector<float>> x;
+    std::vector<float> y;
+    double variance = 0.0;
+
+    Dataset(const StaticTask& task, size_t n, std::uint32_t seed)
+    {
+        std::mt19937 g(seed);
+        std::uniform_real_distribution<float> u(-1.0f, 1.0f);
+        x.assign(n, std::vector<float>(task.inputs));
+        y.resize(n);
+        double mean = 0.0;
+        for (size_t i = 0; i < n; ++i) {
+            for (float& v : x[i])
+                v = u(g);
+            y[i] = task(x[i]);
+            mean += y[i];
+        }
+        mean /= static_cast<double>(std::max<size_t>(n, 1));
+        for (float v : y)
+            variance += (v - mean) * (v - mean);
+        variance /= static_cast<double>(std::max<size_t>(n, 1));
+    }
+};
+
+// Activity and cost of hidden neurons over the ticks it observed.
+struct Activity
+{
+    size_t hidden = 0, ticks = 0, samples = 0;
+    double active = 0.0;           // sum over ticks of active hidden neurons
+    double unique = 0.0;           // sum over samples of neurons active at least once in the sample
+    double eventSynops = 0.0;      // sum over ticks of (active sources x their fan-out)
+    std::vector<std::uint8_t> used, everUsed;
+    std::vector<float> thresholds; // E-R: every hidden threshold at the end of each sample
+
+    double activePerTick() const { return ticks ? active / static_cast<double>(ticks) : 0.0; }
+    double uniquePerSample() const { return samples ? unique / static_cast<double>(samples) : 0.0; }
+    size_t neverActive() const { return static_cast<size_t>(std::count(everUsed.begin(), everUsed.end(), 0)); }
+};
+
+inline double quantile(std::vector<float> v, double q)
+{
+    if (v.empty())
+        return 0.0;
+    const size_t i = std::min(v.size() - 1, static_cast<size_t>(q * static_cast<double>(v.size() - 1) + 0.5));
+    std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(i), v.end());
+    return v[i];
+}
+
+class Mlp
+{
+public:
+    Mlp(const std::string& model, size_t inputs, size_t depth, size_t width, float gate)
+        : model_(model == "linear" ? "clamp" : model), inputs_(inputs), depth_(depth), width_(width)
+    {
+        if (model_ != "relu" && model_ != "er" && model_ != "gate" && model_ != "clamp")
+            throw std::invalid_argument("model must be relu, er, gate or clamp");
+        if (depth == 0 || width == 0)
+            throw std::invalid_argument("depth and width must be at least 1");
+        const LearningRule rule = LearningRule::feedbackAlignment().withBias();
+        for (size_t l = 0; l < depth; ++l) {
+            LayerSpec spec = LayerSpec::Dense(width, false, model_ == "er");
+            spec.rectify = model_ == "relu";
+            if (model_ == "gate")
+                spec.gate = gate;
+            spec.learningRule = rule;
+            hidden_.push_back(net_.addLayer("h" + std::to_string(l + 1), spec));
+        }
+        LayerSpec out = LayerSpec::Dense(1, false, false);
+        out.learningRule = rule;
+        out_ = net_.addLayer("out", out);
+        net_.addInputs(hidden_[0], inputs, "x");
+        for (size_t l = 1; l < depth; ++l)
+            net_.connect(hidden_[l - 1], hidden_[l]);
+        net_.connect(hidden_.back(), out_);
+        net_.addOutput(out_);
+        // One initialization for every model: the library's uniform [-1, 1]
+        // draw, scaled to variance 1 / fan-in.
+        for (size_t l = 0; l <= depth; ++l) {
+            auto& d = net_.layerAs<dense>(l < depth ? hidden_[l] : out_);
+            const size_t fanIn = l == 0 ? inputs : width;
+            const float scale = std::sqrt(3.0f / static_cast<float>(fanIn));
+            for (size_t i = 0; i < d.size(); ++i) {
+                std::vector<float> w = d.weights(i);
+                for (float& v : w)
+                    v *= scale;
+                d.setWeights(i, w);
+            }
+        }
+    }
+
+    size_t depth() const { return depth_; }
+    size_t width() const { return width_; }
+    size_t hiddenNeurons() const { return depth_ * width_; }
+    // Trainable: every weight and bias, output layer included.
+    size_t parameters() const { return inputs_ * width_ + width_ + (depth_ - 1) * (width_ * width_ + width_) + width_ + 1; }
+    // Weighted inputs computed per tick by a dense implementation.
+    size_t denseSynops() const { return inputs_ * width_ + (depth_ - 1) * width_ * width_ + width_; }
+    // Ticks for an input to reach the output, plus `settle`.
+    size_t hold(size_t settle) const { return depth_ + 1 + settle; }
+    network& net() { return net_; }
+    const neuron_layer& hidden(size_t l) const { return net_.layerAs<neuron_layer>(hidden_[l]); }
+
+    // Presents x for `ticks` ticks and returns the output at the last one.
+    // With a meter, counts hidden activity on every tick; with `trace`, also
+    // writes every hidden neuron's output and threshold per tick.
+    float present(const std::vector<float>& x, size_t ticks, Activity* meter = nullptr, std::ostream* trace = nullptr,
+                  const std::string& tracePrefix = "")
+    {
+        net_.setInputs("x", x);
+        if (meter) {
+            meter->used.assign(hiddenNeurons(), 0);
+            if (meter->everUsed.size() != hiddenNeurons())
+                meter->everUsed.assign(hiddenNeurons(), 0);
+            meter->hidden = hiddenNeurons();
+        }
+        for (size_t t = 0; t < ticks; ++t) {
+            net_.step();
+            if (meter) {
+                ++meter->ticks;
+                meter->eventSynops += static_cast<double>(inputs_ * width_);  // the inputs are always on
+                for (size_t l = 0; l < depth_; ++l) {
+                    const auto neurons = hidden(l).neurons();
+                    size_t active = 0;
+                    for (size_t i = 0; i < neurons.size(); ++i) {
+                        const float y = neurons[i].output();
+                        if (std::abs(y) > firing_epsilon) {
+                            ++active;
+                            meter->used[l * width_ + i] = 1;
+                            meter->everUsed[l * width_ + i] = 1;
+                        }
+                        if (trace)
+                            *trace << tracePrefix << ',' << t << ',' << l + 1 << ',' << i << ',' << y << ','
+                                   << neurons[i].threshold() << '\n';
+                    }
+                    meter->active += static_cast<double>(active);
+                    meter->eventSynops += static_cast<double>(active * (l + 1 < depth_ ? width_ : 1));
+                }
+            }
+        }
+        if (meter) {
+            ++meter->samples;
+            meter->unique += static_cast<double>(std::count(meter->used.begin(), meter->used.end(), 1));
+            if (model_ == "er")
+                for (size_t l = 0; l < depth_; ++l)
+                    for (const neuron& n : hidden(l).neurons())
+                        meter->thresholds.push_back(n.threshold());
+        }
+        return net_.outputs()[0];
+    }
+
+    void learn(float target, float y, float lr)
+    {
+        const float error = target - y;
+        net_.applyError(std::span<const float>(&error, 1), lr);
+    }
+
+private:
+    std::string model_;
+    size_t inputs_, depth_, width_;
+    network net_;
+    std::vector<network::LayerId> hidden_;
+    network::LayerId out_ = 0;
+};
+
+} // namespace nonlinearity

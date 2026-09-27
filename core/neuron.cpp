@@ -118,8 +118,8 @@ float neuron::activate(float weightedSum)
                 excite(spontaneousOutput());
             }
         }
-    } else if (gate_ > 0.0f && std::abs(sum) <= gate_) {
-        output_ = 0.0f;  // fixed threshold: the same all-or-nothing gate, without adaptation
+    } else if (rectified_ ? sum <= gate_ : gate_ > 0.0f && std::abs(sum) <= gate_) {
+        output_ = 0.0f;  // fixed threshold (one-sided when rectified): all-or-nothing, without adaptation
     }
     return output_;
 }

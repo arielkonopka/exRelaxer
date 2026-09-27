@@ -42,6 +42,11 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a gate");
         dynamic_cast<neuron_layer&>(*impl).setGate(spec.gate);
     }
+    if (spec.rectify) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to rectify");
+        dynamic_cast<neuron_layer&>(*impl).setRectified(true);
+    }
     this->nodes.push_back({name, spec, std::move(impl)});
     this->ops_.push_back({OpKind::AddLayer, this->nodes.size() - 1, 0, 0});
     this->orderValid = false;
@@ -481,6 +486,8 @@ void network::describe(std::ostream& os) const
            << std::setw(6) << (node.impl->hasNeurons() && node.spec.hasHabituation ? "on" : "-")
            << std::setw(6) << (!node.impl->hasNeurons() ? std::string("-")
                                : node.spec.hasER   ? std::string("on")
+                               : node.spec.rectify ? (node.spec.gate > 0.0f ? ">" + describeNumber(node.spec.gate)
+                                                                            : std::string("relu"))
                                : node.spec.gate > 0.0f ? "=" + describeNumber(node.spec.gate)
                                                        : std::string("-"))
            << std::setw(8) << (!node.impl->learns() ? "-" : node.spec.frozen ? "frozen" : "yes");
@@ -554,7 +561,7 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //        (neuron format 3)
 //  10  + cochlea channels, resize and disparity parameters per layer; named
 //        input sources (name and shape per addInputs) and connectInputs
-//  11  + fixed firing threshold (gate) per layer
+//  11  + fixed firing threshold (gate) and rectification per layer
 // Older versions load as weights only (see network::load).
 constexpr std::uint32_t NETWORK_FORMAT_VERSION = 11;
 // Files from this version on carry the full state; older ones load as
@@ -792,6 +799,7 @@ void network::save(std::ostream& os) const
             writeLearningRule(os, node.spec.learningRule);
             writeMultimodal(os, node.spec);
             writeValue(os, node.spec.gate);
+            writeValue<std::uint8_t>(os, node.spec.rectify);
             break;
         }
         case OpKind::Connect:
@@ -914,6 +922,7 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 spec.gate = readValue<float>(is);
                 if (!std::isfinite(spec.gate) || spec.gate < 0.0f)
                     throw std::runtime_error("network::load: invalid gate");
+                spec.rectify = readValue<std::uint8_t>(is) != 0;
             }
             net->addLayer(name, spec);
             break;

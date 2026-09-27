@@ -42,6 +42,11 @@ public:
     // a negative or non-finite value, or a non-zero gate on a layer with E-R.
     void setGate(float gate);
     float gate() const { return gate_; }
+    // Neurons without E-R: rectification (ReLU; see neuron::rectified) for
+    // every neuron, now and later. Throws std::invalid_argument on a layer
+    // with E-R.
+    void setRectified(bool rectified);
+    bool rectified() const { return rectified_; }
 
     // --- Learning -------------------------------------------------------
     // The rule this layer learns with (see learning.hpp). Setting it resets
@@ -174,6 +179,7 @@ private:
     bool has_habituation_, has_er_;  // for every neuron this layer creates, including later growth
     Jitter recovery_jitter_, learning_jitter_, alpha_jitter_;  // likewise
     float gate_ = 0.0f;                                          // likewise
+    bool rectified_ = false;                                     // likewise
 
     LearningRule rule_;
     bool plain_ = true;               // no bias, traces or noise: fire() just activates
