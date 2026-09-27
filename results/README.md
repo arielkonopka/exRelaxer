@@ -21,6 +21,7 @@ and `NNtesting/tools/capacity.py`.
 | `er-training/` | §17 | pretraining without E-R and switching, vs longer E-R training |
 | `er-cycles/` | §17 | spontaneous-firing settings in `er_silence` |
 | `rerun/` | §18 | every E-R experiment again with the current defaults and three habituation variants; `summary.md` (from `analyze.py`), `raw/`, `run.sh` |
+| `dynamic/` | §19 | `dyn_ladder` pilot and E-R at width 256, `nl_temporal` with a frame window, `doom` imitation, `doom_rl` pilots, architectures (depth, feedback, reservoir) and longer E-R runs |
 
 Runs recorded before 2026-09-27 evening used the logarithmic threshold
 growth rule, the default at the time; pass `--set growth=log` to reproduce

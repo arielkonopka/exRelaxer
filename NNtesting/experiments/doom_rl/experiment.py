@@ -81,8 +81,14 @@ class Player:
         self.net = net = exr.Network()
         self.sound = p["sound"]
         def neurons(size, frozen=True):
-            spec = exr.LayerSpec.dense(size, False, model == "er", frozen=frozen,
+            spec = exr.LayerSpec.dense(size, p["habituation"], model == "er", frozen=frozen,
                                        learning_rule=exr.LearningRule.traced(p["trace"]))
+            if p["habituation"]:
+                # Fade mode as in the rerun's fade2: a repeated input fades by
+                # `habituation_decay` per tick from its `habituation_fade_after`th repeat.
+                spec.habituation_rule = exr.Habituation(tolerance=p["habituation_tolerance"],
+                                                        decay=p["habituation_decay"],
+                                                        fade_after=p["habituation_fade_after"])
             spec.rectify = model == "relu"
             if model == "gate":
                 spec.gate = p["gate"]
@@ -102,7 +108,8 @@ class Player:
             self.layers.append(h)
         self.hidden = self.layers[0]  # metered layer set below
         if self.sound:
-            spec = exr.CochleaSpec(sample_rate=SAMPLE_RATE, hop=self.hop, window=512, bands=p["bands"], channels=2)
+            window = max(512, 1 << (self.hop - 1).bit_length())  # a power of two >= hop
+            spec = exr.CochleaSpec(sample_rate=SAMPLE_RATE, hop=self.hop, window=window, bands=p["bands"], channels=2)
             self.ear = net.add_layer("ear", exr.LayerSpec.cochlea(spec, False, False))
             net.add_inputs(self.ear, 2 * self.hop, "mic")
             net.connect(self.ear, self.layers[0])
@@ -231,6 +238,10 @@ PARAMS = {
     "model": ("er", "hidden neurons: relu, er, gate or clamp"),
     "width": (256, "hidden neurons"),
     "gate": (0.2, "gate model: the fixed threshold"),
+    "habituation": (False, "hidden and reservoir neurons habituate to repeated input (fade mode)"),
+    "habituation_decay": (0.9, "habituation: fade factor per habituated tick"),
+    "habituation_fade_after": (2, "habituation: repeats before fading starts (2 = from the 2nd tick)"),
+    "habituation_tolerance": (0.05, "habituation: relative change still counted as a repeat (0 = exact repeats only, which sound and recurrence never give)"),
     "depth": (1, "hidden layers (each `width` neurons)"),
     "feedback": ("none", "feedback lines in the hidden stack: none, recurrent (each layer reads itself), topdown "
                          "(extra neurons read the layer above), both"),

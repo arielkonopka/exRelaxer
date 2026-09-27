@@ -25,6 +25,40 @@ snake, where a frozen mix with learned readouts is the best undesigned
 design; `learn_hidden=true` lets it learn too). The largest readout picks
 the action; while training a random one with probability `explore`.
 
+## Topology and E-R options
+
+- `depth` hidden layers of `width` neurons (h1 reads the eye and the ears,
+  each further layer the one below);
+- `feedback`: `recurrent` (every hidden neuron also reads its own layer),
+  `topdown` (`feedback_width` extra neurons per layer read the layer
+  above), `both`, or `none`; recurrent weights are scaled by
+  `recurrent_scale` (0.5: at 0.9 E-R layers burst and then fall silent);
+- `reservoir`: an echo-state reservoir after the stack, `reservoir` neurons
+  reading the top layer plus `reservoir_recurrent` reading the reservoir;
+  the readouts read the top layer and the reservoir;
+- `habituation` in fade mode (`habituation_decay` per tick from the
+  `habituation_fade_after`th repeat, as in the rerun's fade2) with a
+  `habituation_tolerance`: with 0 (exact repeats only) habituation never
+  acts here, because the sound and any recurrence change every tick;
+- `ticks` per game step (more ticks let E-R run longer on each frame).
+
+Every hidden layer is frozen and only the readouts learn, so the audit's
+note on the sign rule and feedback edges (appendix 1) does not apply.
+
+## Search (search.py)
+
+`search.py` looks for the E-R + habituation agent: it searches topology,
+E-R, habituation, ticks, pooling and learning settings by asynchronous
+successive halving with evolution (rungs of 100, 300 and 900 training
+episodes on 1, 2 and 3 seeds; the top third of a rung moves up; new
+candidates are half random, half mutations of the best). It appends every
+evaluation to `<out>/evals.jsonl`, rewrites `<out>/best.md` and saves the
+trained networks of the top rung, and resumes from the same `--out`.
+
+```bash
+python3 NNtesting/experiments/doom_rl/search.py --out results/doom-search/defend_the_center --workers 4 --hours 20
+```
+
 ## Reward (rewards.py)
 
 Only from the game's state, the same on every map; every weight is a
