@@ -99,7 +99,7 @@ throws `std::invalid_argument` for a spec that breaks the rules in the
 comments above (window not a power of two, `window < hop`, `bands == 0`,
 `minFrequency >= maxFrequency`, `maxFrequency` above Nyquist, `gain <= 0`).
 `attachInputs` throws `std::invalid_argument` for a sensor count other than
-`hop` and `std::logic_error` when called twice; a cochlea cannot `join`
+`channels · hop` and `std::logic_error` when called twice; a cochlea cannot `join`
 another layer.
 
 **Serialization:** the neuron records, then the sample window (`uint64`

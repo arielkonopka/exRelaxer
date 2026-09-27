@@ -8,7 +8,7 @@ is as clear an answer as "yes". Milestone 1 covers static functions
 control (`nl_temporal`). Parameter- and neuron-matched comparisons and
 robustness tests follow. Results are in the
 [research log, §14](research.md#14-dynamic-nonlinearity-substitution-static-tasks)
-and §16.
+and [§16](research.md#16-temporal-tasks-and-the-threshold-growth-rule).
 
 ## Models
 
@@ -54,12 +54,12 @@ habituation off, learning gain 2. Spontaneous firing is part of production
 E-R and cannot be switched off without changing it. It happens only after
 about 200 silent ticks (threshold ≤ 1e-10), far longer than a sample.
 
-**Options for E-R studies** (off by default, so the comparisons above are
-unchanged): `growth` / `growth_amount` pick the threshold growth rule
-(`log`, `linear`, `fixed`, `multiplicative`; see
-[neuron](neuron.md#excitationrelaxation-e-r)), and `learn_ticks=all`
-learns on every tick of a presentation at `lr / ticks` instead of once from
-the last tick.
+**Options for E-R studies**: `growth` / `growth_amount` pick the threshold
+growth rule (`linear`, the default, with amount 0.5; `log`, `fixed`,
+`multiplicative`; `alpha` affects only `log`; see
+[neuron](neuron.md#excitationrelaxation-e-r)), and `learn_ticks=all` (off
+by default: `last`) learns on every tick of a presentation at `lr / ticks`
+instead of once from the last tick.
 
 ## Tasks (`nl_static`)
 
@@ -139,7 +139,7 @@ the machine, compiler, build and git commit.
 | Cost proxies | `dense_synops_per_sample` (every connection, every tick), `event_synops_per_sample` (active sources × fan-out), `inference_us` (wall time). These are proxies only, not energy. |
 | E-R state | `threshold_mean`, `threshold_p10/p50/p90` (end of each test sample) |
 | Learning curve | `curve_<n>`: validation MSE after n training samples, `best_validation_mse`, `best_validation_at` |
-| State test (`state_probes` > 0) | each of `state_probes` test inputs is presented after `state_histories` (20) different random histories of `state_history_len` (10) samples: `state_variance` (output variance across histories), `state_bias2`, `state_share` (variance / MSE: the part of the error that comes from state), `state_output_range`, `state_spike_sd`. Always 0 for models without state. |
+| State test (`state_probes` > 0) | each of `state_probes` test inputs is presented after `state_histories` (20) different random histories of `state_history_len` (10) samples: `state_variance` (output variance across histories), `state_bias2`, `state_share` (variance / MSE: the part of the error that comes from state), `state_output_range`, `state_spike_sd`. All but `state_bias2` are always 0 for models without state. |
 | Configuration | E-R and neuron constants, `task_complexity`, the l4 coefficients |
 
 A neuron is **active** on a tick when |output| > `firing_epsilon`. For

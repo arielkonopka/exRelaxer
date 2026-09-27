@@ -100,7 +100,7 @@ box around (y, x) and over all C channels:
 | Measure | Value | Best match |
 |---------|-------|------------|
 | Correlation | mean of `left · right` | highest |
-| Difference | mean of `|left − right|` | 0 |
+| Difference | mean of `\|left − right\|` | 0 |
 | Normalized | normalized cross-correlation, in [−1, 1] (0 where either view is flat) | 1 |
 
 A near object appears further left in the right eye than in the left, so

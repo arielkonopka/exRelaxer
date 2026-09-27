@@ -111,8 +111,9 @@ laid out for SIMD with positions as the lanes, and each kernel computes 8
 positions per pass (see [kernels](kernels.md)). Every weighted sum is summed
 in window order, exactly like a scalar dot product.
 
-**Learning**: a kernel moves by the **mean** of the sign-rule updates of its
-channel's eligible neurons:
+**Learning**: with the default Sign rule, a kernel moves by the **mean** of
+the sign-rule updates of its channel's eligible neurons (other
+[learning rules](learning.md#layer-types) likewise average their updates):
 
 ```
 w[j] = clamp(w[j] + mean over eligible positions p of delta(c, p) × sign(input_p[j]), ±max_weight)
@@ -137,8 +138,8 @@ to load into a Conv2D.
 | `gaussian(size, sigma, gain = 1)` | blur; weights sum to `gain` |
 | `differenceOfGaussians(size, centreSigma, surroundSigma, polarity, gain = 1)` | centre-surround, like retinal ganglion cells; `OnCentre` prefers a bright spot on a dark surround, `OffCentre` the opposite |
 | `gabor(size, orientation, wavelength, sigma, phase = 0, aspect = 1, gain = 1)` | oriented stripes and edges, like V1 simple cells; `orientation` is the stripes' direction from the x axis (0 horizontal, π/2 vertical); phase 0 prefers a bright bar on the centre line, π/2 an edge; `aspect` < 1 stretches the envelope along the stripes |
-| `gaborBank(size, orientations, wavelength, sigma, phases = {0, π/2})` | evenly spaced orientations in [0, π), each with every phase, orientation-major |
-| `centreSurroundBank(size, centreSigma, surroundSigma)` | {OnCentre, OffCentre} |
+| `gaborBank(size, orientations, wavelength, sigma, phases = {0, π/2}, aspect = 1, gain = 1)` | evenly spaced orientations in [0, π), each with every phase, orientation-major |
+| `centreSurroundBank(size, centreSigma, surroundSigma, gain = 1)` | {OnCentre, OffCentre} |
 
 DoG and Gabor filters have **zero mean** (a uniform image gives 0) and are
 scaled so the best-matching full-contrast pattern (pixels 0 where the filter

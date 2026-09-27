@@ -44,7 +44,7 @@ inline constexpr float firing_epsilon = 1e-6f;              // outputs at or bel
 inline constexpr float baseline_threshold = 0.2f;           // the neuron's resting E-R threshold and learning-eligibility boundary
 inline constexpr float max_weight = 10.0f;                  // learning clamps every weight to [-max_weight, max_weight]
 inline constexpr float max_output = 10.0f;                  // the weighted sum, and so the output, is clamped to [-max_output, max_output]
-inline constexpr float default_alpha = 1.2f;                // default E-R threshold growth rate on firing
+inline constexpr float default_alpha = 1.2f;                // default E-R threshold growth rate of the Log rule
 inline constexpr float default_learning_gain = 2.0f;        // default per-neuron learning gain: multiplies every weight update
 
 // Layout of a serialized neuron. 1: without recovery / learning gain
@@ -139,8 +139,9 @@ class neuron
 {
 public:
     // hasHabituation / hasER: independently toggle each mechanism.
-    // alpha: threshold-growth rate on firing (higher = threshold climbs
-    // faster after a strong signal).
+    // alpha: threshold-growth rate of the Log growth rule (higher = threshold
+    // climbs faster after a strong signal); the default Linear rule ignores it
+    // (see ThresholdGrowth).
     explicit neuron(bool hasHabituation = true, bool hasER = true, float alpha = default_alpha);
 
     // --- Dynamics -------------------------------------------------------
@@ -175,7 +176,7 @@ public:
     // recovery: per-tick E-R threshold decay while not firing, valid range
     //   [0.01, 0.999], default recovery_factor; larger = slower relaxation.
     // learning gain: multiplies weight updates, >= 0, default default_learning_gain.
-    // alpha: E-R threshold growth on firing, >= 0, default default_alpha.
+    // alpha: E-R threshold growth rate of the Log rule, >= 0, default default_alpha.
     // randomize* draws the value from `jitter` using the jitter random
     // stream; a disabled jitter sets the default and draws nothing.
     void randomizeRecovery(const Jitter& jitter);

@@ -36,12 +36,15 @@ experiment so far.
 ## Features
 
 - **Excitation–Relaxation (E-R)** – each neuron has an adaptive firing
-  threshold. Firing raises it (fatigue / spike-frequency adaptation),
-  silence lets it decay. When it decays to ~0 the neuron fires
+  threshold. Firing raises it (fatigue / spike-frequency adaptation; by
+  default linearly, halfway towards the firing's magnitude, with log, fixed
+  and multiplicative growth selectable per layer), silence lets it decay. When it decays to ~0 the neuron fires
   spontaneously at a small amplitude, which re-excites the threshold.
 - **Habituation** – if a neuron's weighted input stays unchanged for
   `habituation_steps` consecutive steps, the input is treated as zero until
-  the signal changes again.
+  the signal changes again. The streak length, a tolerance for "unchanged"
+  and a gradual fade instead of the cut are configurable per layer
+  (`LayerSpec::habituationRule`).
 - **Reward-modulated learning** – `applyReward(reward, learningRate)` moves
   the weights of recently active neurons toward the reward's sign.
 - **Learning rules per layer** – besides that sign rule, each layer can learn
@@ -82,7 +85,9 @@ experiment so far.
 - **Serialization** – save and load a whole network, wiring included, either
   with full internal state (continues bit-identically) or weights only.
 
-Both adaptation mechanisms can be toggled independently per layer.
+Both adaptation mechanisms can be toggled independently per layer. Neurons
+without E-R can instead have a fixed firing threshold (`LayerSpec::gate`) or
+be ReLUs (`LayerSpec::rectify`).
 
 ## Requirements
 
@@ -254,7 +259,7 @@ Global constants in [core/neuron.hpp](core/neuron.hpp) (full list in
 
 | Constant                    | Default  | Meaning |
 |-----------------------------|----------|---------|
-| `habituation_steps`         | `100`    | Identical steps before the input is suppressed |
+| `habituation_steps`         | `100`    | Identical steps before the input is suppressed (default of `Habituation::steps`) |
 | `recovery_factor`           | `0.9`    | Default per-step threshold decay while not firing |
 | `baseline_threshold`        | `0.2`    | Resting E-R threshold and learning-eligibility boundary |
 | `spontaneous_min_amplitude` | `0.01`   | Amplitude of spontaneous firing |
@@ -262,8 +267,13 @@ Global constants in [core/neuron.hpp](core/neuron.hpp) (full list in
 | `max_output`                | `10.0`   | Each weighted sum is clamped to ±this |
 | `default_learning_gain`     | `2.0`    | Default per-neuron learning gain (multiplies weight updates) |
 
-The per-neuron threshold growth rate `alpha` (default `default_alpha`, 1.2)
-is a `neuron` constructor argument. Each neuron also has its own recovery factor,
+How E-R thresholds grow on firing is chosen per layer
+(`LayerSpec::thresholdGrowth`, `ThresholdGrowth`): linear (the default,
+`thr + 0.5 × (|v| − thr)`), log (the original, `thr + alpha × ln(|v| / thr)`),
+fixed or multiplicative; after a firing the threshold is at least
+2 × `baseline_threshold`. The per-neuron growth rate `alpha` (default
+`default_alpha`, 1.2), a `neuron` constructor argument, affects only the
+log rule. Each neuron also has its own recovery factor,
 learning gain and alpha, each of which can be randomized per layer,
 independently and optionally (decided at layer creation), with a chosen
 distribution (uniform or normal, centre, limits, absolute or relative
@@ -280,8 +290,8 @@ Relative spreads scale with the parameter (for recovery: with its distance
 from 1, so 0.9 ± 50% = 0.85…0.95).
 
 See [doc/network.md](doc/network.md#per-neuron-dynamics). The default
-learning gain is `default_learning_gain` (2.0) and the default E-R threshold
-growth `default_alpha` (1.2). A small learning-speed jitter sometimes helps
+learning gain is `default_learning_gain` (2.0) and the default log-rule
+`alpha` is `default_alpha` (1.2). A small learning-speed jitter sometimes helps
 learned hidden layers with E-R, but the effect is not robust to the other
 E-R constants.
 
@@ -290,6 +300,7 @@ E-R constants.
 ```
 core/
   neuron.hpp/.cpp                single neuron's dynamics: E-R, habituation, eligibility, serialization
+  learning.hpp/.cpp              LearningRule: the per-layer learning rules and their update
   kernels.hpp/.cpp               SIMD weight matrix, weighted sums, learning rule, thread sizing
   random.hpp/.cpp                the library's random streams, exr::reseed
   network.hpp/.cpp               graph of layers, inputs, outputs, update order, freezing, save/load
@@ -319,6 +330,7 @@ tests/
                                  and sequence-order learning
   network.cpp                    factory, graph building, update order, freezing,
                                  serialization, gapped-pattern tests, alpha-jitter experiments
+  learning.cpp                   each learning rule's update, options, applyError, serialization
   kernels.cpp                    SIMD kernels and dense layers bit-identical to scalar references
   regressions.cpp                one test per fixed bug; DISABLED_ tests for open ones
   spatial.cpp                    retina, Conv2D, LocallyConnected2D, Pool2D against scalar references
@@ -335,11 +347,13 @@ EXrelaxer.py/                    Python package exrelaxer: nanobind bindings, ex
 NNtesting/                       benchmark harness nntest (see NNtesting/README.md)
   harness/                       runner: parameters, trials, statistics, result files
   tasks/                         task code shared with the unit tests (pattern_benchmark.hpp, bars.hpp, snake.hpp)
+                                 and the experiments (activity.hpp, nonlinearity.hpp, er_options.hpp)
   experiments/                   one per experiment: NAME.cpp, NAME/experiment.py or NAME.py
   nntest.py                      runner for the Python experiments
   datasets/fetch.py              downloads public datasets (MNIST, CIFAR-10, Kaggle, ...) into one format
   tools/compare.py               tables and before/after comparisons of result files
   tools/spiral.py                spiral sampling of images, bit-identical to the Spiral retina
+  tools/capacity.py              minimum architectures and capacity curves from nl_static results
 ```
 
 Tests express their E-R-sensitive inputs and timings relative to these
@@ -377,7 +391,7 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   earlier in the process unless `exr::reseed` is called first.
 - **Serialization is not portable** (raw binary, native endianness), and a
   saved network can only be loaded by a program that registers all its
-  layer types. Files from older format versions load as weights only.
+  layer types. Files older than format 6 load as weights only.
 
 ## Changelog
 
@@ -402,7 +416,7 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ### 2026-09-27: E-R behaviour: learning curves, silence, state, habituation
 
-- **Configurable habituation** (`neuron::Habituation`, `LayerSpec::habituationRule`,
+- **Configurable habituation** (`Habituation`, `LayerSpec::habituationRule`,
   Python `Habituation`): the streak of identical ticks before it acts
   (default 100, as before), a relative tolerance for "identical" (default
   0), and fading by a factor per tick instead of cutting (default: cut).

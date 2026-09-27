@@ -5,8 +5,8 @@ by the unit tests and the [nntest](../NNtesting/README.md) experiments)
 
 Not part of the library: a header shared by the tests (`tests/network.cpp`)
 and by quick experiment programs. It defines the **gapped pattern detection**
-benchmark, a statistics/reporting layer, and two frozen building blocks
-(value detectors and a delay window).
+benchmark, a statistics/reporting layer, and frozen building blocks
+(value detectors, a delay window and a random reservoir).
 
 ## The task
 
@@ -133,7 +133,7 @@ Results are only comparable when it is clear which network produced them:
   `network::describe()` output of the topology above the results.
 - `topologySummary(net)` gives a one-line form for tables: layers in update
   order as `name(neurons + flags)`, with `*` frozen, `E` E-R on,
-  `h` habituation on, `r` recovery jitter, `l` learning jitter; runs like `tap5..tap1` collapsed; then feedback edges
+  `h` habituation on, `r` recovery jitter, `l` learning jitter, `a` alpha jitter; runs like `tap5..tap1` collapsed; then feedback edges
   as `fb from->to(new neurons)`. For example:
 
   ```
@@ -177,7 +177,7 @@ at lags 0..depth, lag-major. Each lag is its own wiring group (built with
 appended to `tapOrder` oldest first; the caller must build the update order
 as `tapOrder`, then the source's layers, then `window`, then the readers.
 
-### `addReservoir(net, source, sourceWidth, inputNeurons, recurrentNeurons, inputScale, recurrentScale, hasER, recoveryJitter = Jitter::none()) -> reservoir`
+### `addReservoir(net, source, sourceWidth, inputNeurons, recurrentNeurons, inputScale, recurrentScale, hasER, recoveryJitter = {}, alphaJitter = {}) -> reservoir`
 
 A frozen random recurrent layer (echo-state style), nothing in it designed
 for the task. It has two populations, because a `dense` neuron sums one
@@ -195,7 +195,7 @@ so any memory must come from the neurons' own state (E-R thresholds). Place
 the returned layer after `source` in the update order. Weights come from
 the library's random streams, so `exr::reseed` controls them.
 `recoveryJitter` spreads the neurons' E-R relaxation rates, i.e. their
-memory timescales.
+memory timescales; `alphaJitter` spreads their threshold growth rates.
 
 ## Memory without hand-built delay lines
 
@@ -223,7 +223,7 @@ training ticks, 20 trials):
 
 **Per-neuron jitter** ([neuron](neuron.md#per-neuron-dynamics)), 50 paired
 trials, measured with base learning gain 1.0 (the default was 1.0 then; it
-is now 1.5):
+is now 2.0):
 
 | Change | Setup | Effect on after C |
 |--------|-------|-------------------|
@@ -248,9 +248,11 @@ design.
 
 See `TopologyComparison` for the current ranking (20 trials each). Error-driven
 reward unless noted. Trials: 50, or 10 for screening runs. Unless a row says
-otherwise, results were measured with recovery 0.9; the current default is
-0.8, which mainly moves E-R results (the test comments give both where
-measured). Learning gain: 1.5 for the test results, 1.0 for screening runs.
+otherwise, results were measured with recovery 0.9 (the current default;
+it was 0.8 for a while, which mainly moves E-R results: the test comments
+give both where measured), baseline threshold 0.1 and the log threshold
+growth rule (now 0.2 and linear). Learning gain: 1.5 for the test results,
+1.0 for screening runs (the default is now 2.0).
 
 | Topology | Trials | Gain | After C | Balanced |
 |----------|--------|------|---------|----------|

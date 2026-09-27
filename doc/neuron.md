@@ -24,7 +24,7 @@ explicit neuron(bool hasHabituation = true, bool hasER = true, float alpha = def
 |-----------|---------|
 | `hasHabituation` | enables habituation (see below) |
 | `hasER` | enables excitation–relaxation (see below) |
-| `alpha` | E-R threshold growth rate on firing; higher means the threshold climbs faster after a strong signal |
+| `alpha` | E-R threshold growth rate of the `Log` [growth rule](#excitationrelaxation-e-r); higher means the threshold climbs faster after a strong signal. Ignored by the other rules, including the default `Linear` |
 
 A new neuron has output `0`, threshold `baseline_threshold`, and its own
 spontaneous-firing random generator, seeded from a shared stream (see
@@ -134,7 +134,7 @@ one barely.
   carry some memory even with no connections between them (measured in
   [pattern_benchmark](pattern_benchmark.md#memory-without-hand-built-delay-lines)).
 
-With a small `baseline_threshold` (0.1) and inputs in a normal range, most
+With a small `baseline_threshold` (0.2) and inputs in a normal range, most
 neurons fire most of the time; E-R mainly adds refractoriness after strong
 firings and spontaneous activity after long silence.
 
@@ -148,7 +148,9 @@ void learn(std::span<float> weights, std::span<const float> inputs,
 ```
 
 Layers ask each neuron whether it is eligible and for its step size, then
-update all weights of a group at once with the SIMD kernel. The rule:
+update all weights of a group at once with the SIMD kernel. The rule (the
+default `Sign` [learning rule](learning.md); the others are described
+there):
 
 ```
 weights[i] = clamp(weights[i] + learningRate × gain × reward × eligibility × sign(inputs[i]),
@@ -191,7 +193,7 @@ jitter:
 |-----------|---------|---------|
 | recovery (`recovery()` / `setRecovery`) | `recovery_factor` (0.9) | per-tick E-R threshold decay while silent; larger means slower relaxation, i.e. a longer memory of past firing |
 | learning gain (`learningGain()` / `setLearningGain`) | `default_learning_gain` (2.0) | multiplies this neuron's weight updates |
-| alpha (`alpha()` / `setAlpha`) | `default_alpha` (1.2) | E-R threshold growth on firing; larger means a longer refractory period and a longer memory trace, ≥ 0 |
+| alpha (`alpha()` / `setAlpha`) | `default_alpha` (1.2) | E-R threshold growth on firing with the `Log` rule (ignored by the others); larger means a longer refractory period and a longer memory trace, ≥ 0 |
 
 Each is drawn from a `Jitter`, a description of a random distribution:
 
@@ -245,7 +247,8 @@ Layers apply the jitter from their `LayerSpec` to every neuron they create,
 and `network::setRecoveryJitter` / `setLearningJitter` change it later (see
 [network](network.md#per-neuron-dynamics)).
 
-Measured effects (gapped-pattern benchmark, 50 paired trials):
+Measured effects (gapped-pattern benchmark, 50 paired trials, all with the
+original `Log` threshold growth):
 
 - **learning jitter** sometimes helps a learned hidden layer with E-R, but
   **not robustly**: the effect appeared and vanished with every change of
@@ -269,7 +272,8 @@ void exr::reseed(std::uint32_t seed);   // core/random.hpp
 
 Process-wide `mt19937` streams, one per purpose (`core/random.hpp`): a new
 group's initial weights, weights added by growth, weights for attached
-sensors, per-neuron jitter, and the seeds of new neurons' spontaneous-firing
+sensors, per-neuron jitter, learning (feedback-alignment matrices, the
+perturbation noise seed), and the seeds of new neurons' spontaneous-firing
 generators. Each draws U(−1, 1) weights row after row, so adding draws for
 one purpose never shifts another. Each neuron then draws spontaneous values
 from its **own** `minstd_rand`, so neurons can step in parallel without
@@ -306,15 +310,20 @@ Binary, native endianness, in this order:
 
 - `FullState`: restores everything, so the neuron continues exactly as the
   saved one would, including future spontaneous firings.
+- `WeightsOnly`: restores flags, alpha, recovery, learning gain and weights; resets threshold to
+  `baseline_threshold`, habituation state and output to 0, and keeps the
+  neuron's current (fresh) random generator.
+
 `deserialize` also takes the neuron data `format` (`NEURON_FORMAT_VERSION`,
 currently 3). Format 1, written by network files of versions 1–2, has no
 recovery or learning gain; they then keep their current values. Format 3
 has the same neuron record as format 2; it marks that layers of neurons
 append their [learning rule](learning.md#serialization) state.
 
-- `WeightsOnly`: restores flags, alpha, recovery, learning gain and weights; resets threshold to
-  `baseline_threshold`, habituation state and output to 0, and keeps the
-  neuron's current (fresh) random generator.
+The gate, rectification, habituation rule and threshold growth rule are
+layer-level settings and are not in the record: the layer sets them on its
+neurons, and a saved network restores them from each layer's `LayerSpec`
+(see [network](network.md#file-format)).
 
 Everything is read and checked before the neuron changes. A weight count
 above `max_serialized_weights` (2^26) or an impossible generator state throws
@@ -326,8 +335,8 @@ Constants in `neuron.hpp` (`inline constexpr`), shared by all neurons:
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `habituation_epsilon` | 1e-10 | max change in the sum still counted as "the same signal" |
-| `habituation_steps` | 100 | identical steps before the input is suppressed |
+| `habituation_epsilon` | 1e-10 | max change in the sum still counted as "the same signal" (the floor of the habituation tolerance) |
+| `habituation_steps` | 100 | default `Habituation::steps`: identical steps before the input is suppressed |
 | `recovery_factor` | 0.9 | default per-tick threshold decay while not firing (per-neuron value: recovery) |
 | `min_threshold` | 1e-10 | threshold at or below which spontaneous firing starts |
 | `spontaneous_min_amplitude` | 0.01 | amplitude of spontaneous firing |
@@ -336,7 +345,7 @@ Constants in `neuron.hpp` (`inline constexpr`), shared by all neurons:
 | `max_weight` | 10 | learning clamps each weight to ±this |
 | `max_output` | 10 | each weighted sum is clamped to ±this |
 | `default_learning_gain` | 2.0 | default per-neuron learning gain (multiplies every weight update) |
-| `default_alpha` | 1.2 | default E-R threshold growth rate on firing (`neuron` constructor) |
+| `default_alpha` | 1.2 | default E-R threshold growth rate of the `Log` rule (`neuron` constructor) |
 
 ## Notes and pitfalls
 

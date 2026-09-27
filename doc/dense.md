@@ -96,7 +96,11 @@ same layer sees the updated outputs of earlier groups.
 For each group: gather its current pool, take the sign of every input, ask
 every neuron whether it is eligible and for its step
 ([neuron](neuron.md#learning)), then update all rows of eligible neurons
-with the SIMD kernel. Rows of ineligible neurons stay exactly as they are.
+with the SIMD kernel. That is the default `Sign` rule; the other
+[learning rules](learning.md) use the group's input trace instead of the
+signs (kept during `forward()`), and `applyModulators` / `applyFeedback`
+(from [neuron_layer](layer.md#neuron_layer)) give each neuron its own
+modulator. Rows of ineligible neurons stay exactly as they are.
 Call it right after `forward()` so the inputs are the ones the neurons
 stepped on.
 

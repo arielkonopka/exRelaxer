@@ -51,6 +51,8 @@ Each layer owns **one contiguous output buffer** (`std::vector<float>`).
 
 | Method | Contract |
 |--------|----------|
+| `LayerType type() const` | the concrete class (pure virtual) |
+| `Shape shape() const` | the output's layout; `Shape::flat(size())` by default, spatial layers override it |
 | `size_t size() const` | number of outputs (neurons) |
 | `std::span<const float> output() const` | this tick's outputs; the span is invalidated when the layer grows |
 | `const std::vector<float>& outputBuffer() const` | the buffer object itself, which is what readers keep |
@@ -122,9 +124,13 @@ Derived classes decide how neurons are wired and own the weights.
 | `setOutput(i, value)` | drive an output by hand, e.g. a layer used as a fixed source; the next `forward()` overwrites wired neurons |
 | `setRecoveryJitter(j)`, `setLearningJitter(j)`, `setAlphaJitter(j)` | redraw that parameter for every existing neuron, in neuron order (disabled: reset to the default), and keep `j` for later growth |
 | `recoveryJitter()`, `learningJitter()`, `alphaJitter()` | the current settings |
+| `setGate(g)` / `gate()`, `setRectified(b)` / `rectified()` | neurons without E-R: a fixed firing threshold, and ReLU ([neuron](neuron.md#one-tick-activate)), for every neuron now and later; `std::invalid_argument` for a negative or non-finite gate, or a non-zero gate / rectification on a layer with E-R |
+| `setHabituationRule(h)` / `habituationRule()` | the [habituation](neuron.md#one-tick-activate) rule of every neuron, now and later; `std::invalid_argument` for an invalid rule |
+| `setThresholdGrowth(g)` / `thresholdGrowth()` | the [E-R threshold growth](neuron.md#excitationrelaxation-e-r) rule of every neuron, now and later; `std::invalid_argument` for an invalid rule |
 | `learningRule()`, `setLearningRule(rule)` | the layer's [learning rule](learning.md); setting it resets the rule's state, keeps the weights |
 | `bias(i)`, `setBias(i, value)` | a neuron's learned bias (rules with `bias`) |
 | `applyReward(r, rate)`, `applyModulators(m, rate)`, `applyFeedback(errors, rate)` | learning with one reward, one modulator per neuron, or feedback alignment's projection of an error vector |
+| `feedbackRow(i)` | a neuron's row of the fixed feedback-alignment matrix (empty before `applyFeedback`) |
 | `newNeuron()` (protected) | append a neuron and its output slot |
 | `beginForward()`, `fire(i, sum)`, `traceInputs(...)` (protected) | forward-pass hooks derived layers call: draw perturbation noise, add bias and noise and update traces around `neuron::activate` |
 | `updateWeights()` (protected, virtual) | apply the per-neuron steps (`step_delta_`, `step_keep_`, `step_active_`) to the layer's weights |
@@ -136,7 +142,8 @@ See [neuron: per-neuron dynamics](neuron.md#per-neuron-dynamics).
 `serialize` writes `hasHabituation`, `hasER`, the neuron count (`size_t`),
 then one [neuron record](neuron.md#serialization) per neuron, carrying that
 neuron's weights (obtained from the derived class through `copyWeights`),
-then (neuron format 3) the learning rule and its state
+then, for layer types with weights shared by many neurons (Conv2D kernels),
+their count (`uint64`) and values, then (neuron format 3) the learning rule and its state
 ([learning](learning.md#serialization)).
 
 `deserialize`:
