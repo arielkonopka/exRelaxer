@@ -25,7 +25,10 @@
 // activity on the test set (active hidden neurons per tick, spikes per
 // sample, unique neurons per sample, fraction used, never active); cost
 // proxies (dense and event-driven synaptic operations per sample, wall time
-// per inference); E-R threshold mean and quantiles; the E-R constants and
+// per inference); E-R threshold mean and quantiles; with state_probes, the
+// state test (state_variance, state_bias2, state_share: the part of the error
+// that comes from the history before a stimulus, state_output_range,
+// state_spike_sd); the E-R constants and
 // the l4 coefficients. No activity term is used anywhere in learning.
 #include <chrono>
 #include <fstream>
@@ -61,6 +64,9 @@ nnt::Register experiment({
         {"test", "1000", "test samples"},
         {"target_mse", "0.001", "success: test MSE at or below this; also the early-stopping target"},
         {"early_stop", "true", "stop training once the validation MSE reaches target_mse (false: use the whole budget)"},
+        {"state_probes", "0", "state test: stimuli, each presented after state_histories different random histories (0: off)"},
+        {"state_histories", "20", "state test: histories per stimulus"},
+        {"state_history_len", "10", "state test: random samples in each history"},
         {"trace", "", "trace mode: CSV of every hidden neuron's output and threshold per tick (optional)"},
         {"trace_samples", "5", "trace mode: test samples to trace"},
     },
@@ -164,6 +170,55 @@ nnt::Register experiment({
         t.record("dense_synops_per_sample", static_cast<double>(net.denseSynops() * hold));
         t.record("event_synops_per_sample", meter.eventSynops / samples);
         t.record("inference_us", elapsed.count() / samples);
+
+        // State test: the same stimulus after different histories. Per
+        // stimulus, the outputs' mean m and variance v over the histories;
+        // the error splits into bias^2 = (m - y)^2 and the state's share v.
+        const size_t probes = static_cast<size_t>(p.getInt("state_probes"));
+        if (probes > 0) {
+            const size_t histories = static_cast<size_t>(p.getInt("state_histories"));
+            const size_t historyLen = static_cast<size_t>(p.getInt("state_history_len"));
+            const Dataset stimuli(task, probes, dataSeed + 3);
+            std::mt19937 h(dataSeed + 4);
+            double variance = 0, bias2 = 0, spread = 0, spikeVar = 0;
+            for (size_t i = 0; i < probes; ++i) {
+                std::vector<double> ys, spikes;
+                for (size_t r = 0; r < histories; ++r) {
+                    for (size_t j = 0; j < historyLen; ++j) {
+                        for (float& v : x)
+                            v = u(h);
+                        net.present(x, hold);
+                    }
+                    Activity a;
+                    ys.push_back(net.present(stimuli.x[i], hold, &a));
+                    spikes.push_back(a.active);
+                }
+                double m = 0, ms = 0;
+                for (size_t r = 0; r < histories; ++r) {
+                    m += ys[r];
+                    ms += spikes[r];
+                }
+                m /= static_cast<double>(histories);
+                ms /= static_cast<double>(histories);
+                double v = 0, vs = 0, lo = ys[0], hi = ys[0];
+                for (size_t r = 0; r < histories; ++r) {
+                    v += (ys[r] - m) * (ys[r] - m);
+                    vs += (spikes[r] - ms) * (spikes[r] - ms);
+                    lo = std::min(lo, ys[r]);
+                    hi = std::max(hi, ys[r]);
+                }
+                variance += v / static_cast<double>(histories);
+                spikeVar += vs / static_cast<double>(histories);
+                bias2 += (m - stimuli.y[i]) * (m - stimuli.y[i]);
+                spread += hi - lo;
+            }
+            const double np = static_cast<double>(probes);
+            t.record("state_variance", variance / np);
+            t.record("state_bias2", bias2 / np);
+            t.record("state_share", variance + bias2 > 0 ? variance / (variance + bias2) : 0.0);
+            t.record("state_output_range", spread / np);
+            t.record("state_spike_sd", std::sqrt(spikeVar / np));
+        }
         if (!meter.thresholds.empty()) {
             double mean = 0.0;
             for (float v : meter.thresholds)

@@ -261,9 +261,10 @@ private:
 };
 
 // A neuron counts as active in a tick when its output is non-zero; E-R's
-// spontaneous firings (+-0.01 after a long silence) are counted separately.
+// spontaneous firings (uniform in +-0.01, after a long silence) are counted
+// separately: any active output that small (task sums are far larger).
 inline bool active(float y) { return std::abs(y) > firing_epsilon; }
-inline bool spontaneous(float y) { return std::abs(std::abs(y) - spontaneous_min_amplitude) < 1e-7f; }
+inline bool spontaneous(float y) { return active(y) && std::abs(y) <= spontaneous_min_amplitude; }
 
 // Activity over a window of ticks.
 struct Summary
