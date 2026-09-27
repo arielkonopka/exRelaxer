@@ -18,7 +18,9 @@
 // or after `train` samples. Then the test set is presented once.
 // success = test MSE <= target_mse.
 //
-// Metrics: test/validation MSE, normalized MSE (MSE / target variance),
+// Metrics: the learning curve (curve_<samples>: validation MSE after that
+// many training samples; best_validation_mse and where it was reached),
+// test/validation MSE, normalized MSE (MSE / target variance),
 // success, training samples used; depth, width, neurons, parameters;
 // activity on the test set (active hidden neurons per tick, spikes per
 // sample, unique neurons per sample, fraction used, never active); cost
@@ -58,6 +60,7 @@ nnt::Register experiment({
         {"validation", "500", "validation samples"},
         {"test", "1000", "test samples"},
         {"target_mse", "0.001", "success: test MSE at or below this; also the early-stopping target"},
+        {"early_stop", "true", "stop training once the validation MSE reaches target_mse (false: use the whole budget)"},
         {"trace", "", "trace mode: CSV of every hidden neuron's output and threshold per tick (optional)"},
         {"trace_samples", "5", "trace mode: test samples to trace"},
     },
@@ -101,7 +104,10 @@ nnt::Register experiment({
         double validationMse = mseOf(validation, nullptr, nullptr, 0);
         t.record("initial_validation_mse", validationMse);
         size_t trained = 0;
-        while (trained < train && !(validationMse <= target) && std::isfinite(validationMse)) {
+        const bool earlyStop = p.getBool("early_stop");
+        double bestValidation = validationMse;
+        size_t bestAt = 0;
+        while (trained < train && !(earlyStop && validationMse <= target) && std::isfinite(validationMse)) {
             const size_t block = std::min(evalEvery, train - trained);
             for (size_t i = 0; i < block; ++i) {
                 for (float& v : x)
@@ -111,7 +117,15 @@ nnt::Register experiment({
             }
             trained += block;
             validationMse = mseOf(validation, nullptr, nullptr, 0);
+            // The learning curve: validation MSE after every block.
+            t.record("curve_" + std::to_string(trained), std::isfinite(validationMse) ? validationMse : 1e30);
+            if (validationMse < bestValidation) {
+                bestValidation = validationMse;
+                bestAt = trained;
+            }
         }
+        t.record("best_validation_mse", std::isfinite(bestValidation) ? bestValidation : 1e30);
+        t.record("best_validation_at", static_cast<double>(bestAt));
 
         std::ofstream traceFile;
         const std::string tracePath = p.getString("trace");
