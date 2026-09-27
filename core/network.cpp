@@ -37,6 +37,11 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a learning rule");
         dynamic_cast<neuron_layer&>(*impl).setLearningRule(spec.learningRule);
     }
+    if (spec.gate != 0.0f) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a gate");
+        dynamic_cast<neuron_layer&>(*impl).setGate(spec.gate);
+    }
     this->nodes.push_back({name, spec, std::move(impl)});
     this->ops_.push_back({OpKind::AddLayer, this->nodes.size() - 1, 0, 0});
     this->orderValid = false;
@@ -427,6 +432,14 @@ std::string describeJitter(float defaultValue, const Jitter& jitter, std::string
 
 namespace {
 
+// A float as the shortest text that reads back as the same value ("0.2").
+std::string describeNumber(float value)
+{
+    std::ostringstream text;
+    text << value;
+    return text.str();
+}
+
 // "channels x height x width" for spatial layers, "-" for flat ones.
 std::string describeShape(const Shape& shape)
 {
@@ -466,7 +479,10 @@ void network::describe(std::ostream& os) const
         os << "    " << std::setw(4) << id << std::setw(name_col) << node.name
            << std::setw(9) << node.impl->size() << std::setw(14) << describeShape(node.impl->shape())
            << std::setw(6) << (node.impl->hasNeurons() && node.spec.hasHabituation ? "on" : "-")
-           << std::setw(6) << (node.impl->hasNeurons() && node.spec.hasER ? "on" : "-")
+           << std::setw(6) << (!node.impl->hasNeurons() ? std::string("-")
+                               : node.spec.hasER   ? std::string("on")
+                               : node.spec.gate > 0.0f ? "=" + describeNumber(node.spec.gate)
+                                                       : std::string("-"))
            << std::setw(8) << (!node.impl->learns() ? "-" : node.spec.frozen ? "frozen" : "yes");
         if (!node.impl->hasNeurons()) {
             os << "\n";  // no neurons: no per-neuron dynamics
@@ -538,10 +554,11 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //        (neuron format 3)
 //  10  + cochlea channels, resize and disparity parameters per layer; named
 //        input sources (name and shape per addInputs) and connectInputs
+//  11  + fixed firing threshold (gate) per layer
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 10;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 11;
 // Files from this version on carry the full state; older ones load as
-// weights only. (Versions 7, 8 and 10 only added parameters whose defaults
+// weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
 constexpr std::uint32_t FIRST_FULL_STATE_VERSION = 6;
 
@@ -774,6 +791,7 @@ void network::save(std::ostream& os) const
             writeAudio(os, node.spec);
             writeLearningRule(os, node.spec.learningRule);
             writeMultimodal(os, node.spec);
+            writeValue(os, node.spec.gate);
             break;
         }
         case OpKind::Connect:
@@ -892,6 +910,11 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 spec.learningRule = readLearningRule(is);
             if (version >= 10)
                 readMultimodal(is, spec);
+            if (version >= 11) {
+                spec.gate = readValue<float>(is);
+                if (!std::isfinite(spec.gate) || spec.gate < 0.0f)
+                    throw std::runtime_error("network::load: invalid gate");
+            }
             net->addLayer(name, spec);
             break;
         }

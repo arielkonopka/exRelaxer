@@ -253,7 +253,7 @@ the building methods' exceptions.
 Binary, native endianness (not portable across platforms). Counts and ids
 are `uint64`.
 
-1. Magic `EXRN`, format version `uint32` (currently **9**).
+1. Magic `EXRN`, format version `uint32` (currently **11**).
 2. Operation count, then each operation: kind (`uint8`) and fields:
    - AddLayer: name length + bytes, `LayerType` (`uint8`), size,
      hasHabituation, hasER, frozen (`uint8` each; frozen is the state at save
@@ -268,7 +268,8 @@ are `uint64`.
      learning rule: type and bias (`uint8`), decay, trace, baseline, noise,
      bcmRate (`float`), winners (`uint32`); then (version 10) cochlea
      channels, resize height and width, interpolation (`uint8`), min and
-     max disparity (`int32`), disparity window, measure (`uint8`)
+     max disparity (`int32`), disparity window, measure (`uint8`); then
+     (version 11) gate (`float`)
    - Connect: from, to
    - Feedback: from, to, width
    - Inputs: target, count; then (version 10) name length + name, shape
@@ -292,6 +293,7 @@ are `uint64`.
 | 8 | audio parameters per layer (cochlea) |
 | 9 | learning rule per layer; layers of neurons append the rule's state (neuron format 3) |
 | 10 | cochlea channels, resize and disparity parameters per layer; input source names and shapes; `connectInputs` |
+| 11 | fixed firing threshold (`gate`) per layer |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.

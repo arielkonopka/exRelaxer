@@ -153,6 +153,13 @@ public:
     bool hasHabituation() const { return has_habituation_; }
     bool hasER() const { return has_er_; }
     float threshold() const { return threshold_; }
+    // Without E-R: a fixed firing threshold. An effective sum with
+    // |sum| <= gate gives output 0, a larger one passes unchanged. 0 (the
+    // default) keeps the neuron linear. Ignored with E-R, whose threshold
+    // adapts. A layer-level setting (LayerSpec::gate): not serialized with
+    // the neuron.
+    float gate() const { return gate_; }
+    void setGate(float value) { gate_ = value; }
 
     // --- Serialization --------------------------------------------------
     // One record: flags, alpha, the weights (count + values, passed in since
@@ -180,6 +187,7 @@ private:
     float alpha_;
     float recovery_ = recovery_factor;
     float learning_gain_ = default_learning_gain;
+    float gate_ = 0.0f;
     std::minstd_rand rng_;        // per neuron, so neurons can step in parallel; seeded from rng::spontaneousSeed()
 };
 

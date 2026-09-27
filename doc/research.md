@@ -19,6 +19,7 @@ constants in force at the time, the constants are given.
 - [10. Performance parameters](#10-performance-parameters)
 - [11. Learning rules](#11-learning-rules)
 - [12. Several senses and stereo vision](#12-several-senses-and-stereo-vision)
+- [13. Activity economy and path selection](#13-activity-economy-and-path-selection)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -458,6 +459,102 @@ then frozen, with readouts taught by sight and tested by sound, reached
 128 inputs, and uncentred inputs make Oja's first component the mean
 rather than the object.
 
+## 13. Activity economy and path selection
+
+Does E-R make a network use less activity, prefer cheaper routes, or
+answer differently depending on its recent past, **with no activity
+penalty anywhere**? Four experiments ([activity](activity.md)) compare
+production E-R hidden neurons with linear neurons and with a fixed
+threshold (`gate`) calibrated to be exactly as sparse as E-R. Three paths
+of 12, 20 and 35 neurons connect 32 inputs to 4 linear readouts; 4 noisy
+prototypes, each held for 4 ticks. 10 trials each. Result files:
+`/mnt/project-files/reports/er-activity/` in the project.
+
+**Economy** (`nntest run er_economy`, Exp 1 and 6).
+
+| Learning | Model | Accuracy | Active fraction | Spikes per decision | Accuracy per 100 spikes |
+|----------|-------|----------|-----------------|---------------------|-------------------------|
+| paths FA + readouts | er | 0.995 | 0.50 | 133 | 0.75 |
+| | gate (matched) | 0.747 | 0.50 | 134 | 0.56 |
+| | linear | 0.987 | 1.00 | 268 | 0.37 |
+| readouts only | er | 0.941 | 0.49 | 133 | 0.71 |
+| | gate (matched) | 0.953 | 0.50 | 133 | 0.72 |
+| | linear | 0.980 | 1.00 | 268 | 0.37 |
+
+- E-R uses half the activity of the linear network, but so does a fixed
+  threshold of the same sparsity: the saving comes from **thresholding**,
+  not from adaptation.
+- Activity does **not** fall with training (E-R 0.484 → 0.496 active):
+  the sparsity is static, present from the first sample, not learned
+  economy.
+- E-R's active runs are shorter (5.2 vs 8.6 ticks for the gate): it
+  alternates neurons more.
+- With the paths learning (FA), E-R was the only sparse model that
+  learned well (0.995 vs 0.747); with frozen paths the matched gate is as
+  good as E-R. So E-R's adaptive threshold helps FA credit assignment
+  through a thresholded layer; it does not make inference cheaper than a
+  fixed threshold.
+
+**Path preference** (`nntest run er_paths`, Exp 2). Drive per neuron,
+relative to a path's size, is ≈ 1.0 for all three paths and all three
+models, early and late in training, with and without online learning. No
+model prefers the small path.
+
+**Switching over long runs** (Exp 7, 3000 samples). E-R changes the
+leading path while the input stays the same (0.08 per tick); the fixed
+threshold and linear models never do (0, or ≈ 0.001 when learning
+online). Under one input held for 400 ticks, E-R stays ≈ 82 % active,
+the leading path changes 0.04–0.22 times per tick and holds for
+110–250 ticks on average, and the answer stays right (≈ 1.0). E-R does not
+fall silent under a constant input: its threshold approaches the input
+and it keeps firing.
+
+**Fatigue and recovery** (`nntest run er_fatigue`, Exp 3 and 5). One path
+stimulated (amplitude 10, 20 ticks), then 40 test samples:
+
+| Recovery | Fatigued | Its share vs rest | Other paths' share | First-sample accuracy | Recovery ticks |
+|----------|----------|-------------------|--------------------|-----------------------|----------------|
+| 0.9 | A | 0.40 | 1.15 | 0.97 | 10 |
+| | B | 0.35 | 1.23 | 0.97 | 10 |
+| | C | 0.44 | 1.69 | 0.93 | 9 |
+| | all | 0.20 | – | 0.80 | 12 |
+| 0.97 | A | 0.13 | 1.23 | 1.00 | 25 |
+| | B | 0.05 | 1.37 | 0.97 | 30 |
+| | C | 0.21 | 1.86 | 0.97 | 24 |
+| | all | 0.06 | – | 0.93 | 34 |
+
+Fatiguing one path moves activity to the others and the answer survives;
+fatiguing all of them costs accuracy until thresholds relax. Recovery time
+follows the recovery factor (≈ 10 ticks at 0.9, ≈ 30 at 0.97); later
+samples are back at 0.995. The fixed threshold and linear models are
+unaffected (share 1.0). This is redundancy with state-dependent
+recruitment, on the time scale of threshold recovery, not a lasting
+reorganization.
+
+**History** (`nntest run er_history`, Exp 4). The same 20 inputs after
+each condition, from the same trained network; changes relative to rest
+(recovery 0.9 / 0.97):
+
+| Before | Pattern change | Evidence change | Decisions changed | Spikes vs rest | Latency (ticks) |
+|--------|----------------|-----------------|-------------------|----------------|-----------------|
+| busy | 0.28 / 0.27 | 0.28 / 0.28 | 0 / 0 | 0.77 / 0.54 | 1.06 / 1.00 |
+| A | 0.09 / 0.10 | 0.25 / 0.23 | 0.01 / 0.005 | 0.86 / 0.83 | 1.02 / 1.00 |
+| B | 0.16 / 0.17 | 0.35 / 0.31 | 0.03 / 0.03 | 0.76 / 0.71 | 1.07 / 1.01 |
+| C | 0.28 / 0.29 | 0.50 / 0.48 | 0.06 / 0.02 | 0.56 / 0.52 | 1.20 / 1.02 |
+| all | 0.53 / 0.56 | 0.64 / 0.80 | 0.11 / 0.20 | 0.17 / 0.06 | 1.55 / 1.27 |
+
+For the fixed threshold and linear models every change is exactly 0. E-R's
+response to an input depends on what it did just before: which neurons
+fire, how many and how strongly; ordinary activity (`busy`) changes the
+pattern and spike count but not the decisions, heavy stimulation of
+everything changes one decision in 5–10.
+
+**In short.** E-R networks are sparse without a penalty, but no sparser
+than a fixed threshold; they do not prefer cheaper paths; they do route
+activity around recently used neurons and respond differently depending
+on recent history, which fixed nonlinearities cannot. The fixed-threshold
+control (`LayerSpec::gate`, network format 11) was added for this.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -486,6 +583,13 @@ rather than the object.
    (0.98 vs 0.50); two senses beat either; and sight can teach readouts on
    sound without labels (0.66, chance 0.25). Graded inputs such as cochlea
    bands need a graded rule.
+10. **E-R's sparsity is thresholding; its state is history.** With no
+    activity penalty E-R halves activity, exactly as a fixed threshold of
+    the same sparsity does, and activity does not fall with training. No
+    path is preferred. What only E-R does: activity moves away from
+    recently fatigued paths (recovering in ≈ 10–30 ticks), the leading
+    path changes under a constant input, and the same input gets a
+    different response after a different history.
 
 ## Open questions and next steps
 
