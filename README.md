@@ -25,6 +25,7 @@ audio-visual objects.
 [neuron](doc/neuron.md), [layer](doc/layer.md), [dense](doc/dense.md),
 [learning](doc/learning.md), [kernels](doc/kernels.md), [spatial](doc/spatial.md), [audio](doc/audio.md),
 [multimodal and stereo](doc/multimodal.md),
+[activity economy](doc/activity.md),
 [layer_factory](doc/layer_factory.md),
 [network](doc/network.md), and the
 test-support [pattern_benchmark](doc/pattern_benchmark.md). It also has
@@ -379,6 +380,21 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files from older format versions load as weights only.
 
 ## Changelog
+
+### 2026-09-27: activity economy experiments
+
+- **Fixed firing threshold** for neurons without E-R: `LayerSpec::gate`,
+  `neuron::setGate`, `neuron_layer::setGate`. Output is 0 while
+  |sum| ≤ gate; the threshold never adapts. Network format 11 saves it;
+  `describe()` shows it in the E-R column. Python: `LayerSpec.gate`.
+- `nntest run er_economy`, `er_paths`, `er_fatigue`, `er_history`: does
+  E-R use less activity, prefer cheaper paths or respond to its history,
+  with no activity penalty? It is as sparse as a fixed threshold of the
+  same sparsity (half of a linear network) and prefers no path, but shifts
+  activity away from fatigued paths, changes paths under a constant input
+  and answers the same input differently after different histories. See
+  [doc/activity.md](doc/activity.md) and
+  [research log §13](doc/research.md#13-activity-economy-and-path-selection).
 
 ### 2026-09-27: several senses and stereo vision
 

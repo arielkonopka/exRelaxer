@@ -32,6 +32,7 @@ struct LayerSpec
     Jitter learningJitter = {};  // per-neuron learning gain (default: none, all default_learning_gain)
     Jitter alphaJitter = {};     // per-neuron E-R alpha (default: none, all default_alpha)
     LearningRule learningRule = {};  // how the layer learns (layers with weights; see learning.hpp)
+    float gate = 0.0f;           // neurons without E-R: fixed firing threshold (see neuron::gate); 0 = linear
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina

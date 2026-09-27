@@ -37,6 +37,12 @@ public:
     const Jitter& learningJitter() const { return learning_jitter_; }
     const Jitter& alphaJitter() const { return alpha_jitter_; }
 
+    // Neurons without E-R: a fixed firing threshold for every neuron, now and
+    // later (see neuron::gate). 0 = linear. Throws std::invalid_argument for
+    // a negative or non-finite value, or a non-zero gate on a layer with E-R.
+    void setGate(float gate);
+    float gate() const { return gate_; }
+
     // --- Learning -------------------------------------------------------
     // The rule this layer learns with (see learning.hpp). Setting it resets
     // the rule's per-neuron state (traces, baselines, bias, feedback
@@ -167,6 +173,7 @@ private:
 
     bool has_habituation_, has_er_;  // for every neuron this layer creates, including later growth
     Jitter recovery_jitter_, learning_jitter_, alpha_jitter_;  // likewise
+    float gate_ = 0.0f;                                          // likewise
 
     LearningRule rule_;
     bool plain_ = true;               // no bias, traces or noise: fire() just activates

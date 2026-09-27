@@ -1428,3 +1428,55 @@ TEST(AlphaJitterTest, ThreeNumberSequenceDetection)
     EXPECT_FALSE(diverged);
     EXPECT_GT(pattern_benchmark::meanOf(balanced[0]), pattern_benchmark::meanOf(control) + 0.1f);  // it learns
 }
+
+// =============================================================================
+// Fixed firing threshold (gate) for neurons without E-R
+// =============================================================================
+TEST(GateTest, FixedThresholdPassesOnlyStrongSums)
+{
+    neuron n(false, false);
+    n.setGate(0.2f);
+    EXPECT_EQ(n.activate(0.1f), 0.0f);
+    EXPECT_EQ(n.activate(-0.2f), 0.0f);
+    EXPECT_EQ(n.activate(0.5f), 0.5f);
+    EXPECT_EQ(n.activate(-0.7f), -0.7f);
+    EXPECT_EQ(n.threshold(), baseline_threshold);  // nothing adapts
+    EXPECT_TRUE(n.eligible());                     // it fired this tick
+    n.activate(0.1f);
+    EXPECT_FALSE(n.eligible());
+
+    neuron er(false, true);
+    er.setGate(5.0f);  // ignored with E-R
+    EXPECT_EQ(er.activate(1.0f), 1.0f);
+}
+
+TEST(GateTest, LayerSpecGateIsAppliedSavedAndChecked)
+{
+    network net;
+    LayerSpec spec = LayerSpec::Dense(3, false, false);
+    spec.gate = 0.5f;
+    const auto in = net.addLayer("in", LayerSpec::Dense(2, false, false));
+    const auto gated = net.addLayer("gated", spec);
+    net.addInputs(in, 2);
+    net.connect(in, gated);
+    net.addFeedback(in, gated, 2);  // neurons added later get the gate too
+    for (const neuron& n : net.layerAs<neuron_layer>(gated).neurons())
+        EXPECT_EQ(n.gate(), 0.5f);
+    std::ostringstream text;
+    net.describe(text);
+    EXPECT_NE(text.str().find("=0.5"), std::string::npos) << text.str();
+
+    std::stringstream data;
+    net.save(data);
+    auto loaded = network::load(data);
+    EXPECT_EQ(loaded->layerSpec(gated).gate, 0.5f);
+    for (const neuron& n : loaded->layerAs<neuron_layer>(gated).neurons())
+        EXPECT_EQ(n.gate(), 0.5f);
+
+    LayerSpec bad = LayerSpec::Dense(1, false, true);
+    bad.gate = 0.2f;
+    EXPECT_THROW(net.addLayer("er", bad), std::invalid_argument);
+    bad.hasER = false;
+    bad.gate = -1.0f;
+    EXPECT_THROW(net.addLayer("negative", bad), std::invalid_argument);
+}

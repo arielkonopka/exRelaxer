@@ -25,6 +25,7 @@ struct LayerSpec
     CochleaSpec cochlea = {};    // Cochlea
     ResizeSpec resize = {};      // Resize2D
     DisparitySpec disparity = {};  // Disparity
+    float gate = 0.0f;           // layers of neurons without E-R: fixed firing threshold (0: none)
 };
 ```
 

@@ -366,6 +366,8 @@ NB_MODULE(_core, m)
         .def_rw("learning_jitter", &LayerSpec::learningJitter)
         .def_rw("alpha_jitter", &LayerSpec::alphaJitter)
         .def_rw("learning_rule", &LayerSpec::learningRule)
+        .def_rw("gate", &LayerSpec::gate,
+                "Neurons without E-R: fixed firing threshold (|sum| <= gate gives 0); 0 = linear.")
         .def_rw("window", &LayerSpec::window)
         .def_rw("pool", &LayerSpec::pool)
         .def_rw("retina_spec", &LayerSpec::retina)

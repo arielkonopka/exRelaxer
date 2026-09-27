@@ -63,7 +63,14 @@ runs these stages in order:
      `[-spontaneous_min_amplitude, +spontaneous_min_amplitude]`, which raises
      the threshold again through the same rule as a real firing.
 
-Without E-R the output is simply the (clamped, possibly habituated) sum.
+4. **Gate** (only without E-R, if set). With `setGate(g)`, `g > 0`, the
+   output is 0 whenever `|sum| ≤ g`: the same all-or-nothing firing as E-R,
+   with a fixed threshold that never adapts. It is a control for
+   experiments that separate thresholding from adaptation
+   ([activity](activity.md)); layers set it through `LayerSpec::gate`.
+
+Without E-R (and without a gate) the output is simply the (clamped,
+possibly habituated) sum.
 
 For one neuron with caller-owned weights, `step(inputs, weights)` is
 `activate(dot(inputs, weights))`.

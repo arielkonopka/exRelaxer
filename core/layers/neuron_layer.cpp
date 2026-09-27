@@ -30,6 +30,7 @@ neuron& neuron_layer::newNeuron()
 {
     neuron& n = neurons_.emplace_back(has_habituation_, has_er_);
     n.randomizeDynamics(recovery_jitter_, learning_jitter_, alpha_jitter_);
+    n.setGate(gate_);
     output_.push_back(n.output());
     resizeLearningState();
     return n;
@@ -53,6 +54,17 @@ void neuron_layer::setLearningJitter(const Jitter& jitter)
     learning_jitter_ = jitter;
     for (neuron& n : neurons_)
         n.randomizeLearningGain(jitter);
+}
+
+void neuron_layer::setGate(float gate)
+{
+    if (!std::isfinite(gate) || gate < 0.0f)
+        throw std::invalid_argument("setGate: the gate must be a finite value >= 0");
+    if (gate > 0.0f && has_er_)
+        throw std::invalid_argument("setGate: a fixed threshold is for neurons without E-R");
+    gate_ = gate;
+    for (neuron& n : neurons_)
+        n.setGate(gate);
 }
 
 void neuron_layer::setAlphaJitter(const Jitter& jitter)
@@ -135,6 +147,8 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
     has_habituation_ = has_habituation;
     has_er_ = has_er;
     neurons_ = std::move(loaded);
+    for (neuron& n : neurons_)
+        n.setGate(has_er_ ? 0.0f : gate_);
     output_.resize(count);
     for (size_t i = 0; i < count; ++i)
         output_[i] = neurons_[i].output();
