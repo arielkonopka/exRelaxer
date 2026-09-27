@@ -30,6 +30,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [16. Temporal tasks and the threshold growth rule](#16-temporal-tasks-and-the-threshold-growth-rule)
 - [17. Training E-R, spontaneous cycles and early fading](#17-training-e-r-spontaneous-cycles-and-early-fading)
 - [18. Rerun with linear growth and three habituation variants](#18-rerun-with-linear-growth-and-three-habituation-variants)
+- [19. Normalised weighted sum](#19-normalised-weighted-sum)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -1047,6 +1048,46 @@ median 11.8).
 - Feedback-alignment training accuracy uses the label during the sample,
   so only test numbers are compared above.
 
+## 19. Normalised weighted sum
+
+The user asked for a renormalisation of weights and outputs and chose the
+normalised weighted sum: each hidden neuron's sum is divided by the length
+of its weight vector, `Σ x·w / |w|` (`LayerSpec::normalize`, off by
+default; the readouts keep their raw sum). Only the weights' direction
+matters, and the sum is at most the length of the inputs. The same grids as
+§18 (habituation off) were run with it. Results in
+[`results/normalize/`](../results/normalize/),
+tables in [`summary.md`](../results/normalize/summary.md).
+
+| Measure | raw sum | normalised |
+|------|------|------|
+| `er_economy` E-R accuracy | 1.0 | 0.87 |
+| `er_paths` E-R accuracy | 0.995 | 0.85 |
+| `er_fatigue` E-R accuracy, all paths fatigued | 1.0 | 0.33 |
+| `er_history` E-R accuracy after a different history | 0.85 | 0.30 |
+| `er_economy` gate / linear accuracy | 0.82 / 1.0 | 0.82 / 1.0 |
+| `nl_static` E-R best MSE, l1 / l2 / l4 k=1 | 0.034 / 0.030 / 0.149 | 0.052 / 0.046 / 0.143 |
+| `nl_static` ReLU best MSE, l1 | 6.6e-4 | 6.1e-4 |
+| `nl_temporal` E-R t1 / t2 accuracy | 1.0 (8 neurons) / 0.755 | 1.0 (8) / 0.797 |
+| `nl_static` runs diverging (test MSE > 1), E-R at lr 0.01 / 0.03 | 82 % / 99 % | 33 % / 57 % |
+| the same, gate at lr 0.01 / 0.03 | 55 % / 91 % | 27 % / 56 % |
+
+- **It stabilises learning.** At the larger learning rates, half as
+  many E-R, gate and clamp runs diverge. The runs that still diverge do so
+  through the readout, whose sum is not normalised.
+- **It does not improve the best results.** With the learning rate chosen
+  on validation, E-R's static error rises by about half on l1–l3 and is
+  unchanged on l4. ReLU is unchanged (it is scale-invariant), and so are the
+  gate and clamp. On temporal tasks E-R is unchanged, slightly better on t2
+  (0.80 vs 0.76).
+- **It hurts E-R in the activity experiments** (accuracy 1.0 → 0.85–0.87,
+  and 0.33 once all paths are fatigued), while the gate and the linear
+  network are unaffected. These networks have 40 inputs per neuron, so the
+  normalised sums are several times smaller than the raw ones. E-R's
+  thresholds (resting 0.2, floor 0.4 after firing) are absolute, so the
+  same firing now leaves a relatively higher threshold. This is inferred,
+  not tested; a gain on the normalised sum would test it.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -1114,6 +1155,11 @@ median 11.8).
     repeat cuts E-R's active neurons by a third at unchanged accuracy on
     feed-forward tasks, and brings a fixed threshold within 0.04 of E-R. It
     hurts E-R on static regression and weakens E-R's history effect.
+15. **A normalised weighted sum stabilises learning but does not help E-R**
+    (§19). It halves divergence at large learning rates for every model
+    with a bounded transfer, but E-R's absolute thresholds do not fit the
+    smaller normalised sums: it loses accuracy where neurons have many
+    inputs.
 
 ## Open questions and next steps
 
@@ -1129,6 +1175,9 @@ median 11.8).
 - **Why fading helps the fixed threshold** (§18: 0.82 → 0.96 on
   `er_economy`, 3× lower error on l4): isolate it, for example by
   measuring learning eligibility per tick with and without fading.
+- **Normalised sum with a gain**: `g · Σ x·w / |w|`, with g about
+  √(inputs) or learned per neuron, to keep E-R's thresholds in range (§19);
+  normalising the readouts too, to remove the remaining divergence.
 - **Habituation versus E-R as memory**: compare them on change-detection
   and lag tasks at equal activity, and combine them on t2 and parity.
 - **Deserialization of older files** (next version): read everything a file
