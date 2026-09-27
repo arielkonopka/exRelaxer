@@ -56,6 +56,11 @@ public:
     // neuron, now and later. Throws std::invalid_argument for an invalid rule.
     void setThresholdGrowth(const ThresholdGrowth& growth);
     const ThresholdGrowth& thresholdGrowth() const { return growth_; }
+    // When and how strongly E-R neurons fire spontaneously (see Spontaneous)
+    // for every neuron, now and later. Throws std::invalid_argument for an
+    // invalid setting.
+    void setSpontaneous(const Spontaneous& spontaneous);
+    const Spontaneous& spontaneous() const { return spontaneous_; }
 
     // --- Learning -------------------------------------------------------
     // The rule this layer learns with (see learning.hpp). Setting it resets
@@ -191,6 +196,7 @@ private:
     bool rectified_ = false;                                     // likewise
     Habituation habituation_rule_;                               // likewise
     ThresholdGrowth growth_;                                     // likewise
+    Spontaneous spontaneous_;                                    // likewise
 
     LearningRule rule_;
     bool plain_ = true;               // no bias, traces or noise: fire() just activates

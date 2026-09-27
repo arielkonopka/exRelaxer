@@ -73,6 +73,11 @@ nnt::Register experiment({
         {"gate", "0.2", "gate model: the fixed threshold (default: E-R's resting threshold)"},
         {"growth", "linear", "E-R threshold growth on firing: linear (default), log (original), fixed, multiplicative"},
         {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
+        {"spontaneous_below", "1e-10", "E-R: a silent neuron fires spontaneously once its threshold is at or below this"},
+        {"spontaneous_amplitude", "0.01", "E-R: spontaneous output drawn uniformly in +- this"},
+        {"spontaneous_rate", "0", "E-R: extra probability of a spontaneous firing on any silent tick"},
+        {"pretrain_model", "", "train first with these hidden neurons (relu, gate, clamp, er), then copy the weights into `model` (empty: no pretraining)"},
+        {"pretrain", "0", "samples (steps) of pretraining with pretrain_model"},
         {"learn_ticks", "last", "training: learn from the last tick's error (last) or from every tick at lr/ticks (all)"},
         {"depth", "1", "hidden layers"},
         {"width", "16", "neurons per hidden layer"},
@@ -103,8 +108,10 @@ nnt::Register experiment({
         const size_t warmup = std::max(static_cast<size_t>(p.getInt("warmup")), task.lag() + task.window);
         const double targetAccuracy = p.getDouble("target_accuracy"), targetMse = p.getDouble("target_mse");
 
+        const Spontaneous spontaneousSetting = er_options::spontaneous(
+            p.getDouble("spontaneous_below"), p.getDouble("spontaneous_amplitude"), p.getDouble("spontaneous_rate"));
         Mlp net(model, task.inputs(), depth, width, static_cast<float>(p.getDouble("gate")),
-                er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")));
+                er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting);
         const std::string learnTicks = p.getString("learn_ticks");
         if (learnTicks != "last" && learnTicks != "all")
             throw std::invalid_argument("learn_ticks must be last or all");
@@ -120,7 +127,9 @@ nnt::Register experiment({
                 h.pop_front();
         };
 
-        // Runs `steps` scored steps of a stream (after `skip` unscored ones).
+        // Runs `steps` scored steps of a stream (after `skip` unscored ones)
+        // on `cur`: `net`, or while pretraining the pretraining network.
+        Mlp* cur = &net;
         std::vector<float> x, hv;
         auto run = [&](std::mt19937& g, size_t skip, size_t steps, bool learn, Activity* meter, std::ostream* trace,
                        size_t traced) {
@@ -140,11 +149,11 @@ nnt::Register experiment({
                 const float target = known ? task.target(hv) : 0.0f;
                 float y;
                 if (learn && known && learnTicks == "all") {
-                    y = net.presentLearningEveryTick(x, hold, target, lr);
+                    y = cur->presentLearningEveryTick(x, hold, target, lr);
                 } else {
-                    y = net.present(x, hold, scored ? meter : nullptr, tr, prefix);
+                    y = cur->present(x, hold, scored ? meter : nullptr, tr, prefix);
                     if (learn && known)
-                        net.learn(target, y, lr);
+                        cur->learn(target, y, lr);
                 }
                 if (!known)
                     continue;
@@ -179,9 +188,24 @@ nnt::Register experiment({
             std::mt19937 g(dataSeed + 1);
             return run(g, warmup, validationSteps, false, nullptr, nullptr, 0);
         };
+        std::mt19937 trainStream(dataSeed);
+        // Optional pretraining with other hidden neurons, on the start of the
+        // same training stream; then `net` takes over the weights and biases.
+        const std::string pretrainModel = p.getString("pretrain_model");
+        const size_t pretrain = pretrainModel.empty() ? 0 : static_cast<size_t>(p.getInt("pretrain"));
+        if (pretrain > 0) {
+            Mlp pre(pretrainModel, task.inputs(), depth, width, static_cast<float>(p.getDouble("gate")),
+                    er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting);
+            cur = &pre;
+            run(trainStream, 0, pretrain, true, nullptr, nullptr, 0);
+            t.record("pretrain_validation", metricOf(validate()));
+            net.copyFrom(pre);
+            cur = &net;
+            t.record("switch_validation", metricOf(validate()));
+        }
+        t.record("pretrain_steps", static_cast<double>(pretrain));
         Score validation = validate();
         t.record("initial_validation", metricOf(validation));
-        std::mt19937 trainStream(dataSeed);
         size_t trained = 0;
         const bool earlyStop = p.getBool("early_stop");
         double best = metricOf(validation);

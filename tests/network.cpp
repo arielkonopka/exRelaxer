@@ -1538,7 +1538,7 @@ TEST(HabituationTest, DefaultRuleCutsAfterExactRepeats)
 TEST(HabituationTest, FasterFadingAndTolerantRules)
 {
     neuron n(true, false);
-    n.setHabituation({3, 0.0f, 0.5f});
+    n.setHabituation({100, 0.0f, 0.5f, 3});  // fade mode: fading starts at the 3rd repeat, `steps` unused
     // Streak: tick 1 differs from the initial 0; ticks 2..4 repeat it.
     EXPECT_EQ(n.activate(1.0f), 1.0f);
     EXPECT_EQ(n.activate(1.0f), 1.0f);
@@ -1546,6 +1546,12 @@ TEST(HabituationTest, FasterFadingAndTolerantRules)
     EXPECT_FLOAT_EQ(n.activate(1.0f), 0.5f);   // habituated: fades
     EXPECT_FLOAT_EQ(n.activate(1.0f), 0.25f);
     EXPECT_EQ(n.activate(2.0f), 2.0f);         // a change restores it
+
+    neuron quick(true, false);
+    quick.setHabituation({100, 0.0f, 0.5f});   // fadeAfter defaults to 2
+    EXPECT_EQ(quick.activate(1.0f), 1.0f);
+    EXPECT_EQ(quick.activate(1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(quick.activate(1.0f), 0.5f);  // the 2nd repeat already fades
 
     neuron flicker(true, false);
     flicker.setHabituation({3, 0.01f, 0.0f});  // 1 % counts as the same signal
@@ -1575,6 +1581,62 @@ TEST(HabituationTest, FasterFadingAndTolerantRules)
 
     LayerSpec bad = LayerSpec::Dense(1, true, false);
     bad.habituationRule.decay = 1.5f;
+    EXPECT_THROW(net.addLayer("bad", bad), std::invalid_argument);
+}
+
+TEST(SpontaneousTest, TriggerLevelRateAndAmplitude)
+{
+    // Default: silent for about 200 ticks (0.2 * 0.9^t reaches 1e-10), then
+    // a small spontaneous firing.
+    auto firstFiring = [](Spontaneous s, float* amplitude = nullptr) {
+        neuron n(false, true);
+        n.setSpontaneous(s);
+        for (int t = 1; t < 10000; ++t) {
+            const float y = n.activate(0.0f);
+            if (y != 0.0f) {
+                if (amplitude)
+                    *amplitude = std::abs(y);
+                return t;
+            }
+        }
+        return -1;
+    };
+    float a = 0.0f;
+    const int original = firstFiring({}, &a);
+    EXPECT_GT(original, 150);
+    EXPECT_LE(a, spontaneous_min_amplitude);
+    const int early = firstFiring({1e-3f, 1.0f, 0.0f}, &a);  // fires once the threshold reaches 1e-3
+    EXPECT_LT(early, original);
+    EXPECT_GT(early, 40);
+    EXPECT_LE(a, 1.0f);
+    EXPECT_LT(firstFiring({min_threshold, 0.5f, 0.2f}), 60);  // 20 % per silent tick
+
+    // A weak spontaneous firing never lowers a high threshold.
+    neuron high(false, true);
+    high.setSpontaneous({min_threshold, 0.01f, 1.0f});
+    high.activate(8.0f);
+    const float before = high.threshold();
+    high.activate(0.0f);
+    EXPECT_GE(high.threshold(), before * recovery_factor);
+
+    network net;
+    LayerSpec spec = LayerSpec::Dense(2, true, true);
+    spec.spontaneous = {0.01f, 0.5f, 0.05f};
+    spec.habituationRule = {100, 0.0f, 0.9f, 4};
+    const auto id = net.addLayer("h", spec);
+    net.addInputs(id, 1);
+    std::stringstream data;
+    net.save(data);
+    auto loaded = network::load(data);
+    EXPECT_EQ(loaded->layerSpec(id).spontaneous, spec.spontaneous);
+    EXPECT_EQ(loaded->layerSpec(id).habituationRule, spec.habituationRule);
+    for (const neuron& m : loaded->layerAs<neuron_layer>(id).neurons()) {
+        EXPECT_EQ(m.spontaneous(), spec.spontaneous);
+        EXPECT_EQ(m.habituation(), spec.habituationRule);
+    }
+
+    LayerSpec bad = LayerSpec::Dense(1, false, true);
+    bad.spontaneous.rate = 2.0f;
     EXPECT_THROW(net.addLayer("bad", bad), std::invalid_argument);
 }
 
@@ -1611,7 +1673,9 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
         EXPECT_EQ(m.thresholdGrowth(), spec.thresholdGrowth);
 
     // A format-13 file (no growth rule saved) loads with the log rule, the
-    // only one it knew: drop this layer's rule bytes and mark it version 13.
+    // only one it knew: drop this layer's rule bytes and the format-15 fields
+    // after them (fadeAfter, spontaneous below / amplitude / rate), and mark
+    // it version 13.
     network plain;
     const auto p = plain.addLayer("h", LayerSpec::Dense(2, false, true));
     plain.addInputs(p, 1);
@@ -1624,7 +1688,7 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
     const size_t at = bytes.find(ruleBytes);
     ASSERT_NE(at, std::string::npos);
     ASSERT_EQ(bytes.find(ruleBytes, at + 1), std::string::npos);
-    bytes.erase(at, ruleBytes.size());
+    bytes.erase(at, ruleBytes.size() + sizeof(std::uint32_t) + 3 * sizeof(float));
     const std::uint32_t v13 = 13;
     bytes.replace(4, sizeof v13, reinterpret_cast<const char*>(&v13), sizeof v13);
     std::stringstream old(bytes);

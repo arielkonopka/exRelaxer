@@ -34,6 +34,7 @@ struct LayerSpec
     LearningRule learningRule = {};  // how the layer learns (layers with weights; see learning.hpp)
     float gate = 0.0f;           // neurons without E-R: fixed firing threshold (see neuron::gate); 0 = linear
     ThresholdGrowth thresholdGrowth = {};  // how E-R thresholds grow on firing (default: linear, amount 0.5)
+    Spontaneous spontaneous = {};  // when and how strongly E-R neurons fire on their own (default: the original)
     Habituation habituationRule = {};  // how habituation suppresses repeated inputs (default: cut after 100 exact repeats)
     bool rectify = false;        // neurons without E-R: ReLU, only sums above the gate pass (see neuron::rectified)
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D

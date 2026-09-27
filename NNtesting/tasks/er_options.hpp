@@ -28,4 +28,12 @@ inline exr::ThresholdGrowth thresholdGrowth(const std::string& rule, double amou
     return g;
 }
 
+inline exr::Spontaneous spontaneous(double below, double amplitude, double rate)
+{
+    const exr::Spontaneous s{static_cast<float>(below), static_cast<float>(amplitude), static_cast<float>(rate)};
+    if (!s.valid())
+        throw std::invalid_argument("spontaneous_below and _amplitude in [0, max_output], spontaneous_rate in [0, 1]");
+    return s;
+}
+
 } // namespace er_options

@@ -89,6 +89,10 @@ inline std::vector<nnt::ParamSpec> commonParams(std::vector<nnt::ParamSpec> extr
         {"habituation_steps", "100", "habituation: ticks of the same input before it is suppressed"},
         {"habituation_tolerance", "0", "habituation: relative change still counted as the same input (0: exact)"},
         {"habituation_decay", "0", "habituation: suppressed input scaled by decay per tick (0: cut at once)"},
+        {"spontaneous_below", "1e-10", "E-R: a silent neuron fires spontaneously once its threshold is at or below this"},
+        {"spontaneous_amplitude", "0.01", "E-R: spontaneous output drawn uniformly in +- this"},
+        {"spontaneous_rate", "0", "E-R: extra probability of a spontaneous firing on any silent tick"},
+        {"habituation_fade_after", "2", "habituation with a decay: repeats before fading starts"},
         {"growth", "linear", "E-R threshold growth on firing: linear (default), log (original), fixed, multiplicative"},
         {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
         {"learning", "fa", "fa: paths and readouts learn from the task errors (feedback alignment, delta rule); "
@@ -138,11 +142,16 @@ public:
             LayerSpec spec = LayerSpec::Dense(sizes[i], habituation, model == "er");
             spec.habituationRule = {static_cast<std::uint32_t>(p.getInt("habituation_steps")),
                                     static_cast<float>(p.getDouble("habituation_tolerance")),
-                                    static_cast<float>(p.getDouble("habituation_decay"))};
+                                    static_cast<float>(p.getDouble("habituation_decay")),
+                                    static_cast<std::uint32_t>(p.getInt("habituation_fade_after"))};
             if (model == "gate")
                 spec.gate = gate >= 0.0f ? gate : static_cast<float>(p.getDouble("gate"));
-            if (model == "er")
+            if (model == "er") {
                 spec.thresholdGrowth = er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount"));
+                spec.spontaneous = er_options::spontaneous(p.getDouble("spontaneous_below"),
+                                                           p.getDouble("spontaneous_amplitude"),
+                                                           p.getDouble("spontaneous_rate"));
+            }
             const float recovery = static_cast<float>(p.getDouble("recovery"));
             if (model == "er" && recovery != recovery_factor)  // a spread too small to matter: every neuron gets it
                 spec.recoveryJitter = Jitter::uniform(1e-7f).around(recovery);

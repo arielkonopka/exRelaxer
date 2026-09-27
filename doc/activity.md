@@ -80,7 +80,10 @@ The habituation rule is set with `habituation_steps` (identical ticks
 before it acts, default 100), `habituation_tolerance` (relative difference
 still counted as identical, default 0: exact repeats only) and
 `habituation_decay` (0 cuts the input; a value in (0, 1) fades it by that
-factor per further identical tick). See `Habituation` in `core/neuron.hpp`, and
+factor per further identical tick, starting after `habituation_fade_after`
+repeats, default 2). Spontaneous E-R firing is set with
+`spontaneous_below` (1e-10), `spontaneous_amplitude` (0.01) and
+`spontaneous_rate` (0), the fields of `Spontaneous`. See `Habituation` in `core/neuron.hpp`, and
 [neuron](neuron.md#excitationrelaxation-e-r) for the threshold growth rule:
 `growth` (`linear`, the default, `log`, `fixed` or `multiplicative`) and
 `growth_amount` (0.5; not used by `log`).

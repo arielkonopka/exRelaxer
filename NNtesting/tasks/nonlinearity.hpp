@@ -226,7 +226,7 @@ class Mlp
 {
 public:
     Mlp(const std::string& model, size_t inputs, size_t depth, size_t width, float gate,
-        const ThresholdGrowth& growth = {})
+        const ThresholdGrowth& growth = {}, const Spontaneous& spontaneous = {})
         : model_(model == "linear" ? "clamp" : model == "er_memoryless" ? "er" : model),
           memoryless_(model == "er_memoryless"), inputs_(inputs), depth_(depth), width_(width)
     {
@@ -240,8 +240,10 @@ public:
             spec.rectify = model_ == "relu";
             if (model_ == "gate")
                 spec.gate = gate;
-            if (model_ == "er")
+            if (model_ == "er") {
                 spec.thresholdGrowth = growth;
+                spec.spontaneous = spontaneous;
+            }
             spec.learningRule = rule;
             hidden_.push_back(net_.addLayer("h" + std::to_string(l + 1), spec));
         }
@@ -280,6 +282,24 @@ public:
     network& net() { return net_; }
     const neuron_layer& hidden(size_t l) const { return net_.layerAs<neuron_layer>(hidden_[l]); }
     bool memoryless() const { return memoryless_; }
+    const std::string& model() const { return model_; }
+
+    // Takes over another network's weights and biases (same depth, width
+    // and inputs): training one kind of neuron, then running another.
+    void copyFrom(const Mlp& other)
+    {
+        if (other.depth_ != depth_ || other.width_ != width_ || other.inputs_ != inputs_)
+            throw std::invalid_argument("copyFrom: different architecture");
+        for (size_t l = 0; l <= depth_; ++l) {
+            const auto id = l < depth_ ? hidden_[l] : out_;
+            const auto& from = other.net_.layerAs<dense>(l < depth_ ? other.hidden_[l] : other.out_);
+            auto& to = net_.layerAs<dense>(id);
+            for (size_t i = 0; i < to.size(); ++i) {
+                to.setWeights(i, from.weights(i));
+                to.setBias(i, from.bias(i));
+            }
+        }
+    }
 
     // Puts every hidden neuron back at rest (resting threshold, zero output,
     // no habituation streak) without touching weights or per-neuron

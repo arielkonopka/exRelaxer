@@ -34,6 +34,7 @@ neuron& neuron_layer::newNeuron()
     n.setRectified(rectified_);
     n.setHabituation(habituation_rule_);
     n.setThresholdGrowth(growth_);
+    n.setSpontaneous(spontaneous_);
     output_.push_back(n.output());
     resizeLearningState();
     return n;
@@ -86,6 +87,15 @@ void neuron_layer::setThresholdGrowth(const ThresholdGrowth& growth)
     growth_ = growth;
     for (neuron& n : neurons_)
         n.setThresholdGrowth(growth);
+}
+
+void neuron_layer::setSpontaneous(const Spontaneous& spontaneous)
+{
+    if (!spontaneous.valid() || !std::isfinite(spontaneous.below) || !std::isfinite(spontaneous.amplitude))
+        throw std::invalid_argument("setSpontaneous: below and amplitude in [0, max_output], rate in [0, 1]");
+    spontaneous_ = spontaneous;
+    for (neuron& n : neurons_)
+        n.setSpontaneous(spontaneous);
 }
 
 void neuron_layer::setRectified(bool rectified)
@@ -182,6 +192,7 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
         n.setRectified(!has_er_ && rectified_);
         n.setHabituation(habituation_rule_);
         n.setThresholdGrowth(growth_);
+        n.setSpontaneous(spontaneous_);
     }
     output_.resize(count);
     for (size_t i = 0; i < count; ++i)
