@@ -89,7 +89,7 @@ inline std::vector<nnt::ParamSpec> commonParams(std::vector<nnt::ParamSpec> extr
         {"habituation_steps", "100", "habituation: ticks of the same input before it is suppressed"},
         {"habituation_tolerance", "0", "habituation: relative change still counted as the same input (0: exact)"},
         {"habituation_decay", "0", "habituation: suppressed input scaled by decay per tick (0: cut at once)"},
-        {"growth", "log", "E-R threshold growth on firing: log (original), linear, fixed, multiplicative"},
+        {"growth", "linear", "E-R threshold growth on firing: linear (default), log (original), fixed, multiplicative"},
         {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
         {"learning", "fa", "fa: paths and readouts learn from the task errors (feedback alignment, delta rule); "
                            "readout: paths frozen, readouts learn (sign rule, error-driven)"},

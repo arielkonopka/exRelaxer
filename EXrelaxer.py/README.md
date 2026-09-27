@@ -103,21 +103,24 @@ describe the behaviour.
 | Python | C++ |
 |---|---|
 | `reseed(seed)` | `exr::reseed` |
-| `Network()`, `add_layer`, `connect`, `add_feedback`, `add_inputs(target, count or Shape)`, `add_output` | `network` building |
-| `freeze`, `unfreeze`, `is_frozen`, `set_recovery_jitter`, `set_learning_jitter`, `set_alpha_jitter`, `set_update_order`, `use_default_update_order` | the same |
-| `set_input`, `set_inputs(array or list)`, `step()`, `apply_reward(reward, lr)`, `outputs()` | running |
+| `Network()`, `add_layer`, `connect`, `add_feedback`, `add_inputs(target, count or Shape, name="")`, `connect_inputs(name, target)`, `add_output` | `network` building |
+| `freeze`, `unfreeze`, `is_frozen`, `set_recovery_jitter`, `set_learning_jitter`, `set_alpha_jitter`, `set_learning_rule`, `set_update_order`, `use_default_update_order` | the same |
+| `set_input`, `set_inputs(array or list)`, `set_inputs(name, values)`, `step()`, `apply_reward(reward, lr)`, `outputs()` | running |
 | `run(inputs[T×N], rewards=None, learning_rate=0)` → `T×M` | a `step` loop in C++ |
 | `apply_reward_to(layer, reward, lr)` | one layer learns (unless frozen): a reward per readout |
+| `apply_modulators_to(layer, modulators, lr)`, `apply_error(errors, lr)`, `bias(id)`, `set_bias` | a reward per neuron; an error per output; learned biases |
 | `layer_output(id)` (C×H×W), `layer_shape`, `layer_size`, `layer_type`, `layer_spec`, `layer_name`, `find_layer`, `neuron_state(id)` (threshold, recovery, learning gain, alpha per neuron) | inspection |
 | `weights(id, neuron)`, `set_weights` (Dense); `kernel(id, channel)`, `set_kernel`, `load_filters(id, bank)` (Conv2D); `retina_points(id)`; `cochlea_bands(id)`, `cochlea_power(id)`; `set_output(id, i, v)` | layer access |
-| `edges`, `output_layers`, `update_order`, `inputs`, `input_count`, `layer_count`, `describe()` | the same |
+| `edges`, `output_layers`, `update_order`, `inputs`, `input_values(name)`, `input_sources`, `input_count`, `layer_count`, `describe()` | the same |
 | `save(path)`, `Network.load(path, mode)`, `to_bytes()`, `Network.from_bytes(data, mode)` | `save`, `load` |
-| `LayerSpec.dense / conv2d / locally_connected2d / pool2d / retina / cochlea / history(..., frozen=, recovery_jitter=, learning_jitter=, alpha_jitter=)` | `LayerSpec` builders |
-| `Shape`, `Window2D`, `RetinaSpec`, `CochleaSpec` (`FrequencyScale`, `Compression`), `Jitter` (`uniform`, `normal`, `*_relative`, `.around`, `.within`) | the same |
+| `LayerSpec.dense / conv2d / locally_connected2d / pool2d / retina / cochlea / history / resize2d / disparity(..., frozen=, recovery_jitter=, learning_jitter=, alpha_jitter=, learning_rule=)` | `LayerSpec` builders |
+| `LayerSpec` fields: `has_er`, `has_habituation`, `frozen`, `learning_rule`, `rectify`, `gate`, `habituation_rule`, `threshold_growth`, ... | the same |
+| `Shape`, `Window2D`, `RetinaSpec` (`Sampling`), `CochleaSpec` (`FrequencyScale`, `Compression`), `ResizeSpec` (`Interpolation`), `DisparitySpec` (`DisparityMeasure`), `PoolMode`, `Jitter` (`uniform`, `normal`, `*_relative`, `.around`, `.within`) | the same |
+| `LearningRule` (`sign`, `traced`, `feedback_alignment`, `perturbation`, `oja`, `bcm`, `.with_bias`, `.with_decay`), `Habituation(steps, tolerance, decay)`, `ThresholdGrowth(rule, amount)` (`ThresholdGrowth.Rule.LINEAR`, `LOG`, `FIXED`, `MULTIPLICATIVE`) | the same |
 | `filters.gaussian`, `difference_of_gaussians`, `gabor`, `gabor_bank`, `centre_surround_bank` | `exr::filters` |
 | `constants.max_weight`, `baseline_threshold`, ... | `core/neuron.hpp` |
 | `threads()`, `set_threads(n)`, `build_info()` | OpenMP threads; compiler, build type, native, openmp |
-| `datasets.load / available / fetch`, `harness.experiment`, `harness.main` | Python only (above) |
+| `datasets.load / available / fetch`, `harness.experiment`, `harness.main`, `audio` (`tone`, `chirp`, `read_wav`, ...) | Python only (above) |
 
 C++ exceptions become Python ones: `std::invalid_argument` becomes
 `ValueError`, `std::out_of_range` becomes `IndexError`, and the rest become
@@ -133,6 +136,9 @@ must not be used from two threads at once.
 - the experiment runner: folder and file discovery, typed parameters, grids,
   seeding, checks, exit codes, and JSON Lines that `compare.py` reads;
 - `datasets.load`;
+- learning rules per layer, `apply_error` and biases, and multimodal inputs
+  (named input sources, several microphones, `Resize2D`, `Disparity`);
+- the Python snake game against the C++ game's reference values;
 - the audio layers against numpy's FFT, spectrogram save/load, and
   `exrelaxer.audio` (framing, WAV reading at 8 to 32 bits);
 - the bar-orientation task learned from Python, at 0.97 to 1.0 accuracy

@@ -108,7 +108,7 @@ public:
 
     // Per-neuron dynamics of a layer made of neurons (see Jitter in
     // neuron.hpp; other layer types throw std::invalid_argument): E-R recovery,
-    // learning gain and E-R alpha, each independently optional. Normally
+    // learning gain and E-R alpha (log growth rule only), each independently optional. Normally
     // chosen at layer creation through LayerSpec; these setters change it
     // later: they redraw that parameter for every existing neuron of the
     // layer (a disabled jitter resets it to the default) and use the jitter
@@ -188,8 +188,9 @@ public:
     // self-connections) and no custom order is set.
     const std::vector<LayerId>& updateOrder() const;
 
-    // Human-readable summary for logs and test output: every layer (current
-    // neuron count, habituation / E-R, frozen), where the inputs attach, the
+    // Human-readable summary for logs and test output: every layer (outputs,
+    // shape, habituation, E-R or gate / relu, learning, jitter, learning
+    // rule; not the habituation or growth rule), where the inputs attach, the
     // edges in creation order, the output layers and the update order.
     void describe(std::ostream& os) const;
 

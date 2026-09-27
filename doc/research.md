@@ -5,6 +5,11 @@ which settings it was measured, and what it showed. Numbers come from the
 test suite and from screening programs; where a result depends on the E-R
 constants in force at the time, the constants are given.
 
+**Threshold growth rule.** Every section here (§1–§16) was run with the
+original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
+2026-09-27 the default is linear, thr + 0.5 × (|v| − thr) (§16,
+`ThresholdGrowth`); results that depend on E-R may differ under it.
+
 - [How results were measured](#how-results-were-measured)
 - [Current state](#current-state)
 - [1. Making E-R networks learn at all](#1-making-e-r-networks-learn-at-all)
@@ -29,7 +34,7 @@ constants in force at the time, the constants are given.
 ## How results were measured
 
 **Many seeded trials, not single runs.** Each result is averaged over 20–200
-independent networks (`neuron::reseed(seed)` per trial). Early single runs
+independent networks (`neuron::reseed(seed)` per trial, now `exr::reseed`). Early single runs
 turned out to depend on which tests ran before them in the same process, and
 E-R dynamics make single runs noisy.
 
@@ -63,10 +68,10 @@ sequence detector has to beat.
 |----------|-------|-------|
 | `recovery_factor` | 0.9 | per-tick threshold decay while silent |
 | `baseline_threshold` | 0.2 | resting threshold, eligibility boundary |
-| `default_alpha` | 1.2 | threshold growth on firing |
+| `default_alpha` | 1.2 | threshold growth on firing (log rule only) |
 | `default_learning_gain` | 2.0 | multiplies every weight update |
 | `max_weight`, `max_output` | 10, 10 | clamps |
-| threshold rule on firing | `max(2 × baseline, threshold + alpha × ln(|v| / threshold))` | |
+| threshold rule on firing | `max(2 × baseline, threshold + 0.5 × (\|v\| − threshold))` | linear, the default since 2026-09-27; §1–§16 used `threshold + alpha × ln(\|v\| / threshold)` |
 | learning rule | `w += rate × gain × reward × eligibility × sign(input)` | eligibility = threshold / baseline − 1 with E-R |
 
 ## 1. Making E-R networks learn at all
@@ -314,7 +319,8 @@ A growth rule whose jump does not vanish at steady state (e.g.
 `threshold += alpha` or `threshold += alpha × |output|`, as in
 spike-frequency adaptation models) would give a period of about
 `ln((input + jump) / input) / ln(1 / recovery)` ticks, set directly by alpha
-and recovery. Not implemented yet.
+and recovery. Not implemented yet. (Since §16, `ThresholdGrowth` offers
+such rules, e.g. `fixed` thr + a; their firing periods are not measured.)
 
 ## 10. Performance parameters
 
@@ -808,8 +814,8 @@ can do. 21 600 trials; raw results in
 - Activity: at its best t1 architecture E-R has 48 % of hidden neurons
   active per tick, 91 spikes per step.
 
-**Threshold growth rules.** `ThresholdGrowth` (network format 14; log stays
-the default) offers `linear` thr + a(s − thr), `fixed` thr + a and
+**Threshold growth rules.** `ThresholdGrowth` (network format 14; log stayed
+the default for these runs; linear is the default since) offers `linear` thr + a(s − thr), `fixed` thr + a and
 `multiplicative` thr·(1 + a), a = 0.5. Swept on t1, t2, t3 n=4, t4 and the
 static l1, l2 with depth {1, 2} × width {8 … 64}, the same lr grid and 5
 seeds, with learning from the last tick or from every tick at lr / ticks
@@ -859,7 +865,8 @@ costing static accuracy.
 6. **Jitter results are fragile.** Learning-gain jitter effects came and went
    with the constants; recovery and alpha jitter showed no reliable effect.
 7. **E-R, as implemented, cannot produce slow rhythms**; frequency diversity
-   needs a different threshold-growth rule.
+   needs a different threshold-growth rule (selectable since §16; not yet
+   measured for frequency).
 8. **Feedback alignment trains hidden layers** from an error vector (a
    bottleneck task: 0.49 → 7 × 10⁻⁷). On snake no hidden rule beats a frozen
    random mix, and sign-rule readouts remain the best.
@@ -901,14 +908,14 @@ costing static accuracy.
 ## Open questions and next steps
 
 - **Alpha 2.0** (the search's recommendation) has not been applied; alpha is
-  still 1.2.
+  still 1.2. Alpha now matters only under the log growth rule.
 - **Per-layer `baseline_threshold` and alpha**: the best values depend on
   signal strength (strong features want ≈ 0.5, weak inputs ≤ 0.2); only
   recovery, learning gain and alpha are per neuron today, and baseline is
   global.
-- **Threshold growth rules** exist now (§16); linear growth is the
-  candidate for a new default, not yet changed. Next: sweep its amount and
-  recovery, and repeat the temporal grid with it.
+- **Linear threshold growth is the default** since 2026-09-27 (§16, the
+  user's decision). §1–§16 were run with the log rule. Next: sweep its
+  amount and recovery, and repeat the temporal grid with it.
 - **Deserialization of older files** (next version): read everything a file
   contains and default only what is missing; version-3 jitter widths become
   uniform jitter settings.

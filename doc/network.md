@@ -57,7 +57,9 @@ several sources, or from a source and sensors, integrates them all in one
 weighted sum per neuron.
 
 Errors: unknown id → `std::out_of_range`; duplicate or empty name, zero
-inputs → `std::invalid_argument`; connecting a pair twice →
+inputs, a non-default `learningRule`, `gate`, `rectify`, `habituationRule`
+or `thresholdGrowth` on a layer without neurons (or a gate / `rectify` with
+E-R) → `std::invalid_argument`; connecting a pair twice →
 `std::logic_error`; a layer type that does not support the operation →
 `std::logic_error`.
 
@@ -197,16 +199,16 @@ with the network.
 | `inputCount()`, `inputs()` | number of sensors, their current values (one contiguous buffer, in `addInputs` order) |
 | `inputSources()`, `inputSource(name)`, `inputs(name)` | every `addInputs` block (`name`, `first`, `shape`, `targets`), one by name, a named source's values |
 | `updateOrder()` | the order `step()` uses |
-| `describe(os)` | human-readable dump: layers (outputs, shape of spatial layers, habituation, E-R, learning or frozen, recovery / learning-gain / alpha distributions of layers with neurons), where inputs attach, edges, outputs, update order |
+| `describe(os)` | human-readable dump: layers (output count, shape of spatial layers, habituation, E-R, or without E-R the gate (`=g`) or ReLU (`relu`, `>g` with a gate), learning or frozen, recovery / learning-gain / alpha distributions and learning rule of layers with neurons), each input source (name, size, shape, the layers it feeds), edges, outputs, update order. The habituation and threshold growth rules are not shown |
 
 Example `describe` output:
 
 ```
   layers (3):
-    id  name  neurons  hab   E-R   learns  recovery                        learning gain  alpha
-    0   in    16       on    on    yes     0.95 N(sd 0.02) in [0.9, 0.99]  2              1.2 U+-50%
-    1   hid   40       on    on    yes     0.9                             2 U+-0.1       1.2
-    2   out   4        on    -     yes     0.9 U+-50% of 1-r               2 U+-50%       1.2
+    id  name   outputs  shape         hab   E-R   learns  recovery                        learning gain  alpha       rule
+    0   in     16       -             on    on    yes     0.95 N(sd 0.02) in [0.9, 0.99]  2              1.2 U+-50%  sign
+    1   hid    40       -             on    on    yes     0.9                             2 U+-0.1       1.2         sign
+    2   out    4        -             on    -     yes     0.9 U+-50% of 1-r               2 U+-50%       1.2         sign
   inputs: 2 -> in
   edges:
     in -> hid
@@ -298,7 +300,7 @@ are `uint64`.
 | 11 | fixed firing threshold (`gate`) per layer |
 | 12 | rectification (`rectify`, ReLU) per layer |
 | 13 | habituation rule (steps, tolerance, decay) per layer |
-| 14 | E-R threshold growth rule (rule, amount) per layer |
+| 14 | E-R threshold growth rule (rule, amount) per layer; older files load with the `Log` rule |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.

@@ -74,7 +74,8 @@ What each rule is for:
   learning random stream the first time and saved with the network. No
   weight transport and no backward pass: it stays local. The surrogate
   derivative is 1 while the neuron takes part (with E-R: eligible; with a
-  fixed threshold, `gate`: firing; otherwise always) and 0 when it is silent
+  fixed threshold, `gate`, or rectification, `rectify`: firing; otherwise
+  always) and 0 when it is silent
   or when it is held at `±max_output` in the direction it would
   be pushed.
 - **Perturbation** (node perturbation) gives per-neuron credit from a single

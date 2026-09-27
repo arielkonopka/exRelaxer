@@ -5,7 +5,7 @@ of known limitations, see the [project README](../README.md).
 
 | Page | Covers |
 |------|--------|
-| [neuron](neuron.md) | `neuron`, `DeserializeMode`, the tunable constants: E-R, habituation, learning rule, serialization format |
+| [neuron](neuron.md) | `neuron`, `DeserializeMode`, `Habituation`, `ThresholdGrowth`, the tunable constants: E-R, habituation, fixed gate and ReLU, learning rule, serialization format |
 | [learning](learning.md) | `LearningRule`: the learning rules a layer can use (sign, trace, feedback alignment, perturbation, Oja, BCM), bias, decay, `applyError` |
 | [layer](layer.md) | `layer` (base class), `neuron_layer`, `Shape`, `InputRange`, `LayerType`: what every layer type shares |
 | [dense](dense.md) | `dense`: wiring groups, growth propagation, SIMD forward pass and learning |
@@ -104,10 +104,12 @@ group reading it grows too, and its neurons get matching new weights. See
 
 ### Learning
 
-Learning is reward-modulated and local: `applyReward(reward, learningRate)`
-moves each *eligible* neuron's weights by `learningRate × reward ×
-eligibility × sign(input)`. There is no backpropagation and no per-neuron
-error signal: every eligible neuron receives the same reward. See
+Learning is local. With the default sign rule it is reward-modulated:
+`applyReward(reward, learningRate)` moves each *eligible* neuron's weights by
+`learningRate × gain × reward × eligibility × sign(input)`, and every eligible
+neuron receives the same reward. There is no backpropagation; the other
+[learning rules](learning.md), chosen per layer, include feedback alignment,
+which gives hidden neurons their own error signal through `applyError`. See
 [neuron](neuron.md#learning) for eligibility and the exact
 rule, and [pattern_benchmark](pattern_benchmark.md#reward-modes) for why an
 error-driven reward (reward only when wrong) matters in practice.

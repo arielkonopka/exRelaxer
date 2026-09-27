@@ -19,16 +19,20 @@ struct LayerSpec
     Jitter recoveryJitter = {};  // per-neuron E-R recovery (default: none)
     Jitter learningJitter = {};  // per-neuron learning gain (default: none)
     Jitter alphaJitter = {};     // per-neuron E-R alpha (default: none)
+    LearningRule learningRule = {};  // how the layer learns (layers with weights; see learning.md)
+    float gate = 0.0f;           // layers of neurons without E-R: fixed firing threshold (0: none)
+    ThresholdGrowth thresholdGrowth = {};  // how E-R thresholds grow on firing (default: linear, amount 0.5)
+    Habituation habituationRule = {};  // how habituation suppresses repeated inputs (default: cut after 100 exact repeats)
+    bool rectify = false;        // layers of neurons without E-R: ReLU, only sums above the gate pass
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina
     CochleaSpec cochlea = {};    // Cochlea
     ResizeSpec resize = {};      // Resize2D
     DisparitySpec disparity = {};  // Disparity
-    float gate = 0.0f;           // layers of neurons without E-R: fixed firing threshold (0: none)
-    ThresholdGrowth thresholdGrowth = {};  // how E-R thresholds grow on firing (default: log)
-    Habituation habituationRule = {};  // how habituation suppresses repeated inputs (steps, tolerance, decay)
-    bool rectify = false;        // layers of neurons without E-R: ReLU, only sums above the gate pass
+
+    // Builders, see below: Dense, Conv2D, LocallyConnected2D, Pool2D, Retina,
+    // Cochlea, History, Resize2D, Disparity
 };
 ```
 
@@ -49,15 +53,19 @@ LayerSpec d{LayerType::Dense, 32, false, true, false,
 | `type` | the factory, to select a creator |
 | `size`, `hasHabituation`, `hasER`, `recoveryJitter`, `learningJitter`, `alphaJitter` | the creator (for `dense`: its constructor arguments; see [per-neuron dynamics](neuron.md#per-neuron-dynamics)) |
 | `frozen` | the network only ([freezing](network.md#freezing)); creators ignore it |
+| `learningRule`, `gate`, `rectify`, `habituationRule`, `thresholdGrowth` | the network: after creating a layer of neurons it applies each non-default one through the `neuron_layer` setters ([learning](learning.md), [neuron](neuron.md#one-tick-activate), [E-R](neuron.md#excitationrelaxation-e-r)); on a layer without neurons it throws `std::invalid_argument` |
+| `window`, `pool`, `retina`, `cochlea`, `resize`, `disparity` | the creators of the types listed in their comments |
 
-`network::freeze` / `unfreeze` and `network::setRecoveryJitter` /
-`setLearningJitter` change the network's copy of the spec, so
-`network::layerSpec(id)` always shows the current settings.
+`network::freeze` / `unfreeze`, `network::setRecoveryJitter` /
+`setLearningJitter` / `setAlphaJitter` and `network::setLearningRule` change
+the network's copy of the spec, so `network::layerSpec(id)` shows the
+current settings. (Calling a `neuron_layer` setter such as `setGate`
+directly does not update it, and such a change is not saved.)
 
-When a layer type needs more parameters (e.g. a future `Conv2D` with
-width/height/kernel), add fields to `LayerSpec` **at the end** so existing
-aggregate initializers keep compiling, and extend the network's save format
-(see [network](network.md#file-format)).
+When a layer type needs more parameters, add fields to `LayerSpec`
+**after the ones existing aggregate initializers set** (the first eight,
+through `alphaJitter`) so they keep compiling, and extend the network's
+save format (see [network](network.md#file-format)).
 
 ## layer_factory
 
@@ -123,7 +131,7 @@ type would silently be missing.
 ```cpp
 layer_factory::instance().registerType(LayerType::Conv2D,
     [](const LayerSpec& spec) -> std::unique_ptr<layer> {
-        return std::make_unique<conv2d>(spec.size, spec.hasHabituation, spec.hasER);
+        return std::make_unique<conv2d>(spec.size, spec.window, spec.hasHabituation, spec.hasER);
     });
 ```
 

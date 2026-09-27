@@ -7,7 +7,10 @@ nothing in any loss, reward or rule counts spikes or active neurons. The
 only difference between the networks compared is how their neurons
 respond. Results are reported as several measurements side by side, never
 as one score, and no model is declared a winner. The measured numbers are
-in the [research log, §13](research.md#13-activity-economy-and-path-selection).
+in the [research log, §13](research.md#13-activity-economy-and-path-selection)
+and [§15](research.md#15-how-e-r-behaves-learning-silence-state-habituation);
+they were measured with the log threshold growth rule, the default then
+(`--set growth=log` reproduces them).
 
 ## The network
 
@@ -28,7 +31,7 @@ Three models share the seed, weights, task and learning:
 
 | Model | Hidden neurons |
 |-------|----------------|
-| `er` | production E-R (habituation off by default) |
+| `er` | production E-R (habituation off by default; threshold growth `growth`, default `linear`) |
 | `gate` | no E-R; a **fixed** firing threshold (`LayerSpec::gate`): output = sum if \|sum\| > gate, otherwise 0 |
 | `linear` | no E-R: output = sum |
 
@@ -77,7 +80,10 @@ The habituation rule is set with `habituation_steps` (identical ticks
 before it acts, default 100), `habituation_tolerance` (relative difference
 still counted as identical, default 0: exact repeats only) and
 `habituation_decay` (0 cuts the input; a value in (0, 1) fades it by that
-factor per further identical tick). See `neuron::Habituation`.
+factor per further identical tick). See `Habituation` in `core/neuron.hpp`, and
+[neuron](neuron.md#excitationrelaxation-e-r) for the threshold growth rule:
+`growth` (`linear`, the default, `log`, `fixed` or `multiplicative`) and
+`growth_amount` (0.5; not used by `log`).
 
 `trace=FILE` in `er_silence` writes the tick-by-tick silence time course.
 

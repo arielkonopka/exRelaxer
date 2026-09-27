@@ -28,6 +28,12 @@ padded with zero rows. Storage is 64-byte aligned.
 | `reshape(rows, cols)` | a zero matrix reusing the storage (scratch tiles) |
 | `multiply(x, sums, firstBlock, lastBlock)` | `sums[r] = Σ x[c] × w[r][c]` for the rows of those blocks |
 | `learn(signs, delta, active, limit, firstBlock, lastBlock)` | `w[r][c] = clamp(w[r][c] + signs[c] × delta[r], ±limit)` for rows with `active[r]`; other rows untouched |
+| `learnScaled(pre, delta, keep, active, limit, firstBlock, lastBlock)` | `w[r][c] = clamp(w[r][c] × keep[r] + pre[c] × delta[r], ±limit)`, the general form for the other [learning rules](learning.md) and weight decay; with every `keep` 1 and `pre` = signs it gives the same bits as `learn` |
+| `rows()`, `cols()`, `blocks()`, `paddedRows()` | dimensions; `sums`, `delta`, `keep` and `active` have `paddedRows()` entries |
+
+Free functions: `dot(x, w)` (the scalar reference sum, in index order),
+`sign(x)`, `signs(x, out)` and `signRule(w, x, delta, limit)` (the sign rule
+for one neuron's own weights, used by `neuron::learn`).
 
 Every argument is a `std::span` (bounds-checked in debug builds); no kernel
 takes a raw pointer. The same layout serves every layer type: in `dense` and
@@ -103,13 +109,13 @@ the move to layer-owned blocked weights (identical results):
 | 8 layers × 16, step + reward | 3.3 µs | 1.5 µs | 2.2× |
 
 Learning gained the most: it used to run serially, neuron by neuron. Very
-small layers are dominated by the neuron dynamics (E-R's `log`), which is
-per neuron and cannot be approximated without changing results.
+small layers are dominated by the neuron dynamics (then E-R's `log`, the
+original threshold growth rule), which is per neuron and cannot be approximated without changing results.
 
 ## Random streams
 
 `core/random.hpp`: `exr::reseed(seed)` and one `mt19937` per purpose
-(`rng::WeightStream::Initial`, `Growth`, `Sensor`, plus jitter and the seeds
-of neurons' spontaneous-firing generators). Weights are drawn row after row,
+(`rng::WeightStream::Initial`, `Growth`, `Sensor`, plus jitter, learning
+and the seeds of neurons' spontaneous-firing generators). Weights are drawn row after row,
 so each neuron's new weights come from its stream in neuron order, and
 adding draws for one purpose never shifts another.

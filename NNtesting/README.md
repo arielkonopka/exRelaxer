@@ -17,6 +17,7 @@ NNtesting/
   tools/         compare.py: tables and comparisons of result files
                  capacity.py: minimum architectures and capacity curves (nl_static)
                  spiral.py: spiral sampling of images, exactly as the Spiral retina
+                 check_spiral.py, retina_dump.cpp: the test that spiral.py matches the retina
   data/          downloaded datasets (not in git)
 ```
 
@@ -155,6 +156,7 @@ NNtesting/nntest.py list
 NNtesting/nntest.py describe mnist_gabor
 NNtesting/nntest.py run mnist_gabor --set mix=0,512 --trials 3 --out results.jsonl
 NNtesting/nntest.py --data /big/disk run mnist_gabor   # datasets elsewhere (or EXR_DATA)
+NNtesting/nntest.py --experiments DIR list             # experiments elsewhere (or EXR_EXPERIMENTS)
 ```
 
 ```python
