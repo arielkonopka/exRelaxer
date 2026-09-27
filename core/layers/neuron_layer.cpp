@@ -31,6 +31,9 @@ neuron& neuron_layer::newNeuron()
     neuron& n = neurons_.emplace_back(has_habituation_, has_er_);
     n.randomizeDynamics(recovery_jitter_, learning_jitter_, alpha_jitter_);
     n.setGate(gate_);
+    n.setRectified(rectified_);
+    n.setHabituation(habituation_rule_);
+    n.setThresholdGrowth(growth_);
     output_.push_back(n.output());
     resizeLearningState();
     return n;
@@ -65,6 +68,33 @@ void neuron_layer::setGate(float gate)
     gate_ = gate;
     for (neuron& n : neurons_)
         n.setGate(gate);
+}
+
+void neuron_layer::setHabituationRule(const Habituation& rule)
+{
+    if (!rule.valid())
+        throw std::invalid_argument("setHabituationRule: steps >= 1, tolerance in [0, 1), decay in [0, 1]");
+    habituation_rule_ = rule;
+    for (neuron& n : neurons_)
+        n.setHabituation(rule);
+}
+
+void neuron_layer::setThresholdGrowth(const ThresholdGrowth& growth)
+{
+    if (!growth.valid() || !std::isfinite(growth.amount))
+        throw std::invalid_argument("setThresholdGrowth: rule Log, Linear, Fixed or Multiplicative, amount in [0, 1e6]");
+    growth_ = growth;
+    for (neuron& n : neurons_)
+        n.setThresholdGrowth(growth);
+}
+
+void neuron_layer::setRectified(bool rectified)
+{
+    if (rectified && has_er_)
+        throw std::invalid_argument("setRectified: rectification is for neurons without E-R");
+    rectified_ = rectified;
+    for (neuron& n : neurons_)
+        n.setRectified(rectified);
 }
 
 void neuron_layer::setAlphaJitter(const Jitter& jitter)
@@ -147,8 +177,12 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
     has_habituation_ = has_habituation;
     has_er_ = has_er;
     neurons_ = std::move(loaded);
-    for (neuron& n : neurons_)
+    for (neuron& n : neurons_) {
         n.setGate(has_er_ ? 0.0f : gate_);
+        n.setRectified(!has_er_ && rectified_);
+        n.setHabituation(habituation_rule_);
+        n.setThresholdGrowth(growth_);
+    }
     output_.resize(count);
     for (size_t i = 0; i < count; ++i)
         output_[i] = neurons_[i].output();
@@ -388,11 +422,12 @@ bool neuron_layer::ruleStep(size_t i, float m, float learningRate, float& delta,
         return delta != 0.0f;
     case LearningRuleType::FeedbackAlignment: {
         // Surrogate derivative of the neuron: 1 while it takes part (with
-        // E-R: eligible, i.e. fired recently; without: always, its output is
-        // its clamped sum), 0 when silent or held at the output clamp in the
-        // direction the modulator pushes.
+        // E-R: eligible, i.e. fired recently; with a gate or rectification:
+        // firing; otherwise always, its output is its clamped sum), 0 when
+        // silent or held at the output clamp in the direction the modulator
+        // pushes.
         const float y = nr.output();
-        if ((nr.hasER() && !nr.eligible()) || (y >= max_output && m > 0.0f) || (y <= -max_output && m < 0.0f))
+        if ((nr.hasER() && !nr.eligible()) || ((nr.gate() > 0.0f || nr.rectified()) && y == 0.0f) || (y >= max_output && m > 0.0f) || (y <= -max_output && m < 0.0f))
             return false;
         delta = rate * m;
         return true;

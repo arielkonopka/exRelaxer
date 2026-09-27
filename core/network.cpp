@@ -42,6 +42,21 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a gate");
         dynamic_cast<neuron_layer&>(*impl).setGate(spec.gate);
     }
+    if (spec.habituationRule != Habituation{}) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a habituation rule");
+        dynamic_cast<neuron_layer&>(*impl).setHabituationRule(spec.habituationRule);
+    }
+    if (spec.thresholdGrowth != ThresholdGrowth{}) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a threshold growth rule");
+        dynamic_cast<neuron_layer&>(*impl).setThresholdGrowth(spec.thresholdGrowth);
+    }
+    if (spec.rectify) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to rectify");
+        dynamic_cast<neuron_layer&>(*impl).setRectified(true);
+    }
     this->nodes.push_back({name, spec, std::move(impl)});
     this->ops_.push_back({OpKind::AddLayer, this->nodes.size() - 1, 0, 0});
     this->orderValid = false;
@@ -481,6 +496,8 @@ void network::describe(std::ostream& os) const
            << std::setw(6) << (node.impl->hasNeurons() && node.spec.hasHabituation ? "on" : "-")
            << std::setw(6) << (!node.impl->hasNeurons() ? std::string("-")
                                : node.spec.hasER   ? std::string("on")
+                               : node.spec.rectify ? (node.spec.gate > 0.0f ? ">" + describeNumber(node.spec.gate)
+                                                                            : std::string("relu"))
                                : node.spec.gate > 0.0f ? "=" + describeNumber(node.spec.gate)
                                                        : std::string("-"))
            << std::setw(8) << (!node.impl->learns() ? "-" : node.spec.frozen ? "frozen" : "yes");
@@ -555,8 +572,11 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //  10  + cochlea channels, resize and disparity parameters per layer; named
 //        input sources (name and shape per addInputs) and connectInputs
 //  11  + fixed firing threshold (gate) per layer
+//  12  + rectification (ReLU) per layer
+//  13  + habituation rule (steps, tolerance, decay) per layer
+//  14  + E-R threshold growth rule (rule, amount) per layer
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 11;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 14;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -792,6 +812,12 @@ void network::save(std::ostream& os) const
             writeLearningRule(os, node.spec.learningRule);
             writeMultimodal(os, node.spec);
             writeValue(os, node.spec.gate);
+            writeValue<std::uint8_t>(os, node.spec.rectify);
+            writeValue<std::uint32_t>(os, node.spec.habituationRule.steps);
+            writeValue(os, node.spec.habituationRule.tolerance);
+            writeValue(os, node.spec.habituationRule.decay);
+            writeValue(os, static_cast<std::uint8_t>(node.spec.thresholdGrowth.rule));
+            writeValue(os, node.spec.thresholdGrowth.amount);
             break;
         }
         case OpKind::Connect:
@@ -914,6 +940,22 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 spec.gate = readValue<float>(is);
                 if (!std::isfinite(spec.gate) || spec.gate < 0.0f)
                     throw std::runtime_error("network::load: invalid gate");
+            }
+            if (version >= 12)
+                spec.rectify = readValue<std::uint8_t>(is) != 0;
+            if (version >= 13) {
+                spec.habituationRule.steps = readValue<std::uint32_t>(is);
+                spec.habituationRule.tolerance = readValue<float>(is);
+                spec.habituationRule.decay = readValue<float>(is);
+                if (!spec.habituationRule.valid() || !std::isfinite(spec.habituationRule.tolerance) ||
+                    !std::isfinite(spec.habituationRule.decay))
+                    throw std::runtime_error("network::load: invalid habituation rule");
+            }
+            if (version >= 14) {
+                spec.thresholdGrowth.rule = static_cast<ThresholdGrowth::Rule>(readValue<std::uint8_t>(is));
+                spec.thresholdGrowth.amount = readValue<float>(is);
+                if (!spec.thresholdGrowth.valid() || !std::isfinite(spec.thresholdGrowth.amount))
+                    throw std::runtime_error("network::load: invalid threshold growth rule");
             }
             net->addLayer(name, spec);
             break;

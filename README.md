@@ -25,7 +25,7 @@ audio-visual objects.
 [neuron](doc/neuron.md), [layer](doc/layer.md), [dense](doc/dense.md),
 [learning](doc/learning.md), [kernels](doc/kernels.md), [spatial](doc/spatial.md), [audio](doc/audio.md),
 [multimodal and stereo](doc/multimodal.md),
-[activity economy](doc/activity.md),
+[activity economy](doc/activity.md), [nonlinearity](doc/nonlinearity.md),
 [layer_factory](doc/layer_factory.md),
 [network](doc/network.md), and the
 test-support [pattern_benchmark](doc/pattern_benchmark.md). It also has
@@ -381,12 +381,64 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-09-27: temporal tasks, threshold growth rules
+
+- **Threshold growth rule** (`ThresholdGrowth`, `LayerSpec::thresholdGrowth`,
+  Python `ThresholdGrowth`): log (the original, default), linear, fixed or
+  multiplicative growth on firing. Network format 14 saves it. Python now
+  also exports `Habituation`.
+- `nntest run nl_temporal`: delayed XOR, x(t) AND NOT x(t−3), parity, and
+  sin(x(t)·x(t−2)), with a memoryless E-R control. Only E-R with state beats
+  the no-memory ceiling; it solves delayed XOR (1×64 neurons, 8 with linear
+  growth) but not longer lags or continuous history.
+- `nl_static` / `nl_temporal`: `growth`, `growth_amount`, `learn_ticks=all`.
+- See [research log §16](doc/research.md#16-temporal-tasks-and-the-threshold-growth-rule).
+
+### 2026-09-27: E-R behaviour: learning curves, silence, state, habituation
+
+- **Configurable habituation** (`neuron::Habituation`, `LayerSpec::habituationRule`,
+  Python `Habituation`): the streak of identical ticks before it acts
+  (default 100, as before), a relative tolerance for "identical" (default
+  0), and fading by a factor per tick instead of cutting (default: cut).
+  Network format 13 saves it. Defaults behave exactly as before.
+- `nntest run er_silence`: inputs zeroed after training. All models go
+  silent at once; E-R alone restarts, with spontaneous bursts every
+  73–110 ticks from about tick 214 (recovery 0.9). Afterwards its thresholds
+  jump and accuracy drops to 0.44–0.52 at recovery 0.97.
+- `nntest run er_habituation`: long-held stimuli. Habituation after 5
+  identical ticks cuts E-R's spikes 90× with onset accuracy 0.98, but the
+  stimulus is gone by the end of the hold, and sensor flicker stops exact
+  repeats unless a tolerance is set.
+- `nl_static`: learning curves (`curve_<n>`, `early_stop=false`) and a
+  state test (`state_probes`): with 7 extra ticks, 30–57 % of E-R's error
+  comes from the state left by earlier samples.
+- Fix: spontaneous E-R firings are drawn in ±0.01, not exactly ±0.01;
+  the activity meters now detect them.
+- See [research log §15](doc/research.md#15-how-e-r-behaves-learning-silence-state-habituation).
+
+### 2026-09-27: nonlinearity substitution, milestone 1
+
+- **ReLU neurons** (optional): `LayerSpec::rectify`, `neuron::setRectified`,
+  `neuron_layer::setRectified`, Python `LayerSpec.rectify`. Only sums above
+  the gate (0 by default) pass. Off by default, so the plain clamped neuron
+  is unchanged. Network format 12 saves it.
+- Feedback alignment: a silent gated or rectified neuron takes no step,
+  like a silent E-R neuron.
+- `nntest run nl_static` and `NNtesting/tools/capacity.py`: how large must
+  a network be to reach test MSE 1e-3 on known static functions, with
+  ReLU, E-R, fixed-threshold or clamped neurons? ReLU solves every task
+  (5–129 neurons); E-R reaches none at any size. More ticks per sample
+  lower E-R's error 2–4×. See [doc/nonlinearity.md](doc/nonlinearity.md)
+  and [research log §14](doc/research.md#14-dynamic-nonlinearity-substitution-static-tasks).
+
 ### 2026-09-27: activity economy experiments
 
 - **Fixed firing threshold** for neurons without E-R: `LayerSpec::gate`,
   `neuron::setGate`, `neuron_layer::setGate`. Output is 0 while
   |sum| ≤ gate; the threshold never adapts. Network format 11 saves it;
   `describe()` shows it in the E-R column. Python: `LayerSpec.gate`.
+  Under feedback alignment a silent gated neuron does not learn (its
+  surrogate derivative is 0, as for a silent E-R neuron).
 - `nntest run er_economy`, `er_paths`, `er_fatigue`, `er_history`: does
   E-R use less activity, prefer cheaper paths or respond to its history,
   with no activity penalty? It is as sparse as a fixed threshold of the

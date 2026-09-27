@@ -48,11 +48,24 @@ runs these stages in order:
    with feedback loops diverge within a few dozen ticks. The clamp is also
    the only non-adaptive nonlinearity, which is why hand-wired detectors use
    it (a high-gain neuron saturates at ±10).
-2. **Habituation** (if enabled). If `|sum − previous sum| ≤
-   habituation_epsilon`, a streak counter increments, otherwise it resets to
-   0. Once the streak reaches `habituation_steps` (100), `sum` is replaced by
-   0 until the signal changes. The previous sum stored is the raw one, before
-   suppression. The update is branchless.
+2. **Habituation** (if enabled). If the sum is "the same" as the previous
+   one, a streak counter increments; otherwise it resets to 0. Once the
+   streak reaches the rule's `steps`, the sum is suppressed until the
+   signal changes. The previous sum stored is the raw one, from before
+   suppression. The rule (`Habituation`, set per layer through
+   `LayerSpec::habituationRule` or with `neuron::setHabituation`) has three
+   fields:
+   - `steps`: the streak length before suppression. Default
+     `habituation_steps`, 100.
+   - `tolerance`: "the same" means `|sum − previous| ≤ max(habituation_epsilon,
+     tolerance × max(|sum|, |previous|))`. Default 0, i.e. exact; a small
+     tolerance lets a flickering sensor habituate too.
+   - `decay`: a suppressed sum is scaled by `decay^(ticks habituated)`.
+     Default 0, which cuts it at once; closer to 1 fades it slowly.
+
+   The defaults are the original behaviour. Note that the clamp comes
+   first, so a neuron held at ±`max_output` sees an identical sum even when
+   its input changes, and habituates.
 3. **E-R** (if enabled):
    - if `|sum| > threshold`: the neuron **fires**. Output = `sum`, and the
      threshold is raised (see [E-R](#excitationrelaxation-e-r));
@@ -68,8 +81,13 @@ runs these stages in order:
    with a fixed threshold that never adapts. It is a control for
    experiments that separate thresholding from adaptation
    ([activity](activity.md)); layers set it through `LayerSpec::gate`.
+5. **Rectification** (only without E-R, if set). With `setRectified(true)`
+   the neuron is a ReLU: the output is 0 whenever `sum ≤ gate` (0 by
+   default), otherwise `sum`. Off by default; layers set it through
+   `LayerSpec::rectify`. It is the conventional baseline of the
+   [nonlinearity experiments](nonlinearity.md).
 
-Without E-R (and without a gate) the output is simply the (clamped,
+Without E-R (and without a gate or rectification) the output is simply the (clamped,
 possibly habituated) sum.
 
 For one neuron with caller-owned weights, `step(inputs, weights)` is
@@ -92,6 +110,19 @@ threshold = max(2 × baseline_threshold, threshold + alpha × ln(ratio))
 - The floor `2 × baseline_threshold` guarantees that right after any firing
   the threshold is above `baseline_threshold`, which is what makes the
   neuron eligible to learn (see below).
+- The logarithmic rule is the default. `ThresholdGrowth` (per layer through
+  `LayerSpec::thresholdGrowth`, or `neuron::setThresholdGrowth`) selects
+  another, with the same floor:
+
+  | Rule | New threshold | Note |
+  |------|---------------|------|
+  | `Log` (default) | `threshold + alpha × ln(abs(v) / threshold)` | the jump grows without bound as the threshold falls: after a long silence one firing makes the neuron refractory |
+  | `Linear` | `threshold + amount × (abs(v) − threshold)` | moves part of the way towards the firing's magnitude |
+  | `Fixed` | `threshold + amount` | the same jump for every firing |
+  | `Multiplicative` | `threshold × (1 + amount)` | in proportion to the threshold; ignores the magnitude |
+
+  `amount` defaults to 0.5. `Log` and `Linear` keep a trace of how strong
+  the firing was; `Fixed` and `Multiplicative` only that it happened.
 - While silent the threshold decays geometrically (`× recovery` per tick,
   0.9 by default), so a neuron that fired strongly stays refractory for a
   while. Because the threshold keeps a trace of recent firing, E-R neurons

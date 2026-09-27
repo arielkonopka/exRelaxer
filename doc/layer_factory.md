@@ -26,6 +26,9 @@ struct LayerSpec
     ResizeSpec resize = {};      // Resize2D
     DisparitySpec disparity = {};  // Disparity
     float gate = 0.0f;           // layers of neurons without E-R: fixed firing threshold (0: none)
+    ThresholdGrowth thresholdGrowth = {};  // how E-R thresholds grow on firing (default: log)
+    Habituation habituationRule = {};  // how habituation suppresses repeated inputs (steps, tolerance, decay)
+    bool rectify = false;        // layers of neurons without E-R: ReLU, only sums above the gate pass
 };
 ```
 

@@ -35,6 +35,7 @@ from ._core import (  # noqa: F401
     Edge,
     EdgeKind,
     FrequencyScale,
+    Habituation,
     Interpolation,
     Jitter,
     LayerSpec,
@@ -47,6 +48,7 @@ from ._core import (  # noqa: F401
     RetinaSpec,
     Sampling,
     Shape,
+    ThresholdGrowth,
     Window2D,
     build_info,
     constants,
@@ -59,8 +61,8 @@ from . import audio, datasets  # noqa: F401,E402
 
 __all__ = [
     "CochleaSpec", "Compression", "DeserializeMode", "DisparityMeasure", "DisparitySpec", "Edge", "EdgeKind",
-    "FrequencyScale", "Interpolation", "Jitter", "LayerSpec", "LayerType", "LearningRule",
+    "FrequencyScale", "Habituation", "Interpolation", "Jitter", "LayerSpec", "LayerType", "LearningRule",
     "LearningRuleType", "Network", "PoolMode", "ResizeSpec",
-    "RetinaSpec", "Sampling", "Shape", "Window2D", "audio", "build_info", "constants", "datasets", "filters", "reseed",
+    "RetinaSpec", "Sampling", "Shape", "ThresholdGrowth", "Window2D", "audio", "build_info", "constants", "datasets", "filters", "reseed",
     "set_threads", "threads",
 ]

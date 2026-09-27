@@ -20,6 +20,9 @@ constants in force at the time, the constants are given.
 - [11. Learning rules](#11-learning-rules)
 - [12. Several senses and stereo vision](#12-several-senses-and-stereo-vision)
 - [13. Activity economy and path selection](#13-activity-economy-and-path-selection)
+- [14. Dynamic nonlinearity substitution: static tasks](#14-dynamic-nonlinearity-substitution-static-tasks)
+- [15. How E-R behaves: learning, silence, state, habituation](#15-how-e-r-behaves-learning-silence-state-habituation)
+- [16. Temporal tasks and the threshold growth rule](#16-temporal-tasks-and-the-threshold-growth-rule)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -475,7 +478,7 @@ prototypes, each held for 4 ticks. 10 trials each. Result files:
 | Learning | Model | Accuracy | Active fraction | Spikes per decision | Accuracy per 100 spikes |
 |----------|-------|----------|-----------------|---------------------|-------------------------|
 | paths FA + readouts | er | 0.995 | 0.50 | 133 | 0.75 |
-| | gate (matched) | 0.747 | 0.50 | 134 | 0.56 |
+| | gate (matched) | 0.762 | 0.49 | 132 | 0.58 |
 | | linear | 0.987 | 1.00 | 268 | 0.37 |
 | readouts only | er | 0.941 | 0.49 | 133 | 0.71 |
 | | gate (matched) | 0.953 | 0.50 | 133 | 0.72 |
@@ -490,9 +493,11 @@ prototypes, each held for 4 ticks. 10 trials each. Result files:
 - E-R's active runs are shorter (5.2 vs 8.6 ticks for the gate): it
   alternates neurons more.
 - With the paths learning (FA), E-R was the only sparse model that
-  learned well (0.995 vs 0.747); with frozen paths the matched gate is as
-  good as E-R. So E-R's adaptive threshold helps FA credit assignment
-  through a thresholded layer; it does not make inference cheaper than a
+  learned well (0.995 vs 0.762); with frozen paths the matched gate is as
+  good as E-R. Silent gated neurons take no FA step, just as silent E-R
+  neurons don't (the surrogate derivative is 0 for both). So E-R's
+  adaptive threshold helps FA credit assignment through a thresholded
+  layer; it does not make inference cheaper than a
   fixed threshold.
 
 **Path preference** (`nntest run er_paths`, Exp 2). Drive per neuron,
@@ -555,6 +560,286 @@ activity around recently used neurons and respond differently depending
 on recent history, which fixed nonlinearities cannot. The fixed-threshold
 control (`LayerSpec::gate`, network format 11) was added for this.
 
+## 14. Dynamic nonlinearity substitution: static tasks
+
+Can E-R dynamics replace network size? Milestone 1 of the
+[nonlinearity suite](nonlinearity.md): how large must a network be to
+reach test MSE ≤ 1e-3 (in ≥ 80 % of seeds) on known static functions,
+with ReLU, E-R, fixed-threshold (`gate` 0.2) or plain clamped hidden
+neurons? The runs covered:
+
+- 9 tasks: l0–l3, and l4 with K = 1, 2, 4, 8, 16;
+- depth {1, 2, 3, 4, 6, 8} × width {4, …, 128};
+- 4 learning rates, the best chosen per model and architecture on
+  validation;
+- 5 seeds, for 25 920 trials.
+
+Every model uses the same data, initial weights, feedback-alignment
+learning and stopping rule. Result files are in
+`/mnt/project-files/reports/nonlinearity/` in the project.
+
+**Minimum architecture.**
+
+- ReLU solves every task. Its smallest solving networks:
+  - l0: 1 × 4;
+  - l1: 2 × 8;
+  - l2: 1 × 16;
+  - l3: 1 × 64;
+  - l4: 1 × 32 for every K except K = 2 (1 × 128).
+- The plain clamped neuron solves only l0, the linear task.
+- The fixed threshold solves l0 at 1 × 32.
+- **E-R solves none, not even l0.**
+
+So in this setting E-R does not reduce the topology needed. It does not
+reach the predefined error at any size.
+
+**Best test MSE on any architecture** (median over seeds; 1 tick after the
+input arrives):
+
+| Task | relu | er | gate | clamp |
+|------|------|----|------|-------|
+| l0 x1+x2 | 3.7e-4 | 0.045 | 7.7e-4 | 3e-15 |
+| l1 x1·x2 | 6.6e-4 | 0.088 | 0.088 | 0.11 |
+| l2 sin(x1·x2) | 6.7e-4 | 0.077 | 0.077 | 0.099 |
+| l3 + exp(−x3²) | 8.5e-4 | 0.055 | 0.11 | 0.14 |
+| l4 K=1 | 8.3e-4 | 0.30 | 0.24 | 0.33 |
+| l4 K=2 | 8.9e-4 | 0.33 | 0.23 | 0.30 |
+| l4 K=4 | 7.2e-4 | 0.22 | 0.14 | 0.20 |
+| l4 K=8 | 9.1e-4 | 0.22 | 0.19 | 0.25 |
+| l4 K=16 | 8.8e-4 | 0.17 | 0.10 | 0.13 |
+
+The target variances are 0.11 (l1), about 0.5 (l4) and 0.67 (l0), so
+E-R's l1 error (0.088) is about 80 % of the variance: it learns little of
+the product. On l1 it matches the fixed threshold.
+
+**More ticks per sample** (E-R only; the other models' outputs do not
+change with extra ticks, which was checked). Holding each sample longer
+lowers E-R's error by 2–4×:
+
+| Task | 1 extra tick | 7 | 15 |
+|------|--------------|---|----|
+| l0 | 0.045 | 0.012 | 0.0064 |
+| l1 | 0.088 | 0.029 | 0.033 |
+| l3 | 0.055 | 0.047 | 0.068 |
+| l4 K=4 | 0.22 | 0.094 | 0.074 |
+| l4 K=16 | 0.17 | 0.072 | 0.060 |
+
+With 7 ticks E-R represents x1·x2 better than any static threshold
+network (0.029 vs 0.088) and better than every model but ReLU on l3 and
+l4. That is nonlinear capacity bought with **more time**, not more
+neurons. It still never reaches 1e-3; at a relaxed 1e-2 only l0 is
+solved (1 × 4, 15 extra ticks).
+
+**Activity** at 2 × 32, l1:
+
+| Model | Active fraction | Spikes per sample | Event synaptic operations | Test MSE |
+|-------|-----------------|-------------------|--------------------------|----------|
+| ReLU | 0.40 | 102 | 2200 | 6.5e-4 |
+| E-R | 0.16 | 41 | 1000 | 0.093 |
+| gate | 0.77 | 198 | 3400 | 0.091 |
+
+With 7 or 15 extra ticks, E-R's spikes per sample rise to 121 and 260.
+E-R is the sparsest per tick, but at the error it reaches it spends
+comparable or more spikes per answer once it needs more ticks. Wall time
+per inference is similar (3–4 µs at this size) and grows with the ticks.
+
+**Divergence.** With linear-looking units (clamp, gate, E-R) at rates
+≥ 0.01, and at depth 6–8, feedback alignment often diverges to the ±10
+clamp. The per-model rate choice avoids most of this; ReLU tolerates the
+largest rates (0.03).
+
+**Reading.** For static functions, trained this way (feedback alignment,
+one error per sample on the last tick), E-R does not substitute for
+topology. It supplies some nonlinearity that grows with the time it is
+given, beyond a fixed threshold's. Following the spec, the next step is
+the temporal tasks, with the memoryless E-R control. Two open causes
+remain to test:
+
+- the readout-on-the-last-tick protocol, since E-R's output fluctuates
+  from tick to tick;
+- the learning signal, since an E-R neuron only learns on the ticks it
+  fires.
+
+## 15. How E-R behaves: learning, silence, state, habituation
+
+Four questions that followed §13 and §14. There is no activity term in any
+of these experiments. Result files are in `/mnt/project-files/reports/` in
+the project: `nonlinearity/curves`, `nonlinearity/state`, `er-silence` and
+`er-habituation`.
+
+**Learning curves** (`nl_static`, `early_stop=false`, 100 000 samples,
+5 seeds, the learning rate chosen on validation). Validation MSE after
+2k / 10k / 20k / 50k / 100k samples, 1 × 32:
+
+| Task | Model | 2k | 10k | 20k | 50k | 100k |
+|------|-------|----|-----|-----|-----|------|
+| x1·x2 | relu | 5.2e-3 | 1.3e-3 | 1.7e-3 | 2.4e-4 | 1.9e-4 |
+| | er, 1 extra tick | 0.119 | 0.109 | 0.107 | 0.082 | 0.072 |
+| | er, 7 extra ticks | 0.111 | 0.051 | 0.044 | 0.034 | 0.034 |
+| | gate | 0.116 | 0.108 | 0.112 | 0.106 | 0.122 |
+| sin(x1·x2) | relu | 3.5e-3 | 8.9e-4 | 4.5e-4 | 1.6e-4 | 5.6e-5 |
+| | er, 7 extra ticks | 0.063 | 0.033 | 0.033 | 0.030 | 0.028 |
+
+The curves have different shapes, not just different levels:
+
+- ReLU keeps improving through 100k samples.
+- E-R with extra ticks drops quickly, then plateaus from about 20k.
+- The fixed threshold barely learns.
+
+At two hidden layers, E-R is unstable. On l4 (K = 4) and on some l1/l2
+runs it diverges to the ±10 clamp after 5–50k samples, even at lr 0.001.
+ReLU does not.
+
+**Same stimulus, different state** (`nl_static`, `state_probes=200`).
+Each stimulus is shown after 20 different random histories of 10 samples,
+10 seeds, stable networks only. For each stimulus, the error splits into
+the squared bias of its mean output and the variance across histories,
+which is the part that depends on state. For the static models that
+variance is exactly 0.
+
+- E-R, 1 extra tick: the state accounts for 6–14 % of the error. Outputs
+  for the same stimulus span 0.3–0.5.
+- E-R, 7 extra ticks: the state accounts for **30–57 %** of the error. The
+  span is 0.5–0.7, and spikes for the same stimulus vary with an SD of
+  12–42.
+
+More ticks remove bias but add dependence on the past. With enough time,
+about half of what E-R gets "wrong" on a static task is its history, not
+its mapping.
+
+**Zeroed inputs** (`er_silence`, 3000 ticks of zero input after training,
+10 seeds):
+
+- **Without recurrence**, every model is silent from the first tick. After
+  about 214 ticks (recovery 0.9) E-R starts firing spontaneously, and it is
+  the only model that does. The firing is a slow, self-paced rhythm, and
+  every neuron takes part:
+  - recovery 0.9: 268 firings per 1000 ticks, bursts every 73–110 ticks;
+  - recovery 0.97: 67 per 1000 ticks, bursts every 250–340 ticks.
+- The firings are tiny (±0.01) and never grow into ordinary activity. With
+  recurrence at gain 1, 3 or 10, E-R activity dies within 3–10 ticks.
+  Linear recurrent networks, by contrast, ring for 600–1300 ticks before
+  decaying. **E-R does not sustain its own activity**, but it keeps
+  "idling" at a low, rhythmic rate.
+- The silence changes the next answers:
+  - During the silence, thresholds decay to about 1e-5. The first input
+    then fires every neuron, and the logarithmic rule raises their
+    thresholds by about 1.2 × ln(|s| / 1e-5) ≈ 14.
+  - At recovery 0.97 that leaves the network refractory for about 90
+    ticks. Accuracy on the first 5 samples drops from 0.92–1.0 to
+    **0.44–0.52**.
+  - At recovery 0.9 it recovers within a sample or two (0.98).
+
+  This comes straight from the logarithmic threshold growth, because the
+  ratio to a near-zero threshold is huge.
+
+**Habituation** (`er_habituation`, stimuli held for 4–500 ticks, 10
+seeds). New options: `steps`, `tolerance` and `decay` (§ neuron).
+Results at a 500-tick hold for E-R, reported as spikes per stimulus, then
+recognition at onset / summed / at the end:
+
+| Rule | Exact input | With ±0.001 flicker |
+|------|-------------|---------------------|
+| off | 27 077; 0.98 / 1.00 / 1.00 | 25 789; 0.99 / 1.00 / 0.99 |
+| cut after 100 (original) | 4 533; 1.00 / 1.00 / **0.00** | 25 678: never triggers |
+| cut after 5 | **296**; 0.98 / 0.99 / 0.00 | 25 652: never triggers |
+| cut after 5, 1 % tolerance | 295; 0.99 / 0.99 / 0.00 | **607**; 0.98 / 0.96 / 0.15 |
+| fade 0.99 after 5 | 8 585; 0.98 / 1.00 / 0.28 | 25 715: never triggers |
+
+- Habituation is an effective activity saver, with no penalty:
+  - E-R uses up to **90× fewer** spikes on a held stimulus;
+  - onset and summed recognition stay at about 0.98.
+- The cost is that the stimulus is no longer represented at the end of the
+  hold.
+- Fading instead of cutting keeps a weak trace. For linear neurons it keeps
+  end accuracy at 0.99 while saving 2–3×, because a scaled pattern keeps
+  its winner. E-R's thresholds drop a faded input below firing, so it gains
+  little (0.28 at the end).
+- The original exact rule never triggers on a flickering sensor. Only a
+  tolerance restores the saving (607 spikes).
+- The clamp comes before habituation, so neurons saturated at ±10 always
+  see the same sum and habituate across samples. That silenced part of the
+  linear network and cost it accuracy (0.82 with flicker; 0.28–0.6 with a
+  1 % tolerance). E-R's thresholds keep it out of saturation, and it did
+  not suffer.
+
+## 16. Temporal tasks and the threshold growth rule
+
+**Question.** Milestone 1 found no topology advantage on static functions.
+The spec's next step: when the target depends on earlier inputs, does E-R's
+state substitute for memory the network does not otherwise have, and is
+that effect due to the state or to E-R's transfer function? A second
+question comes from the user: should the threshold rule be logarithmic?
+
+**Setup.** `nntest run nl_temporal` ([nonlinearity](nonlinearity.md#temporal-tasks-nl_temporal)):
+delayed XOR `t1` (x(t) XOR x(t−1)), `t2` x(t) AND NOT x(t−3), parity of the
+last n `t3` (n = 4, 8, 16), `t4` sin(x(t)·x(t−2)). Each step is held for
+depth + 2 ticks, so a feed-forward network without neuron state sees only
+x(t). Models: `relu`, `er`, `er_memoryless` (the same E-R neurons reset to
+rest before every step: a test-only wrapper), `gate`, `clamp`. Depth
+{1, 2, 3, 4, 6, 8} × width {4 … 128}, 5 seeds, lr {0.001, 0.003, 0.01,
+0.03} chosen per architecture on validation, 20 000 training steps.
+Success, fixed in advance: accuracy ≥ 0.95 (MSE ≤ 1e-3 on `t4`) in ≥ 80 %
+of seeds. `input_ceiling_accuracy` is the best any function of x(t) alone
+can do. 21 600 trials; raw results in
+`/mnt/project-files/reports/nonlinearity/temporal/`.
+
+**Results** (median test accuracy at each model's best architecture):
+
+| Task | Ceiling without memory | relu | gate | clamp | er_memoryless | er |
+|------|------|------|------|------|------|------|
+| t1 delayed XOR | 0.51 | 0.51 | 0.51 | 0.51 | 0.51 | **0.952** (1×64; solved) |
+| t2 x(t) ∧ ¬x(t−3) | 0.748 | 0.748 | 0.748 | 0.743 | 0.743 | 0.844 (1×32) |
+| t3 parity 4 | 0.511 | 0.49 | 0.511 | 0.511 | 0.511 | 0.621 (1×64) |
+| t3 parity 8 / 16 | 0.52 / 0.51 | chance | chance | chance | chance | chance |
+| t4 sin(x(t)·x(t−2)), NMSE | 1 | 0.99 | 1.0 | 1.0 | 0.99 | 1.0 |
+
+- Only E-R with state goes above the memoryless ceiling, on t1, t2 and
+  parity 4. The memoryless E-R control stays at the ceiling everywhere, so
+  the effect comes from the **state**, not from E-R's transfer function
+  (spec §16: "E-R with state > memoryless E-R ≈ static").
+- It solves only delayed XOR, and only with one hidden layer (64 or 128
+  neurons; 1×32 gives 0.94). Deeper E-R networks lose it: depth 4 and more
+  stay at chance. E-R's memory lasts about one step: x(t−3) is only
+  partly available, parity beyond 4 not at all, and the continuous t4 not
+  at all.
+- Deeper or wider E-R networks on t2 and t4 often diverge (NMSE in the
+  hundreds), like the 2-layer runs in §15.
+- Activity: at its best t1 architecture E-R has 48 % of hidden neurons
+  active per tick, 91 spikes per step.
+
+**Threshold growth rules.** `ThresholdGrowth` (network format 14; log stays
+the default) offers `linear` thr + a(s − thr), `fixed` thr + a and
+`multiplicative` thr·(1 + a), a = 0.5. Swept on t1, t2, t3 n=4, t4 and the
+static l1, l2 with depth {1, 2} × width {8 … 64}, the same lr grid and 5
+seeds, with learning from the last tick or from every tick at lr / ticks
+(`learn_ticks=all`). Raw results in `/mnt/project-files/reports/nonlinearity/growth/`.
+
+| Rule | t1 best (solved architectures) | t2 | t3 n=4 | l1 MSE (settle 7) | l2 MSE |
+|------|------|------|------|------|------|
+| log | 0.952 (1: 1×64) | 0.844 | 0.621 | 0.037 | 0.032 |
+| linear | **0.9995 (5, from 1×8)** | 0.755 | 0.586 | 0.038 | **0.026** |
+| fixed | 0.70 (0) | 0.784 | 0.617 | 0.082 | 0.068 |
+| multiplicative | 0.69 (0) | 0.756 | 0.567 | 0.107 | 0.096 |
+
+- The linear rule solves delayed XOR with 8 neurons, eight times fewer
+  than the log rule needs; on the static tasks it is as good as log or
+  slightly better. The rules that ignore the firing's magnitude (fixed,
+  multiplicative) lose both the memory and the static accuracy: the
+  information E-R carries is how strongly a neuron fired.
+- Learning from every tick did not help under any rule.
+- After a long silence (`er_silence`, recovery 0.97), the log rule's
+  overshoot drops accuracy to 0.5; with linear, fixed or multiplicative
+  growth it stays at 1.0. These rules instead fire 2–20× more on the first
+  sample after the silence (their thresholds come back low).
+
+**Takeaway.** E-R's state is a real, short memory that no stateless
+control has: it solves delayed XOR, which no static model can. But it
+reaches only about one step back, fails for deeper networks, and does not
+help with continuous-valued history. A linear growth rule makes that memory
+much cheaper (8 neurons) and removes the post-silence blindness, without
+costing static accuracy.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -591,6 +876,28 @@ control (`LayerSpec::gate`, network format 11) was added for this.
     path changes under a constant input, and the same input gets a
     different response after a different history.
 
+11. **E-R does not replace topology on static functions.** No network
+    size reached test MSE 1e-3 with E-R, where ReLU needs 5–129 neurons.
+    More ticks per sample buy E-R some nonlinearity (x1·x2: 0.029, vs
+    0.088 for a fixed threshold), paid in time and spikes.
+
+12. **E-R idles but does not sustain itself; habituation is the activity
+    saver.** Without input E-R keeps a slow spontaneous rhythm, but
+    recurrence does not turn it into self-sustained activity. After a long
+    silence the logarithmic threshold rule overshoots and blinds the
+    network for a while. Habituation cuts spikes up to 90× on held stimuli,
+    at the cost of the stimulus's representation; it needs a tolerance
+    to work on noisy sensors. On static tasks, a third to a half of E-R's
+    remaining error is state-dependent.
+13. **E-R's state is a one-step memory; a linear threshold rule makes it
+    cheap.** On temporal tasks only E-R with state beats the ceiling of a
+    network without memory (delayed XOR solved; x(t−3) and parity 4
+    partly); resetting its state removes the gain, so it is the state, not
+    the transfer function. It does not reach further back, fails in deep
+    networks, and does not help continuous history. With linear threshold
+    growth, delayed XOR needs 8 neurons instead of 64, and a long silence
+    no longer blinds the network.
+
 ## Open questions and next steps
 
 - **Alpha 2.0** (the search's recommendation) has not been applied; alpha is
@@ -599,9 +906,9 @@ control (`LayerSpec::gate`, network format 11) was added for this.
   signal strength (strong features want ≈ 0.5, weak inputs ≤ 0.2); only
   recovery, learning gain and alpha are per neuron today, and baseline is
   global.
-- **A threshold-growth rule with non-vanishing jumps** as an option, to test
-  whether frequency diversity helps (e.g. telling apart pulse trains with
-  different periods).
+- **Threshold growth rules** exist now (§16); linear growth is the
+  candidate for a new default, not yet changed. Next: sweep its amount and
+  recovery, and repeat the temporal grid with it.
 - **Deserialization of older files** (next version): read everything a file
   contains and default only what is missing; version-3 jitter widths become
   uniform jitter settings.

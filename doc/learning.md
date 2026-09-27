@@ -73,8 +73,9 @@ What each rule is for:
   through a fixed random matrix `B`, one row per neuron, drawn from the
   learning random stream the first time and saved with the network. No
   weight transport and no backward pass: it stays local. The surrogate
-  derivative is 1 while the neuron takes part (with E-R: eligible; without:
-  always) and 0 when it is held at `±max_output` in the direction it would
+  derivative is 1 while the neuron takes part (with E-R: eligible; with a
+  fixed threshold, `gate`: firing; otherwise always) and 0 when it is silent
+  or when it is held at `±max_output` in the direction it would
   be pushed.
 - **Perturbation** (node perturbation) gives per-neuron credit from a single
   scalar reward. `forward()` adds noise `ξ` to each neuron's sum, and the

@@ -1480,3 +1480,136 @@ TEST(GateTest, LayerSpecGateIsAppliedSavedAndChecked)
     bad.gate = -1.0f;
     EXPECT_THROW(net.addLayer("negative", bad), std::invalid_argument);
 }
+
+TEST(GateTest, RectifiedNeuronIsAReLU)
+{
+    neuron n(false, false);
+    n.setRectified(true);
+    EXPECT_EQ(n.activate(-0.5f), 0.0f);
+    EXPECT_FALSE(n.eligible());
+    EXPECT_EQ(n.activate(0.0f), 0.0f);
+    EXPECT_EQ(n.activate(0.3f), 0.3f);
+    EXPECT_EQ(n.activate(20.0f), max_output);  // still clamped
+    n.setGate(0.5f);                           // with a gate: only sums above it
+    EXPECT_EQ(n.activate(0.4f), 0.0f);
+    EXPECT_EQ(n.activate(-0.9f), 0.0f);
+    EXPECT_EQ(n.activate(0.6f), 0.6f);
+
+    network net;
+    LayerSpec spec = LayerSpec::Dense(2, false, false);
+    spec.rectify = true;
+    const auto relu = net.addLayer("relu", spec);
+    net.addInputs(relu, 1);
+    net.addOutput(relu);
+    net.layerAs<dense>(relu).setWeights(0, {1.0f});
+    net.layerAs<dense>(relu).setWeights(1, {-1.0f});
+    net.setInputs(std::vector<float>{0.7f});
+    net.step();
+    EXPECT_EQ(net.outputs()[0], 0.7f);
+    EXPECT_EQ(net.outputs()[1], 0.0f);
+    std::ostringstream text;
+    net.describe(text);
+    EXPECT_NE(text.str().find("relu"), std::string::npos) << text.str();
+
+    std::stringstream data;
+    net.save(data);
+    auto loaded = network::load(data);
+    EXPECT_TRUE(loaded->layerSpec(relu).rectify);
+    for (const neuron& n2 : loaded->layerAs<neuron_layer>(relu).neurons())
+        EXPECT_TRUE(n2.rectified());
+
+    LayerSpec bad = LayerSpec::Dense(1, false, true);
+    bad.rectify = true;
+    EXPECT_THROW(net.addLayer("er", bad), std::invalid_argument);
+}
+
+TEST(HabituationTest, DefaultRuleCutsAfterExactRepeats)
+{
+    neuron n(true, false);
+    for (int i = 0; i < habituation_steps - 1; ++i)
+        EXPECT_EQ(n.activate(0.5f), 0.5f) << i;  // the first tick starts the streak only if the sum equals 0
+    float last = 0.5f;
+    for (int i = 0; i < 3; ++i)
+        last = n.activate(0.5f);
+    EXPECT_EQ(last, 0.0f);
+    EXPECT_EQ(n.activate(0.6f), 0.6f);  // a change restores it
+}
+
+TEST(HabituationTest, FasterFadingAndTolerantRules)
+{
+    neuron n(true, false);
+    n.setHabituation({3, 0.0f, 0.5f});
+    // Streak: tick 1 differs from the initial 0; ticks 2..4 repeat it.
+    EXPECT_EQ(n.activate(1.0f), 1.0f);
+    EXPECT_EQ(n.activate(1.0f), 1.0f);
+    EXPECT_EQ(n.activate(1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(n.activate(1.0f), 0.5f);   // habituated: fades
+    EXPECT_FLOAT_EQ(n.activate(1.0f), 0.25f);
+    EXPECT_EQ(n.activate(2.0f), 2.0f);         // a change restores it
+
+    neuron flicker(true, false);
+    flicker.setHabituation({3, 0.01f, 0.0f});  // 1 % counts as the same signal
+    float y = 0.0f;
+    for (int i = 0; i < 6; ++i)
+        y = flicker.activate(i % 2 ? 1.0f : 1.005f);
+    EXPECT_EQ(y, 0.0f);
+    neuron exact(true, false);
+    exact.setHabituation({3, 0.0f, 0.0f});
+    for (int i = 0; i < 6; ++i)
+        y = exact.activate(i % 2 ? 1.0f : 1.005f);
+    EXPECT_NE(y, 0.0f);  // without tolerance, flicker never habituates
+
+    network net;
+    LayerSpec spec = LayerSpec::Dense(2, true, false);
+    spec.habituationRule = {5, 0.02f, 0.9f};
+    const auto id = net.addLayer("h", spec);
+    net.addInputs(id, 1);
+    for (const neuron& m : net.layerAs<neuron_layer>(id).neurons())
+        EXPECT_EQ(m.habituation(), spec.habituationRule);
+    std::stringstream data;
+    net.save(data);
+    auto loaded = network::load(data);
+    EXPECT_EQ(loaded->layerSpec(id).habituationRule, spec.habituationRule);
+    for (const neuron& m : loaded->layerAs<neuron_layer>(id).neurons())
+        EXPECT_EQ(m.habituation(), spec.habituationRule);
+
+    LayerSpec bad = LayerSpec::Dense(1, true, false);
+    bad.habituationRule.decay = 1.5f;
+    EXPECT_THROW(net.addLayer("bad", bad), std::invalid_argument);
+}
+
+TEST(ThresholdGrowthTest, RulesAndSaving)
+{
+    using Rule = ThresholdGrowth::Rule;
+    // One firing of magnitude 5 from rest (threshold baseline_threshold).
+    auto grownBy = [](ThresholdGrowth g) {
+        neuron n(false, true);
+        n.setThresholdGrowth(g);
+        EXPECT_EQ(n.activate(5.0f), 5.0f);
+        return n.threshold();
+    };
+    const float b = baseline_threshold;
+    EXPECT_FLOAT_EQ(grownBy({}), b + default_alpha * std::log(5.0f / b));  // the original rule
+    EXPECT_FLOAT_EQ(grownBy({Rule::Linear, 0.5f}), b + 0.5f * (5.0f - b));
+    EXPECT_FLOAT_EQ(grownBy({Rule::Fixed, 1.0f}), b + 1.0f);
+    EXPECT_FLOAT_EQ(grownBy({Rule::Multiplicative, 0.5f}), 2.0f * b);  // 1.5 b, raised to the floor 2 b
+    EXPECT_FLOAT_EQ(grownBy({Rule::Fixed, 0.0f}), 2.0f * b);
+
+    network net;
+    LayerSpec spec = LayerSpec::Dense(3, false, true);
+    spec.thresholdGrowth = {Rule::Linear, 0.25f};
+    const auto id = net.addLayer("h", spec);
+    net.addInputs(id, 1);
+    for (const neuron& m : net.layerAs<neuron_layer>(id).neurons())
+        EXPECT_EQ(m.thresholdGrowth(), spec.thresholdGrowth);
+    std::stringstream data;
+    net.save(data);
+    auto loaded = network::load(data);
+    EXPECT_EQ(loaded->layerSpec(id).thresholdGrowth, spec.thresholdGrowth);
+    for (const neuron& m : loaded->layerAs<neuron_layer>(id).neurons())
+        EXPECT_EQ(m.thresholdGrowth(), spec.thresholdGrowth);
+
+    LayerSpec bad = LayerSpec::Dense(1, false, true);
+    bad.thresholdGrowth.amount = -1.0f;
+    EXPECT_THROW(net.addLayer("bad", bad), std::invalid_argument);
+}

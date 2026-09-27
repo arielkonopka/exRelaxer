@@ -96,6 +96,44 @@ struct Jitter
     bool operator==(const Jitter&) const = default;
 };
 
+// How habituation works (for neurons that have it). The defaults are the
+// original behaviour: after `steps` consecutive ticks whose raw sums differ by
+// at most habituation_epsilon, the input is cut to 0 until it changes.
+struct Habituation
+{
+    std::uint32_t steps = habituation_steps;  // streak length (ticks) before the input is suppressed; >= 1
+    float tolerance = 0.0f;  // "the same signal": |sum - previous| <= max(habituation_epsilon,
+                             // tolerance * max(|sum|, |previous|)); 0 = exact (up to the epsilon)
+    float decay = 0.0f;      // once habituated, the input is scaled by decay^(ticks habituated):
+                             // 0 cuts it at once (the original), closer to 1 fades it slowly; [0, 1]
+
+    bool valid() const { return steps >= 1 && tolerance >= 0.0f && tolerance < 1.0f && decay >= 0.0f && decay <= 1.0f; }
+    bool operator==(const Habituation&) const = default;
+};
+
+// How an E-R threshold grows when the neuron fires with magnitude s > thr.
+// The default is the original logarithmic rule. Whatever the rule, the
+// threshold is at least 2 * baseline_threshold after a firing.
+//   Log             thr + alpha * ln(s / thr)   (alpha: the neuron's own, see alpha())
+//   Linear          thr + amount * (s - thr)    (moves part of the way towards s)
+//   Fixed           thr + amount                (the same jump whatever s is)
+//   Multiplicative  thr * (1 + amount)          (in proportion to the threshold)
+// Log's jump grows without bound as thr falls (after a long silence), the
+// others stay bounded by s, by amount, or by the threshold itself.
+struct ThresholdGrowth
+{
+    enum class Rule : std::uint8_t { Log = 0, Linear = 1, Fixed = 2, Multiplicative = 3 };
+
+    Rule rule = Rule::Log;
+    float amount = 0.5f;  // Linear, Fixed, Multiplicative; ignored by Log; finite, >= 0
+
+    bool valid() const
+    {
+        return static_cast<std::uint8_t>(rule) <= 3 && amount >= 0.0f && amount <= 1e6f;
+    }
+    bool operator==(const ThresholdGrowth&) const = default;
+};
+
 class neuron
 {
 public:
@@ -160,6 +198,19 @@ public:
     // the neuron.
     float gate() const { return gate_; }
     void setGate(float value) { gate_ = value; }
+    // Without E-R: rectification (ReLU). Only sums above the gate (0 by
+    // default) pass; the rest give output 0. Ignored with E-R. A layer-level
+    // setting (LayerSpec::rectify), like the gate.
+    bool rectified() const { return rectified_; }
+    void setRectified(bool value) { rectified_ = value; }
+    // How habituation suppresses a repeated input (see Habituation). A
+    // layer-level setting (LayerSpec::habituationRule), like the gate.
+    const Habituation& habituation() const { return habituation_; }
+    void setHabituation(const Habituation& value) { habituation_ = value; }
+    // How the E-R threshold grows on firing (see ThresholdGrowth). A
+    // layer-level setting (LayerSpec::thresholdGrowth), like the gate.
+    const ThresholdGrowth& thresholdGrowth() const { return growth_; }
+    void setThresholdGrowth(const ThresholdGrowth& value) { growth_ = value; }
 
     // --- Serialization --------------------------------------------------
     // One record: flags, alpha, the weights (count + values, passed in since
@@ -188,6 +239,9 @@ private:
     float recovery_ = recovery_factor;
     float learning_gain_ = default_learning_gain;
     float gate_ = 0.0f;
+    bool rectified_ = false;
+    Habituation habituation_;
+    ThresholdGrowth growth_;
     std::minstd_rand rng_;        // per neuron, so neurons can step in parallel; seeded from rng::spontaneousSeed()
 };
 

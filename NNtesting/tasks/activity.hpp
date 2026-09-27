@@ -17,6 +17,7 @@
 // activity or sparsity term anywhere: learning sees only task errors.
 #include <algorithm>
 #include <array>
+#include "er_options.hpp"
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -85,6 +86,11 @@ inline std::vector<nnt::ParamSpec> commonParams(std::vector<nnt::ParamSpec> extr
                           "linear network is as active as the trained E-R one"},
         {"recovery", "0.9", "E-R threshold decay per tick without firing (larger: slower recovery)"},
         {"habituation", "false", "habituation in the hidden paths"},
+        {"habituation_steps", "100", "habituation: ticks of the same input before it is suppressed"},
+        {"habituation_tolerance", "0", "habituation: relative change still counted as the same input (0: exact)"},
+        {"habituation_decay", "0", "habituation: suppressed input scaled by decay per tick (0: cut at once)"},
+        {"growth", "log", "E-R threshold growth on firing: log (original), linear, fixed, multiplicative"},
+        {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
         {"learning", "fa", "fa: paths and readouts learn from the task errors (feedback alignment, delta rule); "
                            "readout: paths frozen, readouts learn (sign rule, error-driven)"},
         {"lr", "0.0003", "learning rate"},
@@ -130,8 +136,13 @@ public:
         const std::vector<size_t> sizes = parseSizes(p.getString("paths"));
         for (size_t i = 0; i < sizes.size(); ++i) {
             LayerSpec spec = LayerSpec::Dense(sizes[i], habituation, model == "er");
+            spec.habituationRule = {static_cast<std::uint32_t>(p.getInt("habituation_steps")),
+                                    static_cast<float>(p.getDouble("habituation_tolerance")),
+                                    static_cast<float>(p.getDouble("habituation_decay"))};
             if (model == "gate")
                 spec.gate = gate >= 0.0f ? gate : static_cast<float>(p.getDouble("gate"));
+            if (model == "er")
+                spec.thresholdGrowth = er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount"));
             const float recovery = static_cast<float>(p.getDouble("recovery"));
             if (model == "er" && recovery != recovery_factor)  // a spread too small to matter: every neuron gets it
                 spec.recoveryJitter = Jitter::uniform(1e-7f).around(recovery);
@@ -261,9 +272,10 @@ private:
 };
 
 // A neuron counts as active in a tick when its output is non-zero; E-R's
-// spontaneous firings (+-0.01 after a long silence) are counted separately.
+// spontaneous firings (uniform in +-0.01, after a long silence) are counted
+// separately: any active output that small (task sums are far larger).
 inline bool active(float y) { return std::abs(y) > firing_epsilon; }
-inline bool spontaneous(float y) { return std::abs(std::abs(y) - spontaneous_min_amplitude) < 1e-7f; }
+inline bool spontaneous(float y) { return active(y) && std::abs(y) <= spontaneous_min_amplitude; }
 
 // Activity over a window of ticks.
 struct Summary

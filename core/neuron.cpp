@@ -91,15 +91,19 @@ float neuron::activate(float weightedSum)
         // Branchless habituation update:
         //   similar    == is this step's raw sum ~equal to last step's?
         //   counter    == similar ? (counter + 1) : 0          [streak length]
-        //   habituated == counter has reached habituation_steps
+        //   habituated == counter has reached the rule's steps
         //   sum        == habituated ? 0 : sum                 [suppress the input]
-        // previous_input_ exists purely for habituation's own repeat
-        // detection and is not read anywhere else.
-        const bool similar = std::abs(sum - previous_input_) <= habituation_epsilon;
+        // With a decay, a habituated input fades by decay per tick instead
+        // of being cut. previous_input_ exists purely for habituation's own
+        // repeat detection and is not read anywhere else.
+        const float tolerance = std::max(habituation_epsilon,
+                                         habituation_.tolerance * std::max(std::abs(sum), std::abs(previous_input_)));
+        const bool similar = std::abs(sum - previous_input_) <= tolerance;
         habituation_counter_ = static_cast<int>(similar) * (habituation_counter_ + 1);
         previous_input_ = sum;
-        const bool habituated = habituation_counter_ >= habituation_steps;
-        sum *= static_cast<float>(!habituated);
+        const int habituatedTicks = habituation_counter_ - static_cast<int>(habituation_.steps) + 1;
+        if (habituatedTicks > 0)
+            sum *= habituation_.decay > 0.0f ? std::pow(habituation_.decay, static_cast<float>(habituatedTicks)) : 0.0f;
     }
     output_ = sum;
     if (has_er_) {
@@ -118,8 +122,8 @@ float neuron::activate(float weightedSum)
                 excite(spontaneousOutput());
             }
         }
-    } else if (gate_ > 0.0f && std::abs(sum) <= gate_) {
-        output_ = 0.0f;  // fixed threshold: the same all-or-nothing gate, without adaptation
+    } else if (rectified_ ? sum <= gate_ : gate_ > 0.0f && std::abs(sum) <= gate_) {
+        output_ = 0.0f;  // fixed threshold (one-sided when rectified): all-or-nothing, without adaptation
     }
     return output_;
 }
@@ -129,8 +133,23 @@ void neuron::excite(float effectiveSum)
     // Sets the output to the (signed) effective sum and grows the
     // (always-positive) threshold with the firing's magnitude.
     output_ = effectiveSum;
-    const float ratio = std::abs(effectiveSum) / threshold_;
-    threshold_ = std::max(baseline_threshold * 2, threshold_ * 1.0f + alpha_ * std::log(ratio));
+    const float s = std::abs(effectiveSum);
+    float grown = threshold_;
+    switch (growth_.rule) {
+    case ThresholdGrowth::Rule::Log:
+        grown = threshold_ + alpha_ * std::log(s / threshold_);
+        break;
+    case ThresholdGrowth::Rule::Linear:
+        grown = threshold_ + growth_.amount * (s - threshold_);
+        break;
+    case ThresholdGrowth::Rule::Fixed:
+        grown = threshold_ + growth_.amount;
+        break;
+    case ThresholdGrowth::Rule::Multiplicative:
+        grown = threshold_ * (1.0f + growth_.amount);
+        break;
+    }
+    threshold_ = std::max(baseline_threshold * 2, grown);
 }
 
 float neuron::spontaneousOutput()
