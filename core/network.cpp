@@ -561,9 +561,10 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //        (neuron format 3)
 //  10  + cochlea channels, resize and disparity parameters per layer; named
 //        input sources (name and shape per addInputs) and connectInputs
-//  11  + fixed firing threshold (gate) and rectification per layer
+//  11  + fixed firing threshold (gate) per layer
+//  12  + rectification (ReLU) per layer
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 11;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 12;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -922,8 +923,9 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 spec.gate = readValue<float>(is);
                 if (!std::isfinite(spec.gate) || spec.gate < 0.0f)
                     throw std::runtime_error("network::load: invalid gate");
-                spec.rectify = readValue<std::uint8_t>(is) != 0;
             }
+            if (version >= 12)
+                spec.rectify = readValue<std::uint8_t>(is) != 0;
             net->addLayer(name, spec);
             break;
         }
