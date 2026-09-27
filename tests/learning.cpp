@@ -463,9 +463,20 @@ TEST(LearningRuleTest, OneNetworkMixesEveryRule)
     net.connect(fa, out);
     net.addOutput(out);
 
+    // Every neuron's weights per layer: which neurons fire (and so learn)
+    // in 30 ticks depends on the E-R rule, so the check is per layer.
+    auto allWeights = [&](network::LayerId id) {
+        std::vector<float> w;
+        const auto& layer = net.layerAs<dense>(id);
+        for (size_t n = 0; n < layer.size(); ++n) {
+            const auto row = layer.weights(n);
+            w.insert(w.end(), row.begin(), row.end());
+        }
+        return w;
+    };
     std::vector<std::vector<float>> before;
     for (auto id : {oja, bcm, trace, perturb, fa, out})
-        before.push_back(net.layerAs<dense>(id).weights(0));
+        before.push_back(allWeights(id));
     std::mt19937 gen(2);
     std::uniform_real_distribution<float> d(-1.0f, 1.0f);
     auto tick = [&](network& n, std::mt19937& g) {
@@ -478,7 +489,7 @@ TEST(LearningRuleTest, OneNetworkMixesEveryRule)
         tick(net, gen);
     size_t i = 0;
     for (auto id : {oja, bcm, trace, perturb, fa, out})
-        EXPECT_NE(net.layerAs<dense>(id).weights(0), before[i++]) << net.layerName(id);
+        EXPECT_NE(allWeights(id), before[i++]) << net.layerName(id);
     EXPECT_EQ(net.layerAs<dense>(fa).feedbackRow(0).size(), 2u);
 
     std::stringstream ss;

@@ -371,6 +371,7 @@ TEST(NeuronTest, AlphaSetsThresholdGrowth)
     // refractory period before a weaker input fires again.
     auto ticksUntilRefire = [](float alpha) {
         neuron n(false, true);
+        n.setThresholdGrowth({ThresholdGrowth::Rule::Log});  // alpha scales the log rule only
         n.setAlpha(alpha);
         std::vector<float> in = {5.0f};
         const std::vector<float> w = {1.0f};

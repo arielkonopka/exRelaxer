@@ -906,9 +906,9 @@ costing static accuracy.
   signal strength (strong features want ≈ 0.5, weak inputs ≤ 0.2); only
   recovery, learning gain and alpha are per neuron today, and baseline is
   global.
-- **Threshold growth rules** exist now (§16); linear growth is the
-  candidate for a new default, not yet changed. Next: sweep its amount and
-  recovery, and repeat the temporal grid with it.
+- **Linear threshold growth is the default** since 2026-09-27 (§16, the
+  user's decision). §1–§16 were run with the log rule. Next: sweep its
+  amount and recovery, and repeat the temporal grid with it.
 - **Deserialization of older files** (next version): read everything a file
   contains and default only what is missing; version-3 jitter widths become
   uniform jitter settings.

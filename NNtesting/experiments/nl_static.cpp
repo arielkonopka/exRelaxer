@@ -54,7 +54,7 @@ nnt::Register experiment({
         {"data_seed", "1", "seed of the training stream (validation +1, test +2)"},
         {"model", "relu", "hidden neurons: relu, er, gate (fixed threshold), clamp (plain neuron; alias linear)"},
         {"gate", "0.2", "gate model: the fixed threshold (default: E-R's resting threshold, baseline_threshold)"},
-        {"growth", "log", "E-R threshold growth on firing: log (original), linear, fixed, multiplicative"},
+        {"growth", "linear", "E-R threshold growth on firing: linear (default), log (original), fixed, multiplicative"},
         {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
         {"learn_ticks", "last", "training: learn from the last tick's error (last) or from every tick at lr/ticks (all)"},
         {"depth", "2", "hidden layers"},

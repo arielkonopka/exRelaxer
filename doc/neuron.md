@@ -98,31 +98,36 @@ For one neuron with caller-owned weights, `step(inputs, weights)` is
 E-R models fatigue / spike-frequency adaptation: a neuron that fires becomes
 harder to fire, and recovers while silent.
 
-On every firing with value `v` (real or spontaneous):
+On every firing with value `v` (real or spontaneous), by default:
 
 ```
-ratio     = |v| / threshold
-threshold = max(2 × baseline_threshold, threshold + alpha × ln(ratio))
+threshold = max(2 × baseline_threshold, threshold + amount × (|v| − threshold))
 ```
 
-- Growth is **additive** in `ln(ratio)`: a firing far above the threshold
-  raises it a lot, a marginal one barely.
+with `amount` 0.5: the threshold moves halfway towards the firing's
+magnitude, so a firing far above the threshold raises it a lot, a marginal
+one barely.
+
 - The floor `2 × baseline_threshold` guarantees that right after any firing
   the threshold is above `baseline_threshold`, which is what makes the
   neuron eligible to learn (see below).
-- The logarithmic rule is the default. `ThresholdGrowth` (per layer through
-  `LayerSpec::thresholdGrowth`, or `neuron::setThresholdGrowth`) selects
-  another, with the same floor:
+- `ThresholdGrowth` (per layer through `LayerSpec::thresholdGrowth`, or
+  `neuron::setThresholdGrowth`) selects the rule, always with the same
+  floor:
 
   | Rule | New threshold | Note |
   |------|---------------|------|
-  | `Log` (default) | `threshold + alpha × ln(abs(v) / threshold)` | the jump grows without bound as the threshold falls: after a long silence one firing makes the neuron refractory |
-  | `Linear` | `threshold + amount × (abs(v) − threshold)` | moves part of the way towards the firing's magnitude |
+  | `Linear` (default) | `threshold + amount × (abs(v) − threshold)` | moves part of the way towards the firing's magnitude |
+  | `Log` (the original) | `threshold + alpha × ln(abs(v) / threshold)` | the neuron's `alpha` sets the rate; the jump grows without bound as the threshold falls: after a long silence one firing makes the neuron refractory |
   | `Fixed` | `threshold + amount` | the same jump for every firing |
   | `Multiplicative` | `threshold × (1 + amount)` | in proportion to the threshold; ignores the magnitude |
 
   `amount` defaults to 0.5. `Log` and `Linear` keep a trace of how strong
   the firing was; `Fixed` and `Multiplicative` only that it happened.
+  Linear became the default on 2026-09-27 after the temporal and silence
+  experiments ([research log §16](research.md#16-temporal-tasks-and-the-threshold-growth-rule)).
+  Networks saved in format 13 or earlier load with `Log`, the only rule
+  they knew; `alpha` affects only `Log`.
 - While silent the threshold decays geometrically (`× recovery` per tick,
   0.9 by default), so a neuron that fired strongly stays refractory for a
   while. Because the threshold keeps a trace of recent firing, E-R neurons

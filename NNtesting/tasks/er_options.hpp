@@ -6,7 +6,7 @@
 
 namespace er_options {
 
-// "log" (the original, default), "linear", "fixed" or "multiplicative";
+// "linear" (the default), "log" (the original), "fixed" or "multiplicative";
 // `amount` is used by all but log (see exr::ThresholdGrowth).
 inline exr::ThresholdGrowth thresholdGrowth(const std::string& rule, double amount)
 {

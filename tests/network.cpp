@@ -1589,7 +1589,8 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
         return n.threshold();
     };
     const float b = baseline_threshold;
-    EXPECT_FLOAT_EQ(grownBy({}), b + default_alpha * std::log(5.0f / b));  // the original rule
+    EXPECT_FLOAT_EQ(grownBy({}), b + 0.5f * (5.0f - b));  // the default: linear
+    EXPECT_FLOAT_EQ(grownBy({Rule::Log, 0.5f}), b + default_alpha * std::log(5.0f / b));  // the original
     EXPECT_FLOAT_EQ(grownBy({Rule::Linear, 0.5f}), b + 0.5f * (5.0f - b));
     EXPECT_FLOAT_EQ(grownBy({Rule::Fixed, 1.0f}), b + 1.0f);
     EXPECT_FLOAT_EQ(grownBy({Rule::Multiplicative, 0.5f}), 2.0f * b);  // 1.5 b, raised to the floor 2 b
@@ -1597,7 +1598,7 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
 
     network net;
     LayerSpec spec = LayerSpec::Dense(3, false, true);
-    spec.thresholdGrowth = {Rule::Linear, 0.25f};
+    spec.thresholdGrowth = {Rule::Log, 0.25f};
     const auto id = net.addLayer("h", spec);
     net.addInputs(id, 1);
     for (const neuron& m : net.layerAs<neuron_layer>(id).neurons())

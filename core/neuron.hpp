@@ -112,10 +112,11 @@ struct Habituation
 };
 
 // How an E-R threshold grows when the neuron fires with magnitude s > thr.
-// The default is the original logarithmic rule. Whatever the rule, the
-// threshold is at least 2 * baseline_threshold after a firing.
-//   Log             thr + alpha * ln(s / thr)   (alpha: the neuron's own, see alpha())
+// The default is Linear (since network format 14; files saved before load
+// with Log, the original rule). Whatever the rule, the threshold is at
+// least 2 * baseline_threshold after a firing.
 //   Linear          thr + amount * (s - thr)    (moves part of the way towards s)
+//   Log             thr + alpha * ln(s / thr)   (alpha: the neuron's own, see alpha())
 //   Fixed           thr + amount                (the same jump whatever s is)
 //   Multiplicative  thr * (1 + amount)          (in proportion to the threshold)
 // Log's jump grows without bound as thr falls (after a long silence), the
@@ -124,7 +125,7 @@ struct ThresholdGrowth
 {
     enum class Rule : std::uint8_t { Log = 0, Linear = 1, Fixed = 2, Multiplicative = 3 };
 
-    Rule rule = Rule::Log;
+    Rule rule = Rule::Linear;
     float amount = 0.5f;  // Linear, Fixed, Multiplicative; ignored by Log; finite, >= 0
 
     bool valid() const

@@ -951,7 +951,9 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                     !std::isfinite(spec.habituationRule.decay))
                     throw std::runtime_error("network::load: invalid habituation rule");
             }
-            if (version >= 14) {
+            if (version < 14)
+                spec.thresholdGrowth.rule = ThresholdGrowth::Rule::Log;  // the only rule before format 14
+            else {
                 spec.thresholdGrowth.rule = static_cast<ThresholdGrowth::Rule>(readValue<std::uint8_t>(is));
                 spec.thresholdGrowth.amount = readValue<float>(is);
                 if (!spec.thresholdGrowth.valid() || !std::isfinite(spec.thresholdGrowth.amount))

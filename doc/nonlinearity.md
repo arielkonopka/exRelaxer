@@ -47,7 +47,9 @@ state carries on from one sample to the next, as it would in use.
 
 **E-R configuration** (recorded in every result line): alpha 1.2, resting
 threshold 0.2, threshold after any firing ≥ 0.4, growth
-`threshold + alpha·ln(|s|/threshold)`, recovery 0.9 per silent tick,
+`threshold + alpha·ln(|s|/threshold)` (the log rule, the default when
+milestone 1 and §16 were run; linear growth is the default since, so pass
+`growth=log` to reproduce them), recovery 0.9 per silent tick,
 habituation off, learning gain 2. Spontaneous firing is part of production
 E-R and cannot be switched off without changing it. It happens only after
 about 200 silent ticks (threshold ≤ 1e-10), far longer than a sample.
