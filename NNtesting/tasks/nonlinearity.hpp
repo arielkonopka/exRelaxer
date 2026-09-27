@@ -1,13 +1,18 @@
 #pragma once
-// Shared by the nonlinearity-substitution experiments (nl_static): known
-// target functions, a stack of equal-width hidden layers with one linear
-// output, and meters for activity and cost on the test set.
+// Shared by the nonlinearity-substitution experiments (nl_static,
+// nl_temporal): known target functions, a stack of equal-width hidden layers
+// with one linear output, and meters for activity and cost on the test set.
 //
 //   x (d inputs) --> hidden 1 --> ... --> hidden depth --> output (1, linear)
 //
 // The compared models differ only in their hidden neurons:
 //   relu    conventional: output = max(0, sum)   (LayerSpec::rectify)
 //   er      production E-R, habituation off: adaptive threshold, state across ticks
+//   er_memoryless
+//           the same E-R neurons, but every hidden neuron's state (threshold,
+//           output) is reset to rest before each presentation: E-R's transfer
+//           within a presentation, no memory across them. A test-only
+//           wrapper: it resets through the neuron's public serialization.
 //   gate    static threshold: output = sum if |sum| > gate, else 0 (LayerSpec::gate)
 //   clamp   the library's plain neuron: output = sum, clamped to +-max_output
 //           (nearly linear for these inputs; "linear" is the same model)
@@ -23,6 +28,7 @@
 #include <memory>
 #include <numbers>
 #include <random>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -98,6 +104,72 @@ struct StaticTask
     }
 };
 
+// A temporal task on a stream x(0), x(1), ...: y(t) depends on x(t) and
+// earlier values. Binary tasks draw x(t) in {0, 1} (fair coin) and present
+// it as -1 / +1; the target is 0 or 1 and a decision is y > 0.5.
+//   t1  y = x(t) XOR x(t-1)                       (delayed XOR)
+//   t2  y = x(t) AND NOT x(t-3)                   (delayed conjunction)
+//   t3  y = x(t) XOR x(t-1) XOR ... XOR x(t-n+1)   (parity of the last n)
+//   t4  y = sin(x(t) * x(t-2)), x(t) uniform in [-1, 1]
+// With a window W, the network also sees x(t-1) .. x(t-W) as extra inputs
+// (a tapped delay line): enough window turns the task into a static one.
+struct TemporalTask
+{
+    std::string level;
+    size_t n = 2;       // t3: parity length
+    size_t window = 0;  // extra past inputs shown to the network
+
+    TemporalTask(const std::string& level_, size_t n_, size_t window_) : level(level_), n(n_), window(window_)
+    {
+        if (level != "t1" && level != "t2" && level != "t3" && level != "t4")
+            throw std::invalid_argument("task must be t1, t2, t3 or t4");
+        if (level == "t3" && n < 1)
+            throw std::invalid_argument("t3 needs n >= 1");
+    }
+
+    bool binary() const { return level != "t4"; }
+    size_t inputs() const { return window + 1; }
+    // How far back the target reaches.
+    size_t lag() const { return level == "t1" ? 1 : level == "t2" ? 3 : level == "t3" ? n - 1 : 2; }
+    double complexity() const { return level == "t3" ? static_cast<double>(n) : static_cast<double>(level[1] - '0'); }
+
+    // Stream values: {0, 1} for binary tasks, [-1, 1] for t4.
+    float draw(std::mt19937& g) const
+    {
+        if (binary())
+            return static_cast<float>(std::uniform_int_distribution<int>(0, 1)(g));
+        return std::uniform_real_distribution<float>(-1.0f, 1.0f)(g);
+    }
+
+    // Target at the end of `history` (history.back() is x(t)); needs lag()+1 values.
+    float target(const std::vector<float>& h) const
+    {
+        const size_t t = h.size() - 1;
+        auto bit = [&](size_t back) { return h[t - back] > 0.5f; };
+        if (level == "t1")
+            return static_cast<float>(bit(0) != bit(1));
+        if (level == "t2")
+            return static_cast<float>(bit(0) && !bit(3));
+        if (level == "t3") {
+            bool parity = false;
+            for (size_t b = 0; b < n; ++b)
+                parity ^= bit(b);
+            return static_cast<float>(parity);
+        }
+        return std::sin(h[t] * h[t - 2]);
+    }
+
+    // The network's input at the end of `history`: x(t), x(t-1) .. x(t-window).
+    void present(const std::vector<float>& h, std::vector<float>& x) const
+    {
+        x.resize(inputs());
+        for (size_t w = 0; w <= window; ++w) {
+            const float v = w < h.size() ? h[h.size() - 1 - w] : 0.0f;
+            x[w] = binary() ? 2.0f * v - 1.0f : v;
+        }
+    }
+};
+
 // n samples, x uniform in [-1, 1]^d, from their own seed.
 struct Dataset
 {
@@ -153,10 +225,11 @@ class Mlp
 {
 public:
     Mlp(const std::string& model, size_t inputs, size_t depth, size_t width, float gate)
-        : model_(model == "linear" ? "clamp" : model), inputs_(inputs), depth_(depth), width_(width)
+        : model_(model == "linear" ? "clamp" : model == "er_memoryless" ? "er" : model),
+          memoryless_(model == "er_memoryless"), inputs_(inputs), depth_(depth), width_(width)
     {
         if (model_ != "relu" && model_ != "er" && model_ != "gate" && model_ != "clamp")
-            throw std::invalid_argument("model must be relu, er, gate or clamp");
+            throw std::invalid_argument("model must be relu, er, er_memoryless, gate or clamp");
         if (depth == 0 || width == 0)
             throw std::invalid_argument("depth and width must be at least 1");
         const LearningRule rule = LearningRule::feedbackAlignment().withBias();
@@ -202,6 +275,20 @@ public:
     size_t hold(size_t settle) const { return depth_ + 1 + settle; }
     network& net() { return net_; }
     const neuron_layer& hidden(size_t l) const { return net_.layerAs<neuron_layer>(hidden_[l]); }
+    bool memoryless() const { return memoryless_; }
+
+    // Puts every hidden neuron back at rest (resting threshold, zero output,
+    // no habituation streak) without touching weights or per-neuron
+    // dynamics: a WeightsOnly round trip through the neuron's own format.
+    void resetHiddenState()
+    {
+        for (size_t l = 0; l < depth_; ++l)
+            for (neuron& n : net_.layerAs<neuron_layer>(hidden_[l]).neurons()) {
+                std::stringstream buffer;
+                n.serialize(buffer, {});
+                n.deserialize(buffer, DeserializeMode::WeightsOnly);
+            }
+    }
 
     // Presents x for `ticks` ticks and returns the output at the last one.
     // With a meter, counts hidden activity on every tick; with `trace`, also
@@ -209,6 +296,8 @@ public:
     float present(const std::vector<float>& x, size_t ticks, Activity* meter = nullptr, std::ostream* trace = nullptr,
                   const std::string& tracePrefix = "")
     {
+        if (memoryless_)
+            resetHiddenState();
         net_.setInputs("x", x);
         if (meter) {
             meter->used.assign(hiddenNeurons(), 0);
@@ -259,6 +348,7 @@ public:
 
 private:
     std::string model_;
+    bool memoryless_ = false;
     size_t inputs_, depth_, width_;
     network net_;
     std::vector<network::LayerId> hidden_;
