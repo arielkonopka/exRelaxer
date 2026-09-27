@@ -61,6 +61,11 @@ nnt::Register experiment({
         {"spontaneous_rate", "0", "E-R: extra probability of a spontaneous firing on any silent tick"},
         {"pretrain_model", "", "train first with these hidden neurons (relu, gate, clamp, er), then copy the weights into `model` (empty: no pretraining)"},
         {"pretrain", "0", "samples (steps) of pretraining with pretrain_model"},
+        {"habituation", "false", "habituation in the hidden layers (every model)"},
+        {"habituation_steps", "100", "habituation, cut mode: repeats before the input is cut"},
+        {"habituation_tolerance", "0", "habituation: relative change still counted as a repeat (0: exact)"},
+        {"habituation_decay", "0", "habituation: 0 cuts; a value in (0, 1] fades the input by that factor per repeat"},
+        {"habituation_fade_after", "2", "habituation with a decay: repeats before fading starts"},
         {"learn_ticks", "last", "training: learn from the last tick's error (last) or from every tick at lr/ticks (all)"},
         {"depth", "2", "hidden layers"},
         {"width", "16", "neurons per hidden layer"},
@@ -92,10 +97,17 @@ nnt::Register experiment({
         const size_t evalEvery = std::max<size_t>(1, static_cast<size_t>(p.getInt("eval_every")));
         const double target = p.getDouble("target_mse");
 
+        std::optional<Habituation> habituationRule;
+        if (p.getBool("habituation"))
+            habituationRule = Habituation{static_cast<std::uint32_t>(p.getInt("habituation_steps")),
+                                          static_cast<float>(p.getDouble("habituation_tolerance")),
+                                          static_cast<float>(p.getDouble("habituation_decay")),
+                                          static_cast<std::uint32_t>(p.getInt("habituation_fade_after"))};
         const Spontaneous spontaneousSetting = er_options::spontaneous(
             p.getDouble("spontaneous_below"), p.getDouble("spontaneous_amplitude"), p.getDouble("spontaneous_rate"));
         Mlp net(model, task.inputs, depth, width, static_cast<float>(p.getDouble("gate")),
-                er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting);
+                er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
+                habituationRule);
         const std::string learnTicks = p.getString("learn_ticks");
         if (learnTicks != "last" && learnTicks != "all")
             throw std::invalid_argument("learn_ticks must be last or all");
@@ -140,7 +152,8 @@ nnt::Register experiment({
         const size_t pretrain = pretrainModel.empty() ? 0 : static_cast<size_t>(p.getInt("pretrain"));
         if (pretrain > 0) {
             Mlp pre(pretrainModel, task.inputs, depth, width, static_cast<float>(p.getDouble("gate")),
-                    er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting);
+                    er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
+                habituationRule);
             cur = &pre;
             trainSamples(pretrain);
             const double preMse = mseOf(validation, nullptr, nullptr, 0);
@@ -276,7 +289,7 @@ nnt::Register experiment({
         t.record("er_recovery", recovery_factor);
         t.record("er_spontaneous_below_threshold", min_threshold);
         t.record("er_spontaneous_amplitude", spontaneous_min_amplitude);
-        t.record("habituation", 0.0);
+        t.record("habituation", habituationRule ? 1.0 : 0.0);
         t.record("learning_gain", default_learning_gain);
         t.record("max_output", max_output);
         t.record("max_weight", max_weight);

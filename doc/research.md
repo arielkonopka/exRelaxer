@@ -407,7 +407,7 @@ learned mix 12–13).
 
 Named input sources, a cochlea with several microphones, `Resize2D` and
 `Disparity` ([multimodal](multimodal.md)) were tested with two experiments.
-Result files: `/mnt/project-files/reports/multimodal/` in the project.
+Result files: [`results/multimodal/`](../results/multimodal/).
 
 **Stereo depth** (`nntest run stereo_depth`, 5 trials). Julesz random-dot
 stereograms, 16 × 32: each eye sees only ±1 dots; an 8 × 8 square floats in
@@ -477,7 +477,7 @@ production E-R hidden neurons with linear neurons and with a fixed
 threshold (`gate`) calibrated to be exactly as sparse as E-R. Three paths
 of 12, 20 and 35 neurons connect 32 inputs to 4 linear readouts; 4 noisy
 prototypes, each held for 4 ticks. 10 trials each. Result files:
-`/mnt/project-files/reports/er-activity/` in the project.
+[`results/er-activity/`](../results/er-activity/).
 
 **Economy** (`nntest run er_economy`, Exp 1 and 6).
 
@@ -582,7 +582,7 @@ neurons? The runs covered:
 
 Every model uses the same data, initial weights, feedback-alignment
 learning and stopping rule. Result files are in
-`/mnt/project-files/reports/nonlinearity/` in the project.
+[`results/nonlinearity/`](../results/nonlinearity/).
 
 **Minimum architecture.**
 
@@ -669,8 +669,8 @@ remain to test:
 ## 15. How E-R behaves: learning, silence, state, habituation
 
 Four questions that followed §13 and §14. There is no activity term in any
-of these experiments. Result files are in `/mnt/project-files/reports/` in
-the project: `nonlinearity/curves`, `nonlinearity/state`, `er-silence` and
+of these experiments. Result files are in [`results/`](../results/):
+`nonlinearity/curves`, `nonlinearity/state`, `er-silence` and
 `er-habituation`.
 
 **Learning curves** (`nl_static`, `early_stop=false`, 100 000 samples,
@@ -788,7 +788,7 @@ rest before every step: a test-only wrapper), `gate`, `clamp`. Depth
 Success, fixed in advance: accuracy ≥ 0.95 (MSE ≤ 1e-3 on `t4`) in ≥ 80 %
 of seeds. `input_ceiling_accuracy` is the best any function of x(t) alone
 can do. 21 600 trials; raw results in
-`/mnt/project-files/reports/nonlinearity/temporal/`.
+[`results/nonlinearity/temporal/`](../results/nonlinearity/temporal/).
 
 **Results** (median test accuracy at each model's best architecture):
 
@@ -819,7 +819,7 @@ the default for these runs; linear is the default since) offers `linear` thr + a
 `multiplicative` thr·(1 + a), a = 0.5. Swept on t1, t2, t3 n=4, t4 and the
 static l1, l2 with depth {1, 2} × width {8 … 64}, the same lr grid and 5
 seeds, with learning from the last tick or from every tick at lr / ticks
-(`learn_ticks=all`). Raw results in `/mnt/project-files/reports/nonlinearity/growth/`.
+(`learn_ticks=all`). Raw results in [`results/nonlinearity/growth/`](../results/nonlinearity/growth/).
 
 | Rule | t1 best (solved architectures) | t2 | t3 n=4 | l1 MSE (settle 7) | l2 MSE |
 |------|------|------|------|------|------|

@@ -27,6 +27,7 @@
 #include <fstream>
 #include <memory>
 #include <numbers>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -226,7 +227,8 @@ class Mlp
 {
 public:
     Mlp(const std::string& model, size_t inputs, size_t depth, size_t width, float gate,
-        const ThresholdGrowth& growth = {}, const Spontaneous& spontaneous = {})
+        const ThresholdGrowth& growth = {}, const Spontaneous& spontaneous = {},
+        std::optional<Habituation> habituation = std::nullopt)
         : model_(model == "linear" ? "clamp" : model == "er_memoryless" ? "er" : model),
           memoryless_(model == "er_memoryless"), inputs_(inputs), depth_(depth), width_(width)
     {
@@ -236,7 +238,9 @@ public:
             throw std::invalid_argument("depth and width must be at least 1");
         const LearningRule rule = LearningRule::feedbackAlignment().withBias();
         for (size_t l = 0; l < depth; ++l) {
-            LayerSpec spec = LayerSpec::Dense(width, false, model_ == "er");
+            LayerSpec spec = LayerSpec::Dense(width, habituation.has_value(), model_ == "er");
+            if (habituation)
+                spec.habituationRule = *habituation;
             spec.rectify = model_ == "relu";
             if (model_ == "gate")
                 spec.gate = gate;
