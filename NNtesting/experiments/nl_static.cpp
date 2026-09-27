@@ -54,6 +54,9 @@ nnt::Register experiment({
         {"data_seed", "1", "seed of the training stream (validation +1, test +2)"},
         {"model", "relu", "hidden neurons: relu, er, gate (fixed threshold), clamp (plain neuron; alias linear)"},
         {"gate", "0.2", "gate model: the fixed threshold (default: E-R's resting threshold, baseline_threshold)"},
+        {"growth", "log", "E-R threshold growth on firing: log (original), linear, fixed, multiplicative"},
+        {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
+        {"learn_ticks", "last", "training: learn from the last tick's error (last) or from every tick at lr/ticks (all)"},
         {"depth", "2", "hidden layers"},
         {"width", "16", "neurons per hidden layer"},
         {"lr", "0.01", "learning rate (the same for every model)"},
@@ -84,7 +87,11 @@ nnt::Register experiment({
         const size_t evalEvery = std::max<size_t>(1, static_cast<size_t>(p.getInt("eval_every")));
         const double target = p.getDouble("target_mse");
 
-        Mlp net(model, task.inputs, depth, width, static_cast<float>(p.getDouble("gate")));
+        Mlp net(model, task.inputs, depth, width, static_cast<float>(p.getDouble("gate")),
+                er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")));
+        const std::string learnTicks = p.getString("learn_ticks");
+        if (learnTicks != "last" && learnTicks != "all")
+            throw std::invalid_argument("learn_ticks must be last or all");
         const size_t hold = net.hold(static_cast<size_t>(p.getInt("settle")));
         const Dataset validation(task, static_cast<size_t>(p.getInt("validation")), dataSeed + 1);
         const Dataset test(task, static_cast<size_t>(p.getInt("test")), dataSeed + 2);
@@ -118,8 +125,10 @@ nnt::Register experiment({
             for (size_t i = 0; i < block; ++i) {
                 for (float& v : x)
                     v = u(g);
-                const float y = net.present(x, hold);
-                net.learn(task(x), y, lr);
+                if (learnTicks == "all")
+                    net.presentLearningEveryTick(x, hold, task(x), lr);
+                else
+                    net.learn(task(x), net.present(x, hold), lr);
             }
             trained += block;
             validationMse = mseOf(validation, nullptr, nullptr, 0);

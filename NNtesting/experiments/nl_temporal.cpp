@@ -71,6 +71,9 @@ nnt::Register experiment({
         {"data_seed", "1", "seed of the training stream (validation +1, test +2)"},
         {"model", "er", "hidden neurons: relu, er, er_memoryless (state reset every step), gate, clamp (alias linear)"},
         {"gate", "0.2", "gate model: the fixed threshold (default: E-R's resting threshold)"},
+        {"growth", "log", "E-R threshold growth on firing: log (original), linear, fixed, multiplicative"},
+        {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
+        {"learn_ticks", "last", "training: learn from the last tick's error (last) or from every tick at lr/ticks (all)"},
         {"depth", "1", "hidden layers"},
         {"width", "16", "neurons per hidden layer"},
         {"lr", "0.003", "learning rate (the same for every model)"},
@@ -100,7 +103,11 @@ nnt::Register experiment({
         const size_t warmup = std::max(static_cast<size_t>(p.getInt("warmup")), task.lag() + task.window);
         const double targetAccuracy = p.getDouble("target_accuracy"), targetMse = p.getDouble("target_mse");
 
-        Mlp net(model, task.inputs(), depth, width, static_cast<float>(p.getDouble("gate")));
+        Mlp net(model, task.inputs(), depth, width, static_cast<float>(p.getDouble("gate")),
+                er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")));
+        const std::string learnTicks = p.getString("learn_ticks");
+        if (learnTicks != "last" && learnTicks != "all")
+            throw std::invalid_argument("learn_ticks must be last or all");
         const size_t hold = net.hold(static_cast<size_t>(p.getInt("settle")));
         const size_t keep = task.lag() + task.window + 1;
 
@@ -129,12 +136,18 @@ nnt::Register experiment({
                 const std::string prefix = tr ? model + ',' + std::to_string(depth) + ',' + std::to_string(width) + ',' +
                                                     std::to_string(t.seed()) + ',' + std::to_string(i - skip)
                                               : std::string();
-                const float y = net.present(x, hold, scored ? meter : nullptr, tr, prefix);
-                if (h.size() <= task.lag())
+                const bool known = h.size() > task.lag();
+                const float target = known ? task.target(hv) : 0.0f;
+                float y;
+                if (learn && known && learnTicks == "all") {
+                    y = net.presentLearningEveryTick(x, hold, target, lr);
+                } else {
+                    y = net.present(x, hold, scored ? meter : nullptr, tr, prefix);
+                    if (learn && known)
+                        net.learn(target, y, lr);
+                }
+                if (!known)
                     continue;
-                const float target = task.target(hv);
-                if (learn)
-                    net.learn(target, y, lr);
                 if (!scored)
                     continue;
                 const double e = static_cast<double>(y) - target;

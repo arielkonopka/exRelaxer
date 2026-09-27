@@ -32,6 +32,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "er_options.hpp"
 #include "experiment.hpp"
 #include "layers/dense.hpp"
 #include "network.hpp"
@@ -224,7 +225,8 @@ inline double quantile(std::vector<float> v, double q)
 class Mlp
 {
 public:
-    Mlp(const std::string& model, size_t inputs, size_t depth, size_t width, float gate)
+    Mlp(const std::string& model, size_t inputs, size_t depth, size_t width, float gate,
+        const ThresholdGrowth& growth = {})
         : model_(model == "linear" ? "clamp" : model == "er_memoryless" ? "er" : model),
           memoryless_(model == "er_memoryless"), inputs_(inputs), depth_(depth), width_(width)
     {
@@ -238,6 +240,8 @@ public:
             spec.rectify = model_ == "relu";
             if (model_ == "gate")
                 spec.gate = gate;
+            if (model_ == "er")
+                spec.thresholdGrowth = growth;
             spec.learningRule = rule;
             hidden_.push_back(net_.addLayer("h" + std::to_string(l + 1), spec));
         }
@@ -344,6 +348,23 @@ public:
     {
         const float error = target - y;
         net_.applyError(std::span<const float>(&error, 1), lr);
+    }
+
+    // Training presentation that learns on every tick, lr / ticks each
+    // time: the update follows the activity over the whole presentation
+    // rather than its last tick. Returns the output at the last tick.
+    float presentLearningEveryTick(const std::vector<float>& x, size_t ticks, float target, float lr)
+    {
+        if (memoryless_)
+            resetHiddenState();
+        net_.setInputs("x", x);
+        float y = 0.0f;
+        for (size_t t = 0; t < ticks; ++t) {
+            net_.step();
+            y = net_.outputs()[0];
+            learn(target, y, lr / static_cast<float>(ticks));
+        }
+        return y;
     }
 
 private:

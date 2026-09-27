@@ -47,6 +47,11 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a habituation rule");
         dynamic_cast<neuron_layer&>(*impl).setHabituationRule(spec.habituationRule);
     }
+    if (spec.thresholdGrowth != ThresholdGrowth{}) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a threshold growth rule");
+        dynamic_cast<neuron_layer&>(*impl).setThresholdGrowth(spec.thresholdGrowth);
+    }
     if (spec.rectify) {
         if (!impl->hasNeurons())
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to rectify");
@@ -569,8 +574,9 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //  11  + fixed firing threshold (gate) per layer
 //  12  + rectification (ReLU) per layer
 //  13  + habituation rule (steps, tolerance, decay) per layer
+//  14  + E-R threshold growth rule (rule, amount) per layer
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 13;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 14;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -810,6 +816,8 @@ void network::save(std::ostream& os) const
             writeValue<std::uint32_t>(os, node.spec.habituationRule.steps);
             writeValue(os, node.spec.habituationRule.tolerance);
             writeValue(os, node.spec.habituationRule.decay);
+            writeValue(os, static_cast<std::uint8_t>(node.spec.thresholdGrowth.rule));
+            writeValue(os, node.spec.thresholdGrowth.amount);
             break;
         }
         case OpKind::Connect:
@@ -942,6 +950,12 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 if (!spec.habituationRule.valid() || !std::isfinite(spec.habituationRule.tolerance) ||
                     !std::isfinite(spec.habituationRule.decay))
                     throw std::runtime_error("network::load: invalid habituation rule");
+            }
+            if (version >= 14) {
+                spec.thresholdGrowth.rule = static_cast<ThresholdGrowth::Rule>(readValue<std::uint8_t>(is));
+                spec.thresholdGrowth.amount = readValue<float>(is);
+                if (!spec.thresholdGrowth.valid() || !std::isfinite(spec.thresholdGrowth.amount))
+                    throw std::runtime_error("network::load: invalid threshold growth rule");
             }
             net->addLayer(name, spec);
             break;

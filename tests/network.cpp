@@ -1577,3 +1577,39 @@ TEST(HabituationTest, FasterFadingAndTolerantRules)
     bad.habituationRule.decay = 1.5f;
     EXPECT_THROW(net.addLayer("bad", bad), std::invalid_argument);
 }
+
+TEST(ThresholdGrowthTest, RulesAndSaving)
+{
+    using Rule = ThresholdGrowth::Rule;
+    // One firing of magnitude 5 from rest (threshold baseline_threshold).
+    auto grownBy = [](ThresholdGrowth g) {
+        neuron n(false, true);
+        n.setThresholdGrowth(g);
+        EXPECT_EQ(n.activate(5.0f), 5.0f);
+        return n.threshold();
+    };
+    const float b = baseline_threshold;
+    EXPECT_FLOAT_EQ(grownBy({}), b + default_alpha * std::log(5.0f / b));  // the original rule
+    EXPECT_FLOAT_EQ(grownBy({Rule::Linear, 0.5f}), b + 0.5f * (5.0f - b));
+    EXPECT_FLOAT_EQ(grownBy({Rule::Fixed, 1.0f}), b + 1.0f);
+    EXPECT_FLOAT_EQ(grownBy({Rule::Multiplicative, 0.5f}), 2.0f * b);  // 1.5 b, raised to the floor 2 b
+    EXPECT_FLOAT_EQ(grownBy({Rule::Fixed, 0.0f}), 2.0f * b);
+
+    network net;
+    LayerSpec spec = LayerSpec::Dense(3, false, true);
+    spec.thresholdGrowth = {Rule::Linear, 0.25f};
+    const auto id = net.addLayer("h", spec);
+    net.addInputs(id, 1);
+    for (const neuron& m : net.layerAs<neuron_layer>(id).neurons())
+        EXPECT_EQ(m.thresholdGrowth(), spec.thresholdGrowth);
+    std::stringstream data;
+    net.save(data);
+    auto loaded = network::load(data);
+    EXPECT_EQ(loaded->layerSpec(id).thresholdGrowth, spec.thresholdGrowth);
+    for (const neuron& m : loaded->layerAs<neuron_layer>(id).neurons())
+        EXPECT_EQ(m.thresholdGrowth(), spec.thresholdGrowth);
+
+    LayerSpec bad = LayerSpec::Dense(1, false, true);
+    bad.thresholdGrowth.amount = -1.0f;
+    EXPECT_THROW(net.addLayer("bad", bad), std::invalid_argument);
+}

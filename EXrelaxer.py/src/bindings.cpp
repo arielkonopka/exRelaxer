@@ -305,6 +305,23 @@ NB_MODULE(_core, m)
         .def_rw("decay", &Habituation::decay)
         .def("__eq__", [](const Habituation& a, const Habituation& b) { return a == b; });
 
+    nb::class_<ThresholdGrowth> growth(m, "ThresholdGrowth",
+                                       "How an E-R threshold grows on firing with magnitude s: LOG thr + alpha*ln(s/thr) "
+                                       "(default), LINEAR thr + amount*(s - thr), FIXED thr + amount, "
+                                       "MULTIPLICATIVE thr*(1 + amount).");
+    nb::enum_<ThresholdGrowth::Rule>(growth, "Rule")
+        .value("LOG", ThresholdGrowth::Rule::Log)
+        .value("LINEAR", ThresholdGrowth::Rule::Linear)
+        .value("FIXED", ThresholdGrowth::Rule::Fixed)
+        .value("MULTIPLICATIVE", ThresholdGrowth::Rule::Multiplicative);
+    growth.def(nb::init<>())
+        .def("__init__",
+             [](ThresholdGrowth* g, ThresholdGrowth::Rule rule, float amount) { new (g) ThresholdGrowth{rule, amount}; },
+             "rule"_a = ThresholdGrowth::Rule::Log, "amount"_a = 0.5f)
+        .def_rw("rule", &ThresholdGrowth::rule)
+        .def_rw("amount", &ThresholdGrowth::amount)
+        .def("__eq__", [](const ThresholdGrowth& a, const ThresholdGrowth& b) { return a == b; });
+
     nb::class_<Jitter>(m, "Jitter", "Random per-neuron variation of E-R recovery, learning gain or alpha.")
         .def(nb::init<>())
         .def_static("none", &Jitter::none)
@@ -384,6 +401,8 @@ NB_MODULE(_core, m)
                 "Neurons without E-R: fixed firing threshold (|sum| <= gate gives 0); 0 = linear.")
         .def_rw("habituation_rule", &LayerSpec::habituationRule,
                 "How habituation suppresses repeated inputs (Habituation; default: cut after 100 exact repeats).")
+        .def_rw("threshold_growth", &LayerSpec::thresholdGrowth,
+                "How E-R thresholds grow on firing (ThresholdGrowth; default: the original log rule).")
         .def_rw("rectify", &LayerSpec::rectify,
                 "Neurons without E-R: ReLU, only sums above the gate pass (the rest give 0).")
         .def_rw("window", &LayerSpec::window)

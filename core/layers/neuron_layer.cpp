@@ -33,6 +33,7 @@ neuron& neuron_layer::newNeuron()
     n.setGate(gate_);
     n.setRectified(rectified_);
     n.setHabituation(habituation_rule_);
+    n.setThresholdGrowth(growth_);
     output_.push_back(n.output());
     resizeLearningState();
     return n;
@@ -76,6 +77,15 @@ void neuron_layer::setHabituationRule(const Habituation& rule)
     habituation_rule_ = rule;
     for (neuron& n : neurons_)
         n.setHabituation(rule);
+}
+
+void neuron_layer::setThresholdGrowth(const ThresholdGrowth& growth)
+{
+    if (!growth.valid() || !std::isfinite(growth.amount))
+        throw std::invalid_argument("setThresholdGrowth: rule Log, Linear, Fixed or Multiplicative, amount in [0, 1e6]");
+    growth_ = growth;
+    for (neuron& n : neurons_)
+        n.setThresholdGrowth(growth);
 }
 
 void neuron_layer::setRectified(bool rectified)
@@ -171,6 +181,7 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
         n.setGate(has_er_ ? 0.0f : gate_);
         n.setRectified(!has_er_ && rectified_);
         n.setHabituation(habituation_rule_);
+        n.setThresholdGrowth(growth_);
     }
     output_.resize(count);
     for (size_t i = 0; i < count; ++i)

@@ -133,8 +133,23 @@ void neuron::excite(float effectiveSum)
     // Sets the output to the (signed) effective sum and grows the
     // (always-positive) threshold with the firing's magnitude.
     output_ = effectiveSum;
-    const float ratio = std::abs(effectiveSum) / threshold_;
-    threshold_ = std::max(baseline_threshold * 2, threshold_ * 1.0f + alpha_ * std::log(ratio));
+    const float s = std::abs(effectiveSum);
+    float grown = threshold_;
+    switch (growth_.rule) {
+    case ThresholdGrowth::Rule::Log:
+        grown = threshold_ + alpha_ * std::log(s / threshold_);
+        break;
+    case ThresholdGrowth::Rule::Linear:
+        grown = threshold_ + growth_.amount * (s - threshold_);
+        break;
+    case ThresholdGrowth::Rule::Fixed:
+        grown = threshold_ + growth_.amount;
+        break;
+    case ThresholdGrowth::Rule::Multiplicative:
+        grown = threshold_ * (1.0f + growth_.amount);
+        break;
+    }
+    threshold_ = std::max(baseline_threshold * 2, grown);
 }
 
 float neuron::spontaneousOutput()

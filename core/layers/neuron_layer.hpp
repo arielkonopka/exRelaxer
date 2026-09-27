@@ -52,6 +52,10 @@ public:
     // Throws std::invalid_argument for an invalid rule.
     void setHabituationRule(const Habituation& rule);
     const Habituation& habituationRule() const { return habituation_rule_; }
+    // How E-R thresholds grow on firing (see ThresholdGrowth) for every
+    // neuron, now and later. Throws std::invalid_argument for an invalid rule.
+    void setThresholdGrowth(const ThresholdGrowth& growth);
+    const ThresholdGrowth& thresholdGrowth() const { return growth_; }
 
     // --- Learning -------------------------------------------------------
     // The rule this layer learns with (see learning.hpp). Setting it resets
@@ -186,6 +190,7 @@ private:
     float gate_ = 0.0f;                                          // likewise
     bool rectified_ = false;                                     // likewise
     Habituation habituation_rule_;                               // likewise
+    ThresholdGrowth growth_;                                     // likewise
 
     LearningRule rule_;
     bool plain_ = true;               // no bias, traces or noise: fire() just activates
