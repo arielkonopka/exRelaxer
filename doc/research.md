@@ -28,6 +28,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [14. Dynamic nonlinearity substitution: static tasks](#14-dynamic-nonlinearity-substitution-static-tasks)
 - [15. How E-R behaves: learning, silence, state, habituation](#15-how-e-r-behaves-learning-silence-state-habituation)
 - [16. Temporal tasks and the threshold growth rule](#16-temporal-tasks-and-the-threshold-growth-rule)
+- [17. Training E-R, spontaneous cycles and early fading](#17-training-e-r-spontaneous-cycles-and-early-fading)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -845,6 +846,88 @@ reaches only about one step back, fails for deeper networks, and does not
 help with continuous-valued history. A linear growth rule makes that memory
 much cheaper (8 neurons) and removes the post-silence blindness, without
 costing static accuracy.
+
+## 17. Training E-R, spontaneous cycles and early fading
+
+Three questions from the user after the switch to linear growth: can a
+network be trained without E-R and switched to E-R afterwards, or should
+E-R simply be trained longer? Which settings give spontaneous activation
+cycles? And what does habituation that fades from the second repeat do?
+All runs use linear threshold growth. Results in
+[`results/er-training/`](../results/er-training/),
+[`results/er-cycles/`](../results/er-cycles/) and
+[`results/er-habituation/`](../results/er-habituation/) (`er_habituation_fade`).
+
+**Pretraining without E-R** (`nl_static` l1, l2 with settle 7, depth
+{1, 2} × width {16, 32}; `nl_temporal` t1, t2 with 1 × {16, 64}; lr grid
+chosen on validation, 5 seeds; `pretrain_model` relu, gate or clamp for
+20 000 samples, then E-R for 0, 20 000 or 80 000 more):
+
+| Task (arch) | E-R 20k | E-R 80k | ReLU 20k → E-R, no more training | ReLU 20k → E-R 20k | clamp 20k → E-R 20k |
+|------|------|------|------|------|------|
+| l1 x1·x2 (1×32), MSE | 0.031 | 0.032 | 0.115 (ReLU itself: 0.005) | 0.028 | 0.032 |
+| l2 sin(x1·x2) (1×32), MSE | 0.035 | 0.057 | 0.104 (ReLU: 0.003) | 0.025 | 0.027 |
+| l1 (2×32), MSE | 0.061 | 0.069 | 0.22 | 0.057 | 0.062 |
+| t1 delayed XOR (1×16), accuracy | 0.999 | 0.999 | 0.50 | 1.0 | 0.999 |
+| t2 x(t) ∧ ¬x(t−3) (1×64), accuracy | 0.744 | **0.837** | 0.743 | 0.778 | 0.842 |
+
+- A network trained without E-R does not keep its skill when E-R is
+  switched on: ReLU's 0.005 becomes 0.1–0.3, worse than E-R trained on its
+  own. The static neuron's solution relies on a transfer that E-R does not
+  have (one-sided rectification, no threshold state).
+- Pretraining followed by an E-R phase ends where E-R alone does, slightly
+  better with one layer (l2 0.025 vs 0.035). It is a warm start, not a
+  shortcut.
+- Longer E-R training helps only where E-R has to learn to use its
+  memory: t2 goes from 0.74 to 0.84 with 80 000 samples. On static tasks
+  it does not help (E-R's static error plateaus at about 20 000 samples,
+  §15).
+- With linear growth, delayed XOR is solved with 16 neurons in 20 000
+  samples (§16 needed 64 with the log rule).
+
+**Spontaneous cycles** (`er_silence`, E-R, 3000 silent ticks after
+training, 10 trials; `spontaneous_below` × `spontaneous_amplitude` ×
+`spontaneous_rate` × recurrent):
+
+| Setting | Active fraction, ticks > 1000 | Readout mass per tick | Accuracy before / after |
+|------|------|------|------|
+| default (1e-10, 0.01, 0) | 0.5 % | 1e-4 | 1.0 / 1.0 |
+| level 0.001 | 1.75 % | 3e-4 | 1.0 / 1.0 |
+| level 0.05 | 5 % | 9e-4 | 1.0 / 1.0 |
+| rate 0.05 | 5 % | 1e-3 | 1.0 / 1.0 |
+| amplitude 1, rate 0.05 | 5 % | 0.09 | 1.0 / 1.0 |
+| amplitude 1, rate 0.05, recurrent | 12 % | 0.05 | 1.0 / 1.0 |
+
+- The level sets a regular per-neuron cycle: after a spontaneous firing the
+  threshold sits at the floor 0.4 and decays by `recovery` per tick, so a
+  silent neuron fires every `ln(0.4 / below) / ln(1 / recovery)` ticks:
+  about 200 at the default level, 57 at 0.001 and 20 at 0.05 (recovery
+  0.9). The measured active fractions (0.5 %, 1.75 %, 5 %) match 1/period.
+- The rate adds irregular (random) firing on top.
+- The amplitude decides whether spontaneous firing is felt downstream: at
+  0.01 it is below every threshold it reaches; at 0.5–1 the readouts carry
+  it (100–1000× the readout mass), and with recurrent paths it recruits
+  other neurons (12 % instead of 5 %).
+- None of these settings changed accuracy before or after the silence. The
+  cycles are per neuron; no synchronized, network-wide rhythm appeared.
+
+**Fading from the second repeat** (`er_habituation`, a stimulus held for
+500 ticks, 10 trials; `habituation_decay` × `habituation_fade_after`):
+
+| Rule | E-R spikes per sample | accuracy (whole sample / last tick) |
+|------|------|------|
+| no habituation | ≈ 27 000 | 1.0 / 1.0 |
+| fade 0.9 after 100 repeats | 6 144 | 1.0 / 0 |
+| fade 0.9 after 5 | 446 | 1.0 / 0 |
+| fade 0.9 after 2 | 321 | 1.0 / 0 |
+| fade 0.99 after 2 | 10 596 | 1.0 / 0.32 |
+
+- Fading from the second repeat saves most: 80× fewer spikes than none,
+  20× fewer than fading from the 100th, with the stimulus still recognised
+  over the sample. Only a slow fade (0.99) keeps it represented at the end.
+- With ±0.001 sensor flicker the input never repeats exactly and no rule
+  acts; with 1 % tolerance, fading after 2 gives 717 spikes but accuracy
+  0.97 over the sample and 0.13 at its end.
 
 ## Conclusions
 
