@@ -3,10 +3,12 @@
 Can E-R neuron dynamics stand in for network topology? These experiments
 ask how large a network must be to reach a **fixed** error on a task,
 depending on the source of its nonlinearity. They are designed so that "no"
-is as clear an answer as "yes". Milestone 1 covers static functions only;
-temporal tasks, a memoryless E-R control, parameter- and neuron-matched
-comparisons and robustness tests follow. Results are in the
-[research log, §14](research.md#14-dynamic-nonlinearity-substitution-static-tasks).
+is as clear an answer as "yes". Milestone 1 covers static functions
+(`nl_static`); the second step adds temporal tasks and a memoryless E-R
+control (`nl_temporal`). Parameter- and neuron-matched comparisons and
+robustness tests follow. Results are in the
+[research log, §14](research.md#14-dynamic-nonlinearity-substitution-static-tasks)
+and §16.
 
 ## Models
 
@@ -18,6 +20,7 @@ hidden neurons differ:
 |-------|---------------|-----------------|
 | `relu` | conventional: `max(0, sum)` | `LayerSpec::rectify` (added for this baseline; off by default) |
 | `er` | production E-R, habituation off | `LayerSpec::Dense(width, false, true)`; nothing changed in E-R |
+| `er_memoryless` | the same E-R neurons, state reset to rest before every presentation | a test-only wrapper in the experiment (`Mlp::resetHiddenState`, a weights-only round trip through the neuron's own format); production E-R is unchanged |
 | `gate` | static threshold: `sum` if \|sum\| > 0.2, else 0 | `LayerSpec::gate` = E-R's resting threshold (`baseline_threshold`) |
 | `clamp` | the library's plain neuron: `sum`, clamped to ±10 | the default; nearly linear for these inputs (`linear` is an alias) |
 
@@ -49,6 +52,13 @@ habituation off, learning gain 2. Spontaneous firing is part of production
 E-R and cannot be switched off without changing it. It happens only after
 about 200 silent ticks (threshold ≤ 1e-10), far longer than a sample.
 
+**Options for E-R studies** (off by default, so the comparisons above are
+unchanged): `growth` / `growth_amount` pick the threshold growth rule
+(`log`, `linear`, `fixed`, `multiplicative`; see
+[neuron](neuron.md#excitationrelaxation-e-r)), and `learn_ticks=all`
+learns on every tick of a presentation at `lr / ticks` instead of once from
+the last tick.
+
 ## Tasks (`nl_static`)
 
 `x` is uniform in [-1, 1]^d.
@@ -64,6 +74,36 @@ about 200 silent ticks (threshold ≤ 1e-10), far longer than a sample.
 The `l4` coefficients come from `task_seed` (12345), are the same for every
 model and seed, and are written into every result line (`task_a<k>_<j>`,
 `task_b<k>`). The K^−½ keeps the target's variance near 0.5 for every K.
+
+## Temporal tasks (`nl_temporal`)
+
+The input is a stream. Each step `x(t)` is held for `depth + 1 + settle`
+ticks and the output is read on the last one, so the feed-forward pipeline
+has flushed the previous step: a model without neuron state sees only
+`x(t)`. With `window=W`, every model also gets `x(t−1) … x(t−W)` as extra
+inputs (a tapped delay line), which turns the task into a static one.
+
+| Task | Target | x(t) |
+|------|--------|------|
+| `t1` | x(t) XOR x(t−1) | {0, 1}, shown as ∓1 |
+| `t2` | x(t) AND NOT x(t−3) | {0, 1} |
+| `t3`, n ∈ {2, 4, 8, 16} | parity of x(t−n+1) … x(t) | {0, 1} |
+| `t4` | sin(x(t) · x(t−2)) | U[−1, 1] |
+
+Training is one continuous stream (`data_seed`); every step's error is
+applied once. Validation (`data_seed + 1`) and test (`data_seed + 2`) are
+fresh streams run continuously; the first `warmup` steps (20) are not
+scored. **Success**, fixed in advance: accuracy ≥ 0.95 on `t1`–`t3`, MSE ≤
+1e-3 on `t4`. Each binary result also records `input_ceiling_accuracy`
+(the best any function of the shown inputs can do on the test stream: the
+limit for models without state) and `chance_accuracy` (always the majority
+answer).
+
+```bash
+nntest run nl_temporal --threads 1 --trials 5 --set task=t1 \
+    --set model=relu,er,er_memoryless,gate,clamp --set lr=0.001,0.003,0.01,0.03 \
+    --set depth=1,2,3,4,6,8 --set width=4,8,16,32,64,128 --out t1.jsonl
+```
 
 ## Protocol and success
 

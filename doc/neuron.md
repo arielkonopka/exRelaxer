@@ -110,6 +110,19 @@ threshold = max(2 × baseline_threshold, threshold + alpha × ln(ratio))
 - The floor `2 × baseline_threshold` guarantees that right after any firing
   the threshold is above `baseline_threshold`, which is what makes the
   neuron eligible to learn (see below).
+- The logarithmic rule is the default. `ThresholdGrowth` (per layer through
+  `LayerSpec::thresholdGrowth`, or `neuron::setThresholdGrowth`) selects
+  another, with the same floor:
+
+  | Rule | New threshold | Note |
+  |------|---------------|------|
+  | `Log` (default) | `threshold + alpha × ln(abs(v) / threshold)` | the jump grows without bound as the threshold falls: after a long silence one firing makes the neuron refractory |
+  | `Linear` | `threshold + amount × (abs(v) − threshold)` | moves part of the way towards the firing's magnitude |
+  | `Fixed` | `threshold + amount` | the same jump for every firing |
+  | `Multiplicative` | `threshold × (1 + amount)` | in proportion to the threshold; ignores the magnitude |
+
+  `amount` defaults to 0.5. `Log` and `Linear` keep a trace of how strong
+  the firing was; `Fixed` and `Multiplicative` only that it happened.
 - While silent the threshold decays geometrically (`× recovery` per tick,
   0.9 by default), so a neuron that fired strongly stays refractory for a
   while. Because the threshold keeps a trace of recent firing, E-R neurons
