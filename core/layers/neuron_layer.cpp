@@ -1,7 +1,15 @@
 #include "neuron_layer.hpp"
 #include "../binary_io.hpp"
+#include "../kernels.hpp"
+#include "../parallel.hpp"
+#include "../random.hpp"
+#include <algorithm>
+#include <atomic>
+#include <cmath>
 #include <istream>
+#include <numeric>
 #include <ostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -23,6 +31,7 @@ neuron& neuron_layer::newNeuron()
     neuron& n = neurons_.emplace_back(has_habituation_, has_er_);
     n.randomizeDynamics(recovery_jitter_, learning_jitter_, alpha_jitter_);
     output_.push_back(n.output());
+    resizeLearningState();
     return n;
 }
 
@@ -69,6 +78,7 @@ void neuron_layer::serialize(std::ostream& os) const
         binary_io::write(os, static_cast<std::uint64_t>(weights.size()));
         binary_io::write(os, std::span<const float>(weights));
     }
+    writeLearningState(os);
 }
 
 void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint32_t neuronFormat)
@@ -136,6 +146,381 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
             storeSharedWeights(shared);
     } else {
         neuronsReplaced();  // unwired: the weights have nothing to belong to
+    }
+    if (neuronFormat >= 3)
+        readLearningState(is, mode);
+    else
+        resizeLearningState();
+}
+
+// --- Learning rules -----------------------------------------------------------
+
+void neuron_layer::setLearningRule(const LearningRule& rule)
+{
+    rule.validate();
+    if (rule.type != LearningRuleType::Sign && !learns())
+        throw std::invalid_argument("setLearningRule: this layer type does not learn");
+    resetLearningState(rule);
+    if (rule_.type == LearningRuleType::Perturbation)
+        noise_state_ = ((std::uint64_t{rng::learning()()} << 32) | rng::learning()()) | 1u;  // never 0
+}
+
+void neuron_layer::resetLearningState(const LearningRule& rule)
+{
+    rule_ = rule;
+    bias_.clear();
+    post_.clear();
+    noise_.clear();
+    noise_trace_.clear();
+    baseline_.clear();
+    theta_.clear();
+    feedback_ = kernels::weight_matrix();
+    clearInputTraces();
+    resizeLearningState();
+}
+
+void neuron_layer::resizeLearningState()
+{
+    const size_t n = neurons_.size();
+    const LearningRuleType t = rule_.type;
+    bias_.resize(rule_.bias ? n : 0, 0.0f);
+    post_.resize(rule_.usesTraces() ? n : 0, 0.0f);
+    const bool perturb = t == LearningRuleType::Perturbation;
+    noise_.resize(perturb ? n : 0, 0.0f);
+    noise_trace_.resize(perturb ? n : 0, 0.0f);
+    baseline_.resize(t == LearningRuleType::Trace || perturb ? n : 0, 0.0f);
+    theta_.resize(t == LearningRuleType::BCM ? n : 0, 1.0f);
+    plain_ = bias_.empty() && post_.empty() && noise_.empty();
+}
+
+void neuron_layer::setBias(size_t index, float value)
+{
+    if (bias_.empty())
+        throw std::logic_error("setBias: the layer's learning rule has no bias");
+    bias_.at(index) = value;
+}
+
+std::vector<float> neuron_layer::feedbackRow(size_t index) const
+{
+    if (index >= neurons_.size())
+        throw std::out_of_range("feedbackRow: no neuron " + std::to_string(index));
+    if (index >= feedback_.rows())
+        return {};
+    std::vector<float> row(feedback_.cols());
+    feedback_.copyRow(index, row);
+    return row;
+}
+
+float neuron_layer::fireWithRule(size_t i, float sum)
+{
+    if (!bias_.empty())
+        sum += bias_[i];
+    if (!noise_.empty())
+        sum += noise_[i];
+    const float y = neurons_[i].activate(sum);
+    if (!post_.empty()) {
+        const float p = rule_.trace * post_[i] + y;
+        post_[i] = p;
+        if (!theta_.empty())
+            theta_[i] += rule_.bcmRate * (p * p - theta_[i]);
+    }
+    return y;
+}
+
+void neuron_layer::drawNoise()
+{
+    // Serial, in neuron order, from the layer's own generator: the same
+    // noise whatever the thread count. Each value is the sum of four 16-bit
+    // uniforms from one xorshift64* draw, scaled to mean 0 and standard
+    // deviation `noise`: close to normal (within +-3.46 sd) and much cheaper
+    // than std::normal_distribution.
+    const float scale = rule_.noise * std::sqrt(3.0f) / 65535.0f;
+    const float lambda = rule_.trace;
+    std::uint64_t x = noise_state_;
+    for (size_t i = 0; i < noise_.size(); ++i) {
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        const std::uint64_t r = x * 0x2545F4914F6CDD1Dull;
+        const auto sum = static_cast<float>((r & 0xFFFF) + ((r >> 16) & 0xFFFF) + ((r >> 32) & 0xFFFF) + (r >> 48));
+        noise_[i] = (sum - 2.0f * 65535.0f) * scale;
+        noise_trace_[i] = lambda * noise_trace_[i] + noise_[i];
+    }
+    noise_state_ = x;
+}
+
+void neuron_layer::traceInputs(std::vector<float>& trace, std::span<const float> x) const
+{
+    if (trace.size() != x.size())
+        trace.resize(x.size(), 0.0f);
+    const float lambda = rule_.trace;
+    if (lambda == 0.0f) {
+        std::copy(x.begin(), x.end(), trace.begin());
+        return;
+    }
+    for (size_t j = 0; j < x.size(); ++j)
+        trace[j] = lambda * trace[j] + x[j];
+}
+
+void neuron_layer::applyReward(float reward, float learningRate)
+{
+    learn([reward](size_t) { return reward; }, learningRate);
+}
+
+void neuron_layer::applyModulators(std::span<const float> modulators, float learningRate)
+{
+    if (modulators.size() != neurons_.size())
+        throw std::invalid_argument("applyModulators: " + std::to_string(neurons_.size()) + " neurons, got " +
+                                    std::to_string(modulators.size()) + " modulators");
+    learn([modulators](size_t i) { return modulators[i]; }, learningRate);
+}
+
+void neuron_layer::applyFeedback(std::span<const float> errors, float learningRate)
+{
+    if (!learns() || errors.empty())
+        return;
+    const size_t n = neurons_.size(), cols = errors.size();
+    if (feedback_.cols() != cols)
+        feedback_ = kernels::weight_matrix();  // the outputs changed: a new matrix
+    if (feedback_.rows() < n) {
+        // Rows for neurons that have none yet, drawn row after row.
+        std::uniform_real_distribution<float> distribution(-1.0f, 1.0f);
+        std::vector<float> rows(n * cols);
+        for (size_t r = 0; r < feedback_.rows(); ++r)
+            feedback_.copyRow(r, std::span(rows).subspan(r * cols, cols));
+        for (size_t k = feedback_.rows() * cols; k < rows.size(); ++k)
+            rows[k] = distribution(rng::learning());
+        feedback_ = kernels::weight_matrix(n, cols, rows);
+    }
+    scratch_.resize(feedback_.paddedRows());
+    parallelChunks(feedback_.blocks(), kernels::threadsFor(n * cols), [&](size_t b0, size_t b1) {
+        feedback_.multiply(errors, scratch_, b0, b1);
+    });
+    const float scale = 1.0f / std::sqrt(static_cast<float>(cols));
+    learn([this, scale](size_t i) { return scale * scratch_[i]; }, learningRate);
+}
+
+template <typename Modulator>
+void neuron_layer::learn(Modulator m, float learningRate)
+{
+    if (!learns())
+        return;
+    const size_t n = neurons_.size();
+    const LearningRule& r = rule_;
+    const bool scaled = scaledUpdates();
+    // Every entry is written below: resize, no fill.
+    step_delta_.resize(n);
+    step_active_.resize(n);
+    step_keep_.resize(scaled ? n : 0);
+    const float shrink = std::max(0.0f, 1.0f - learningRate * r.decay);
+    std::atomic<bool> any_active{false};
+
+    parallelChunks(n, kernels::threadsFor(n * 16), [&](size_t i0, size_t i1) {
+        bool any = false;
+        if (!scaled) {
+            // The original sign rule, free of the general case's work.
+            for (size_t i = i0; i < i1; ++i) {
+                const neuron& nr = neurons_[i];
+                const bool active = nr.eligible();
+                step_active_[i] = active;
+                step_delta_[i] = active ? nr.learningDelta(m(i), learningRate) : 0.0f;
+                any = any || active;
+            }
+        } else {
+            for (size_t i = i0; i < i1; ++i) {
+                float delta = 0.0f, keep = 1.0f;
+                const bool active = ruleStep(i, m(i), learningRate, delta, keep);
+                step_delta_[i] = delta;
+                step_keep_[i] = active && r.decay > 0.0f ? keep * shrink : keep;
+                step_active_[i] = active;
+                any = any || active;
+            }
+        }
+        if (any)
+            any_active.store(true, std::memory_order_relaxed);
+    });
+    if (r.unsupervised() && r.winners > 0)
+        selectWinners();
+    // The baseline follows the modulator whether or not anything learned.
+    if (!baseline_.empty() && r.baseline > 0.0f)
+        for (size_t i = 0; i < n; ++i)
+            baseline_[i] += r.baseline * (m(i) - baseline_[i]);
+
+    if (!any_active.load(std::memory_order_relaxed))
+        return;
+    updateWeights();
+    if (!bias_.empty())
+        for (size_t i = 0; i < n; ++i)
+            if (step_active_[i])
+                bias_[i] = std::min(std::max(bias_[i] * (scaled ? step_keep_[i] : 1.0f) + step_delta_[i], -max_weight),
+                                    max_weight);
+}
+
+bool neuron_layer::ruleStep(size_t i, float m, float learningRate, float& delta, float& keep) const
+{
+    const neuron& nr = neurons_[i];
+    const LearningRule& r = rule_;
+    const float rate = learningRate * nr.learningGain();
+    switch (r.type) {
+    case LearningRuleType::Sign:
+        if (!nr.eligible())
+            return false;
+        delta = nr.learningDelta(m, learningRate);
+        return true;
+    case LearningRuleType::Trace:
+        // |P|: how active the neuron was, whatever the sign. The modulator
+        // is the direction to move the output (like Sign).
+        delta = rate * (m - (r.baseline > 0.0f ? baseline_[i] : 0.0f)) * std::abs(post_[i]);
+        return delta != 0.0f;
+    case LearningRuleType::FeedbackAlignment: {
+        // Surrogate derivative of the neuron: 1 while it takes part (with
+        // E-R: eligible, i.e. fired recently; without: always, its output is
+        // its clamped sum), 0 when silent or held at the output clamp in the
+        // direction the modulator pushes.
+        const float y = nr.output();
+        if ((nr.hasER() && !nr.eligible()) || (y >= max_output && m > 0.0f) || (y <= -max_output && m < 0.0f))
+            return false;
+        delta = rate * m;
+        return true;
+    }
+    case LearningRuleType::Perturbation:
+        delta = rate * (m - (r.baseline > 0.0f ? baseline_[i] : 0.0f)) * noise_trace_[i] / r.noise;
+        return delta != 0.0f;
+    case LearningRuleType::Oja:
+        delta = rate * post_[i];
+        keep = std::max(0.0f, 1.0f - rate * post_[i] * post_[i]);
+        return true;
+    case LearningRuleType::BCM:
+        delta = rate * post_[i] * (post_[i] - theta_[i]);
+        return true;
+    }
+    return false;
+}
+
+void neuron_layer::selectWinners()
+{
+    // Per competition group (same index modulo `positions`), only the
+    // `winners` neurons with the largest |P| learn; ties go to the lower index.
+    const size_t positions = std::max<size_t>(1, competitionPositions());
+    const size_t n = neurons_.size();
+    const size_t members = n / positions;
+    if (members <= rule_.winners)
+        return;
+    parallelChunks(positions, kernels::threadsFor(n * 8), [&](size_t p0, size_t p1) {
+        std::vector<size_t> group(members);
+        for (size_t p = p0; p < p1; ++p) {
+            for (size_t k = 0; k < members; ++k)
+                group[k] = k * positions + p;
+            const auto stronger = [this](size_t a, size_t b) {
+                const float fa = std::abs(post_[a]), fb = std::abs(post_[b]);
+                return fa != fb ? fa > fb : a < b;
+            };
+            std::nth_element(group.begin(), group.begin() + rule_.winners, group.end(), stronger);
+            for (size_t k = rule_.winners; k < members; ++k)
+                step_active_[group[k]] = 0;
+        }
+    });
+}
+
+// --- Serialization of the learning state -----------------------------------------
+
+namespace {
+
+void writeFloats(std::ostream& os, const std::vector<float>& v)
+{
+    binary_io::write(os, static_cast<std::uint64_t>(v.size()));
+    binary_io::write(os, std::span<const float>(v));
+}
+
+std::vector<float> readFloats(std::istream& is)
+{
+    const auto count = binary_io::read<std::uint64_t>(is);
+    if (!is)
+        return {};
+    if (count > max_serialized_weights)
+        throw std::runtime_error("layer deserialize: implausible learning state size " + std::to_string(count));
+    std::vector<float> v(static_cast<size_t>(count));
+    binary_io::read(is, std::span<float>(v));
+    return v;
+}
+
+} // namespace
+
+void neuron_layer::writeLearningState(std::ostream& os) const
+{
+    binary_io::write(os, static_cast<std::uint8_t>(rule_.type));
+    binary_io::write(os, static_cast<std::uint8_t>(rule_.bias));
+    binary_io::write(os, rule_.decay);
+    binary_io::write(os, rule_.trace);
+    binary_io::write(os, rule_.baseline);
+    binary_io::write(os, rule_.noise);
+    binary_io::write(os, rule_.bcmRate);
+    binary_io::write(os, rule_.winners);
+    std::vector<float> feedback(feedback_.rows() * feedback_.cols());
+    for (size_t r = 0; r < feedback_.rows(); ++r)
+        feedback_.copyRow(r, std::span(feedback).subspan(r * feedback_.cols(), feedback_.cols()));
+    const std::vector<float>* const state[] = {&bias_, &post_, &noise_, &noise_trace_, &baseline_, &theta_, &feedback};
+    for (const std::vector<float>* v : state)
+        writeFloats(os, *v);
+    binary_io::write(os, static_cast<std::uint64_t>(feedback_.cols()));
+    std::vector<float> traces;
+    copyInputTraces(traces);
+    writeFloats(os, traces);
+    binary_io::write(os, noise_state_);
+}
+
+void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode)
+{
+    LearningRule rule;
+    const auto type = binary_io::read<std::uint8_t>(is);
+    rule.type = static_cast<LearningRuleType>(type);
+    rule.bias = binary_io::read<std::uint8_t>(is) != 0;
+    rule.decay = binary_io::read<float>(is);
+    rule.trace = binary_io::read<float>(is);
+    rule.baseline = binary_io::read<float>(is);
+    rule.noise = binary_io::read<float>(is);
+    rule.bcmRate = binary_io::read<float>(is);
+    rule.winners = binary_io::read<std::uint32_t>(is);
+    if (!is)
+        return;
+    try {
+        rule.validate();
+    } catch (const std::invalid_argument& e) {
+        throw std::runtime_error(std::string("layer deserialize: ") + e.what());
+    }
+    std::vector<float> state[7];
+    for (std::vector<float>& v : state)
+        v = readFloats(is);
+    const auto feedback_cols = binary_io::read<std::uint64_t>(is);
+    std::vector<float> traces = readFloats(is);
+    const auto rng_state = binary_io::read<std::uint64_t>(is);
+    if (!is)
+        return;
+    if (rng_state == 0)
+        throw std::runtime_error("layer deserialize: invalid noise generator state 0");
+    const size_t n = neurons_.size();
+    for (size_t k = 0; k < 6; ++k)
+        if (!state[k].empty() && state[k].size() != n)
+            throw std::runtime_error("layer deserialize: learning state does not match the neuron count");
+    if (feedback_cols == 0 ? !state[6].empty() : state[6].size() % feedback_cols != 0)
+        throw std::runtime_error("layer deserialize: feedback matrix does not match its width");
+
+    resetLearningState(rule);  // sizes and initialises every per-neuron vector
+    const auto restore = [n](std::vector<float>& to, std::vector<float>& from) {
+        if (!to.empty() && from.size() == n)
+            to = std::move(from);
+    };
+    restore(bias_, state[0]);
+    if (feedback_cols > 0)
+        feedback_ = kernels::weight_matrix(state[6].size() / feedback_cols, static_cast<size_t>(feedback_cols), state[6]);
+    if (mode == DeserializeMode::FullState) {
+        restore(post_, state[1]);
+        restore(noise_, state[2]);
+        restore(noise_trace_, state[3]);
+        restore(baseline_, state[4]);
+        restore(theta_, state[5]);
+        storeInputTraces(traces);
+        noise_state_ = rng_state;
     }
 }
 

@@ -45,6 +45,8 @@ add_library(exrelaxer_core STATIC
     core/binary_io.hpp
     core/neuron.cpp
     core/neuron.hpp
+    core/learning.cpp
+    core/learning.hpp
     core/layers/layer.cpp
     core/layers/layer.hpp
     core/layers/neuron_layer.cpp
@@ -160,6 +162,7 @@ add_executable(exrelaxer_tests
     tests/spatial.cpp
     tests/filters.cpp
     tests/audio.cpp
+    tests/learning.cpp
     tests/snake.cpp
 )
 

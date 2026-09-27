@@ -1,6 +1,8 @@
 #include "spatial_neuron_layer.hpp"
+#include <algorithm>
 #include <stdexcept>
 #include <string>
+#include "../kernels.hpp"
 
 namespace exr {
 
@@ -54,6 +56,27 @@ void spatial_neuron_layer::windowAt(size_t position, std::span<float> out) const
 {
     const Shape in{inputs_.channels(), inputs_.height(), inputs_.width()};
     gatherWindow(tensor_, in, window_, position / out_width_, position % out_width_, out);
+}
+
+void spatial_neuron_layer::traceWindowAt(size_t position, std::span<float> out) const
+{
+    const Shape in{inputs_.channels(), inputs_.height(), inputs_.width()};
+    if (trace_.size() != in.size()) {
+        // Not traced yet, or the inputs grew since: no history.
+        std::ranges::fill(out, 0.0f);
+        return;
+    }
+    gatherWindow(trace_, in, window_, position / out_width_, position % out_width_, out);
+}
+
+void spatial_neuron_layer::learningWindowAt(size_t position, std::span<float> out) const
+{
+    if (learnsFromSigns()) {
+        windowAt(position, out);
+        kernels::signs(out, out);
+    } else {
+        traceWindowAt(position, out);
+    }
 }
 
 } // namespace exr

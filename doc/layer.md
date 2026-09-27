@@ -118,7 +118,12 @@ Derived classes decide how neurons are wired and own the weights.
 | `setOutput(i, value)` | drive an output by hand, e.g. a layer used as a fixed source; the next `forward()` overwrites wired neurons |
 | `setRecoveryJitter(j)`, `setLearningJitter(j)`, `setAlphaJitter(j)` | redraw that parameter for every existing neuron, in neuron order (disabled: reset to the default), and keep `j` for later growth |
 | `recoveryJitter()`, `learningJitter()`, `alphaJitter()` | the current settings |
+| `learningRule()`, `setLearningRule(rule)` | the layer's [learning rule](learning.md); setting it resets the rule's state, keeps the weights |
+| `bias(i)`, `setBias(i, value)` | a neuron's learned bias (rules with `bias`) |
+| `applyReward(r, rate)`, `applyModulators(m, rate)`, `applyFeedback(errors, rate)` | learning with one reward, one modulator per neuron, or feedback alignment's projection of an error vector |
 | `newNeuron()` (protected) | append a neuron and its output slot |
+| `beginForward()`, `fire(i, sum)`, `traceInputs(...)` (protected) | forward-pass hooks derived layers call: draw perturbation noise, add bias and noise and update traces around `neuron::activate` |
+| `updateWeights()` (protected, virtual) | apply the per-neuron steps (`step_delta_`, `step_keep_`, `step_active_`) to the layer's weights |
 
 See [neuron: per-neuron dynamics](neuron.md#per-neuron-dynamics).
 
@@ -126,7 +131,9 @@ See [neuron: per-neuron dynamics](neuron.md#per-neuron-dynamics).
 
 `serialize` writes `hasHabituation`, `hasER`, the neuron count (`size_t`),
 then one [neuron record](neuron.md#serialization) per neuron, carrying that
-neuron's weights (obtained from the derived class through `copyWeights`).
+neuron's weights (obtained from the derived class through `copyWeights`),
+then (neuron format 3) the learning rule and its state
+([learning](learning.md#serialization)).
 
 `deserialize`:
 

@@ -22,11 +22,11 @@ public:
     // computes 8 positions per pass. Every weighted sum is still summed in
     // window order, exactly like a scalar dot product.
     void forward() override;
-    // Shared kernels learn the mean of the sign-rule updates of their
-    // channel's eligible neurons: w += mean over them of delta * sign(input),
-    // then clamped. Partial sums use fixed chunks of positions, reduced in
-    // order, so the result does not depend on the thread count.
-    void applyReward(float reward, float learningRate) override;
+    // Learning: shared kernels learn the mean of the updates of their
+    // channel's neurons that learn: w = w * mean(keep) + mean(delta * pre),
+    // then clamped (see learning.hpp). Partial sums use fixed chunks of
+    // positions, reduced in order, so the result does not depend on the
+    // thread count. Biases (when the rule has them) are per neuron.
     bool learns() const override { return true; }
 
     // Kernel of an output channel: windowSize() weights in window order.
@@ -42,6 +42,7 @@ public:
 
 protected:
     void createWeights() override;
+    void updateWeights() override;
     void appendInputs(size_t count) override;
 
     // The kernels are saved once, after the neuron records.

@@ -6,6 +6,7 @@ of known limitations, see the [project README](../README.md).
 | Page | Covers |
 |------|--------|
 | [neuron](neuron.md) | `neuron`, `DeserializeMode`, the tunable constants: E-R, habituation, learning rule, serialization format |
+| [learning](learning.md) | `LearningRule`: the learning rules a layer can use (sign, trace, feedback alignment, perturbation, Oja, BCM), bias, decay, `applyError` |
 | [layer](layer.md) | `layer` (base class), `neuron_layer`, `Shape`, `InputRange`, `LayerType`: what every layer type shares |
 | [dense](dense.md) | `dense`: wiring groups, growth propagation, SIMD forward pass and learning |
 | [spatial](spatial.md) | image layers: `retina` (grid and spiral sampling), `conv2d`, `locally_connected2d`, `pool2d`, `Window2D` |

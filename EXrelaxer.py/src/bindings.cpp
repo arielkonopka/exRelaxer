@@ -77,8 +77,9 @@ neuron_layer& neuronLayer(network& net, LayerId id)
 }
 
 LayerSpec withOptions(LayerSpec spec, bool frozen, const Jitter& recovery, const Jitter& learning,
-                      const Jitter& alpha)
+                      const Jitter& alpha, const LearningRule& rule = {})
 {
+    spec.learningRule = rule;
     spec.frozen = frozen;
     spec.recoveryJitter = recovery;
     spec.learningJitter = learning;
@@ -274,8 +275,45 @@ NB_MODULE(_core, m)
         .def_ro("max", &Jitter::max)
         .def("__eq__", [](const Jitter& a, const Jitter& b) { return a == b; });
 
+    // --- LearningRule (core/learning.hpp) ---------------------------------------
+    nb::enum_<LearningRuleType>(m, "LearningRuleType")
+        .value("Sign", LearningRuleType::Sign)
+        .value("Trace", LearningRuleType::Trace)
+        .value("FeedbackAlignment", LearningRuleType::FeedbackAlignment)
+        .value("Perturbation", LearningRuleType::Perturbation)
+        .value("Oja", LearningRuleType::Oja)
+        .value("BCM", LearningRuleType::BCM);
+    nb::class_<LearningRule>(m, "LearningRule",
+                             "How a layer learns: sign (default), trace, feedback_alignment, perturbation, oja or bcm.")
+        .def(nb::init<>())
+        .def_rw("type", &LearningRule::type)
+        .def_rw("bias", &LearningRule::bias)
+        .def_rw("decay", &LearningRule::decay)
+        .def_rw("trace", &LearningRule::trace)
+        .def_rw("baseline", &LearningRule::baseline)
+        .def_rw("noise", &LearningRule::noise)
+        .def_rw("bcm_rate", &LearningRule::bcmRate)
+        .def_rw("winners", &LearningRule::winners)
+        .def_static("sign", &LearningRule::sign, "The original rule: rate * gain * reward * eligibility * sign(input).")
+        .def_static("traced", &LearningRule::traced, "trace"_a = 0.0f, "baseline"_a = 0.05f,
+                    "Graded three-factor rule: (reward - baseline) * output trace * input trace.")
+        .def_static("feedback_alignment", &LearningRule::feedbackAlignment, "trace"_a = 0.0f,
+                    "Per-neuron credit from Network.apply_error through a fixed random feedback matrix.")
+        .def_static("perturbation", &LearningRule::perturbation, "noise"_a = 0.1f, "trace"_a = 0.0f,
+                    "baseline"_a = 0.05f, "Node perturbation: exploration noise correlated with the reward.")
+        .def_static("oja", &LearningRule::oja, "winners"_a = 0, "Unsupervised Oja rule (normalised Hebbian).")
+        .def_static("bcm", &LearningRule::bcm, "bcm_rate"_a = 0.01f, "winners"_a = 0, "decay"_a = 0.0f,
+                    "Unsupervised BCM rule with a sliding threshold.")
+        .def("with_bias", &LearningRule::withBias, "on"_a = true)
+        .def("with_decay", &LearningRule::withDecay, "decay"_a)
+        .def_prop_ro("unsupervised", &LearningRule::unsupervised)
+        .def("validate", &LearningRule::validate)
+        .def("__eq__", [](const LearningRule& a, const LearningRule& b) { return a == b; })
+        .def("__repr__", [](const LearningRule& r) { return "<LearningRule " + describeLearningRule(r) + ">"; });
+
     // --- LayerSpec -------------------------------------------------------------
     const Jitter noJitter{};
+    const LearningRule signRule{};
     nb::class_<LayerSpec>(m, "LayerSpec",
                           "Everything needed to construct a layer; use the builders dense(), conv2d(), ...")
         .def(nb::init<>())
@@ -287,6 +325,7 @@ NB_MODULE(_core, m)
         .def_rw("recovery_jitter", &LayerSpec::recoveryJitter)
         .def_rw("learning_jitter", &LayerSpec::learningJitter)
         .def_rw("alpha_jitter", &LayerSpec::alphaJitter)
+        .def_rw("learning_rule", &LayerSpec::learningRule)
         .def_rw("window", &LayerSpec::window)
         .def_rw("pool", &LayerSpec::pool)
         .def_rw("retina_spec", &LayerSpec::retina)
@@ -294,26 +333,31 @@ NB_MODULE(_core, m)
         .def_static(
             "dense",
             [](size_t size, bool habituation, bool er, bool frozen, const Jitter& rj, const Jitter& lj,
-               const Jitter& aj) { return withOptions(LayerSpec::Dense(size, habituation, er), frozen, rj, lj, aj); },
+               const Jitter& aj, const LearningRule& rule) {
+                return withOptions(LayerSpec::Dense(size, habituation, er), frozen, rj, lj, aj, rule);
+            },
             "size"_a, "habituation"_a = true, "er"_a = true, nb::kw_only(), "frozen"_a = false,
-            "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter)
+            "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter,
+            "learning_rule"_a = signRule)
         .def_static(
             "conv2d",
             [](size_t channels, const Window2D& window, bool habituation, bool er, bool frozen, const Jitter& rj,
-               const Jitter& lj, const Jitter& aj) {
-                return withOptions(LayerSpec::Conv2D(channels, window, habituation, er), frozen, rj, lj, aj);
+               const Jitter& lj, const Jitter& aj, const LearningRule& rule) {
+                return withOptions(LayerSpec::Conv2D(channels, window, habituation, er), frozen, rj, lj, aj, rule);
             },
             "channels"_a, "window"_a, "habituation"_a = true, "er"_a = true, nb::kw_only(), "frozen"_a = false,
-            "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter)
+            "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter,
+            "learning_rule"_a = signRule)
         .def_static(
             "locally_connected2d",
             [](size_t channels, const Window2D& window, bool habituation, bool er, bool frozen, const Jitter& rj,
-               const Jitter& lj, const Jitter& aj) {
+               const Jitter& lj, const Jitter& aj, const LearningRule& rule) {
                 return withOptions(LayerSpec::LocallyConnected2D(channels, window, habituation, er), frozen, rj, lj,
-                                   aj);
+                                   aj, rule);
             },
             "channels"_a, "window"_a, "habituation"_a = true, "er"_a = true, nb::kw_only(), "frozen"_a = false,
-            "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter)
+            "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter,
+            "learning_rule"_a = signRule)
         .def_static("pool2d", &LayerSpec::Pool2D, "window"_a, "mode"_a = PoolMode::Max)
         .def_static(
             "retina",
@@ -398,6 +442,8 @@ NB_MODULE(_core, m)
         .def("set_recovery_jitter", &network::setRecoveryJitter, "layer"_a, "jitter"_a)
         .def("set_learning_jitter", &network::setLearningJitter, "layer"_a, "jitter"_a)
         .def("set_alpha_jitter", &network::setAlphaJitter, "layer"_a, "jitter"_a)
+        .def("set_learning_rule", &network::setLearningRule, "layer"_a, "rule"_a,
+             "Changes a layer's learning rule; resets the rule's state, keeps the weights.")
         .def("set_update_order", &network::setUpdateOrder, "order"_a)
         .def("use_default_update_order", &network::useDefaultUpdateOrder)
 
@@ -420,6 +466,47 @@ NB_MODULE(_core, m)
             },
             "layer"_a, "reward"_a, "learning_rate"_a, nb::call_guard<nb::gil_scoped_release>(),
             "Only this layer learns (unless frozen): a reward per output layer, e.g. one-vs-rest readouts.")
+        .def(
+            "apply_error", [](network& net, const FloatIn& errors, float learningRate) {
+                const auto e = flat(errors);
+                nb::gil_scoped_release release;
+                net.applyError(e, learningRate);
+            },
+            "errors"_a, "learning_rate"_a,
+            "Learning from an error per output (desired - actual): output layers learn their own errors,\n"
+            "hidden feedback-alignment layers a random projection of them (see network.hpp).")
+        .def(
+            "apply_error", [](network& net, const std::vector<float>& errors, float learningRate) {
+                nb::gil_scoped_release release;
+                net.applyError(errors, learningRate);
+            },
+            "errors"_a, "learning_rate"_a)
+        .def(
+            "apply_modulators_to",
+            [](network& net, LayerId id, const FloatIn& modulators, float learningRate) {
+                const auto m = flat(modulators);
+                neuron_layer& target = neuronLayer(net, id);
+                if (net.isFrozen(id))
+                    return;
+                nb::gil_scoped_release release;
+                target.applyModulators(m, learningRate);
+            },
+            "layer"_a, "modulators"_a, "learning_rate"_a,
+            "Only this layer learns (unless frozen), with its own reward per neuron.")
+        .def(
+            "bias", [](network& net, LayerId id) {
+                const neuron_layer& l = neuronLayer(net, id);
+                std::vector<float> b(l.size());
+                for (size_t i = 0; i < b.size(); ++i)
+                    b[i] = l.bias(i);
+                return toNumpy(std::move(b));
+            },
+            "layer"_a, "Each neuron's learned bias (zeros when the rule has none).")
+        .def(
+            "set_bias", [](network& net, LayerId id, size_t index, float value) {
+                neuronLayer(net, id).setBias(index, value);
+            },
+            "layer"_a, "neuron"_a, "value"_a)
         .def("outputs", [](const network& net) { return toNumpy(net.outputs()); },
              "The output layers' values, concatenated.")
         .def(

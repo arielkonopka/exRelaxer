@@ -36,6 +36,8 @@ from ._core import (  # noqa: F401
     Jitter,
     LayerSpec,
     LayerType,
+    LearningRule,
+    LearningRuleType,
     Network,
     PoolMode,
     RetinaSpec,
@@ -52,7 +54,8 @@ from ._core import (  # noqa: F401
 from . import audio, datasets  # noqa: F401,E402
 
 __all__ = [
-    "CochleaSpec", "Compression", "DeserializeMode", "Edge", "EdgeKind", "FrequencyScale", "Jitter", "LayerSpec", "LayerType", "Network", "PoolMode",
+    "CochleaSpec", "Compression", "DeserializeMode", "Edge", "EdgeKind", "FrequencyScale", "Jitter", "LayerSpec", "LayerType", "LearningRule",
+    "LearningRuleType", "Network", "PoolMode",
     "RetinaSpec", "Sampling", "Shape", "Window2D", "audio", "build_info", "constants", "datasets", "filters", "reseed",
     "set_threads", "threads",
 ]

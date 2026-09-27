@@ -38,7 +38,10 @@ void locally_connected2d::forward()
 {
     if (!wired())
         return;
+    beginForward();
     gatherInputs();
+    traceSnapshot();
+    const bool plain = plainForward();
     const size_t P = positions(), K = windowSize(), C = outputChannels();
     parallelChunks(P, kernels::threadsFor(P * K * C), [&](size_t p0, size_t p1) {
         std::vector<float> window(K), sums(weights_.empty() ? 0 : weights_[0].paddedRows());
@@ -47,38 +50,43 @@ void locally_connected2d::forward()
             weights_[p].multiply(window, sums, 0, weights_[p].blocks());
             for (size_t c = 0; c < C; ++c) {
                 const size_t i = neuronAt(c, p);
-                output_[i] = neurons_[i].activate(sums[c]);
+                output_[i] = fire(i, sums[c], plain);
             }
         }
     });
 }
 
-void locally_connected2d::applyReward(float reward, float learningRate)
+void locally_connected2d::updateWeights()
 {
     if (!wired())
         return;
-    gatherInputs();
+    if (learnsFromSigns())
+        gatherInputs();
     const size_t P = positions(), K = windowSize(), C = outputChannels();
+    const bool scaled = scaledUpdates();
     parallelChunks(P, kernels::threadsFor(P * K * C), [&](size_t p0, size_t p1) {
         const size_t padded = weights_[0].paddedRows();
-        std::vector<float> signs(K), delta(padded);
+        std::vector<float> pre(K), delta(padded), keep(padded, 1.0f);
         std::vector<std::uint8_t> active(padded);
         for (size_t p = p0; p < p1; ++p) {
             bool any = false;
             std::ranges::fill(active, std::uint8_t{0});
             for (size_t c = 0; c < C; ++c) {
-                const neuron& n = neurons_[neuronAt(c, p)];
-                if (n.eligible()) {
+                const size_t i = neuronAt(c, p);
+                if (step_active_[i]) {
                     active[c] = 1;
-                    delta[c] = n.learningDelta(reward, learningRate);
+                    delta[c] = step_delta_[i];
+                    keep[c] = scaled ? step_keep_[i] : 1.0f;
                     any = true;
                 }
             }
             if (!any)
                 continue;
-            windowAt(p, signs);
-            kernels::signs(signs, signs);
-            weights_[p].learn(signs, delta, active, max_weight, 0, weights_[p].blocks());
+            learningWindowAt(p, pre);
+            if (scaled)
+                weights_[p].learnScaled(pre, delta, keep, active, max_weight, 0, weights_[p].blocks());
+            else
+                weights_[p].learn(pre, delta, active, max_weight, 0, weights_[p].blocks());
         }
     });
 }

@@ -31,5 +31,9 @@ std::uint32_t spontaneousSeed();
 // Stream for per-neuron jitter (see Jitter in neuron.hpp).
 std::mt19937& jitter();
 
+// Stream for learning rules: seeds of each layer's exploration-noise
+// generator and the fixed feedback matrices of feedback alignment.
+std::mt19937& learning();
+
 } // namespace rng
 } // namespace exr

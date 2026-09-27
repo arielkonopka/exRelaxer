@@ -112,8 +112,11 @@ public:
     // entries. Inactive rows are untouched.
     void learn(std::span<const float> signs, std::span<const float> delta, std::span<const std::uint8_t> active,
                float limit, size_t firstBlock, size_t lastBlock);
-
-
+    // The general rule for the same rows: w = clamp(w * keep[r] + pre[c] *
+    // delta[r]). `pre` has cols() entries; `keep` has paddedRows() entries.
+    // With every keep 1 and pre = signs it gives the same bits as learn().
+    void learnScaled(std::span<const float> pre, std::span<const float> delta, std::span<const float> keep,
+                     std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock);
 
 private:
     // The weights of block b: cols() inputs x `lanes` rows.

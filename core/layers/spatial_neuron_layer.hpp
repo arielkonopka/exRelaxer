@@ -40,6 +40,25 @@ protected:
     void gatherInputs() { inputs_.gather(tensor_); }
     // The window of `position` over the snapshot; `out` has windowSize() entries.
     void windowAt(size_t position, std::span<float> out) const;
+    // Input traces (rules other than Sign): forward() calls traceSnapshot()
+    // after gatherInputs(); traceWindowAt() is windowAt() over the trace.
+    void traceSnapshot()
+    {
+        if (tracesInputs())
+            traceInputs(trace_, tensor_);
+    }
+    void traceWindowAt(size_t position, std::span<float> out) const;
+    // The weights' pre-synaptic factor for `position`: the signs of the
+    // current window (Sign rule) or the window of the input trace.
+    void learningWindowAt(size_t position, std::span<float> out) const;
+    size_t competitionPositions() const override { return positions(); }
+    void copyInputTraces(std::vector<float>& out) const override { out = trace_; }
+    void storeInputTraces(std::span<const float> traces) override
+    {
+        if (traces.size() == tensor_.size() || tensor_.empty())
+            trace_.assign(traces.begin(), traces.end());
+    }
+    void clearInputTraces() override { trace_.clear(); }
 
     // First join: draw the initial weights for windowSize() inputs.
     virtual void createWeights() = 0;
@@ -56,6 +75,7 @@ private:
     size_t out_height_ = 0;
     size_t out_width_ = 0;
     std::vector<float> tensor_;  // input snapshot: input channels x height x width
+    std::vector<float> trace_;   // input trace, same layout (rules other than Sign)
 };
 
 } // namespace exr

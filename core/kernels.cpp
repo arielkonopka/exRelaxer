@@ -197,6 +197,41 @@ void weight_matrix::learn(std::span<const float> signs, std::span<const float> d
     }
 }
 
+void weight_matrix::learnScaled(std::span<const float> pre, std::span<const float> delta, std::span<const float> keep,
+                                std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock)
+{
+    assert(pre.size() >= cols_ && delta.size() >= lastBlock * lanes && keep.size() >= lastBlock * lanes &&
+           active.size() >= lastBlock * lanes);
+    const vfloat hi = splat(limit), lo = splat(-limit);
+    for (size_t b = firstBlock; b < lastBlock; ++b) {
+        vfloat on[per_block] = {}, d[per_block] = {}, kp[per_block] = {};
+        bool any = false;
+        for (size_t k = 0; k < per_block; ++k)
+            for (size_t l = 0; l < width; ++l) {
+                const size_t r = b * lanes + k * width + l;
+                const bool lane_on = active[r] != 0;
+                on[k][l] = lane_on ? 1.0f : 0.0f;
+                d[k][l] = lane_on ? delta[r] : 0.0f;
+                kp[k][l] = lane_on ? keep[r] : 1.0f;
+                any = any || lane_on;
+            }
+        if (!any)
+            continue;
+        const std::span<float> w = block(b);
+        for (size_t c = 0; c < cols_; ++c) {
+            const vfloat s = splat(pre[c]);
+            for (size_t k = 0; k < per_block; ++k) {
+                const auto p = lanesOf(w, c, k);
+                const vfloat old = load(p);
+                vfloat v = old * kp[k] + s * d[k];
+                v = v < lo ? lo : v;
+                v = hi < v ? hi : v;
+                store(p, on[k] != 0.0f ? v : old);
+            }
+        }
+    }
+}
+
 #else
 // Portable fallback: the same arithmetic, one lane at a time.
 void weight_matrix::multiply(std::span<const float> x, std::span<float> sums, size_t firstBlock,
@@ -224,6 +259,20 @@ void weight_matrix::learn(std::span<const float> signs, std::span<const float> d
             const float d = delta[b * lanes + l];
             for (size_t c = 0; c < cols_; ++c)
                 w[c * lanes + l] = std::min(std::max(w[c * lanes + l] + signs[c] * d, -limit), limit);
+        }
+    }
+}
+void weight_matrix::learnScaled(std::span<const float> pre, std::span<const float> delta, std::span<const float> keep,
+                                std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock)
+{
+    for (size_t b = firstBlock; b < lastBlock; ++b) {
+        const std::span<float> w = block(b);
+        for (size_t l = 0; l < lanes; ++l) {
+            if (active[b * lanes + l] == 0)
+                continue;
+            const float d = delta[b * lanes + l], k = keep[b * lanes + l];
+            for (size_t c = 0; c < cols_; ++c)
+                w[c * lanes + l] = std::min(std::max(w[c * lanes + l] * k + pre[c] * d, -limit), limit);
         }
     }
 }

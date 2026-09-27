@@ -68,6 +68,8 @@ inputs → `std::invalid_argument`; connecting a pair twice →
 | `setInputs(values)` | set all sensors; the count must equal `inputCount()` (span or `{...}` list) |
 | `step()` | call `forward()` on every layer once, in [update order](#update-order) |
 | `applyReward(reward, learningRate)` | call `applyReward` on every layer that is **not frozen** |
+| `applyError(errors, learningRate)` | one error per output: each unfrozen layer learns by its [learning rule](learning.md#driving-learning) |
+| `setLearningRule(id, rule)` | change a layer's [learning rule](learning.md) (also `LayerSpec::learningRule`) |
 | `outputs()` | current values of all output layers, concatenated |
 
 A typical tick: set inputs → `step()` → read `outputs()` → `applyReward(...)`.
@@ -225,7 +227,7 @@ the building methods' exceptions.
 Binary, native endianness (not portable across platforms). Counts and ids
 are `uint64`.
 
-1. Magic `EXRN`, format version `uint32` (currently **8**).
+1. Magic `EXRN`, format version `uint32` (currently **9**).
 2. Operation count, then each operation: kind (`uint8`) and fields:
    - AddLayer: name length + bytes, `LayerType` (`uint8`), size,
      hasHabituation, hasER, frozen (`uint8` each; frozen is the state at save
@@ -236,13 +238,17 @@ are `uint64`.
      retina image shape (channels, height, width), sampling (`uint8`),
      spacing and radius (`float`); then the audio parameters: cochlea sample
      rate (`float`), hop, window, bands, min and max frequency (`float`),
-     frequency scale and compression (`uint8`), gain (`float`)
+     frequency scale and compression (`uint8`), gain (`float`); then the
+     learning rule: type and bias (`uint8`), decay, trace, baseline, noise,
+     bcmRate (`float`), winners (`uint32`)
    - Connect: from, to
    - Feedback: from, to, width
    - Inputs: target, count
 3. Output count + ids; custom-order flag (`uint8`), and if set, count + ids.
 4. Input count + values (`float`).
-5. Each layer's `serialize()` output, in id order.
+5. Each layer's `serialize()` output, in id order. Layers of neurons end
+   theirs with the learning rule and its state (neuron format 3, see
+   [learning](learning.md#serialization)).
 
 | Version | Added |
 |---------|-------|
@@ -254,6 +260,7 @@ are `uint64`.
 | 6 | alpha jitter per layer |
 | 7 | spatial parameters per layer (window, pooling mode, retina) |
 | 8 | audio parameters per layer (cochlea) |
+| 9 | learning rule per layer; layers of neurons append the rule's state (neuron format 3) |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.

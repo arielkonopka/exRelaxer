@@ -66,7 +66,10 @@ void conv2d::forward()
 {
     if (!wired())
         return;
+    beginForward();
     gatherInputs();
+    traceSnapshot();
+    const bool plain = plainForward();
     const size_t P = positions(), K = windowSize(), C = outputChannels();
     const size_t tiles = (P + tile_positions - 1) / tile_positions;
     parallelChunks(tiles, kernels::threadsFor(P * K * C), [&](size_t t0, size_t t1) {
@@ -84,40 +87,47 @@ void conv2d::forward()
                 patches.multiply(kernelRow(c), sums, 0, patches.blocks());
                 for (size_t r = 0; r < rows; ++r) {
                     const size_t i = neuronAt(c, first + r);
-                    output_[i] = neurons_[i].activate(sums[r]);
+                    output_[i] = fire(i, sums[r], plain);
                 }
             }
         }
     });
 }
 
-void conv2d::applyReward(float reward, float learningRate)
+void conv2d::updateWeights()
 {
     if (!wired())
         return;
     const size_t P = positions(), K = windowSize(), C = outputChannels();
+    const bool scaled = scaledUpdates();
 
-    // Each neuron's step (0 when not eligible), and eligible neurons per channel.
-    std::vector<float> delta(C * P, 0.0f);
+    // Each neuron's step is step_delta_[neuronAt(c, p)] = step_delta_[c * P + p]
+    // (0 when it does not learn); count the neurons that learn per channel
+    // and (scaled rules) sum their shrink factors.
+    const std::span<const float> delta = step_delta_;
     std::vector<size_t> eligible(C, 0);
+    std::vector<float> keep_sum(C, 0.0f);
     parallelChunks(C, kernels::threadsFor(P * C * 16), [&](size_t c0, size_t c1) {
         for (size_t c = c0; c < c1; ++c) {
             size_t count = 0;  // local: neighbouring counters would share a cache line between threads
+            float keep = 0.0f;
             for (size_t p = 0; p < P; ++p) {
-                const neuron& n = neurons_[neuronAt(c, p)];
-                if (n.eligible()) {
-                    delta[c * P + p] = n.learningDelta(reward, learningRate);
-                    ++count;
-                }
+                const size_t i = neuronAt(c, p);
+                count += step_active_[i];
+                if (scaled && step_active_[i])
+                    keep += step_keep_[i];
             }
             eligible[c] = count;
+            keep_sum[c] = keep;
         }
     });
     if (std::ranges::all_of(eligible, [](size_t e) { return e == 0; }))
         return;
 
-    gatherInputs();
-    // Sum over positions of delta * sign(input), per kernel weight. Each tile
+    if (learnsFromSigns())
+        gatherInputs();
+    // Sum over positions of delta * pre, per kernel weight (pre: the signs
+    // of the inputs, or their trace). Each tile
     // of positions is laid out transposed (a row per window input, a column
     // per position), so one multiply by a channel's deltas sums every input
     // over the tile's positions in order. Tiles add into a partial sum per
@@ -133,13 +143,12 @@ void conv2d::applyReward(float reward, float learningRate)
                 const size_t count = std::min(tile_positions, chunk_end - first);
                 signs.reshape(K, count);
                 for (size_t r = 0; r < count; ++r) {
-                    windowAt(first + r, window);
-                    kernels::signs(window, window);
+                    learningWindowAt(first + r, window);
                     signs.setColumn(r, window);
                 }
                 sums.resize(signs.paddedRows());
                 for (size_t c = 0; c < C; ++c) {
-                    const std::span<const float> d = std::span<const float>(delta).subspan(c * P + first, count);
+                    const std::span<const float> d = delta.subspan(c * P + first, count);
                     if (eligible[c] == 0 || std::ranges::all_of(d, [](float v) { return v == 0.0f; }))
                         continue;
                     signs.multiply(d, sums, 0, signs.blocks());
@@ -157,12 +166,15 @@ void conv2d::applyReward(float reward, float learningRate)
             if (eligible[c] == 0)
                 continue;
             const float scale = 1.0f / static_cast<float>(eligible[c]);
+            // Scaled rules shrink the shared kernel by its neurons' mean shrink factor.
+            const float keep = scaled ? keep_sum[c] * scale : 1.0f;
             for (size_t j = 0; j < K; ++j) {
                 float total = 0.0f;
                 for (size_t chunk = 0; chunk < chunks; ++chunk)
                     total += partial[(chunk * C + c) * K + j];
                 float& w = kernels_[c * K + j];
-                w = std::min(std::max(w + total * scale, -max_weight), max_weight);
+                const float kept = scaled ? w * keep : w;
+                w = std::min(std::max(kept + total * scale, -max_weight), max_weight);
             }
         }
     });

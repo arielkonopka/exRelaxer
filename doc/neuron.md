@@ -264,8 +264,10 @@ Binary, native endianness, in this order:
 - `FullState`: restores everything, so the neuron continues exactly as the
   saved one would, including future spontaneous firings.
 `deserialize` also takes the neuron data `format` (`NEURON_FORMAT_VERSION`,
-currently 2). Format 1, written by network files of versions 1–2, has no
-recovery or learning gain; they then keep their current values.
+currently 3). Format 1, written by network files of versions 1–2, has no
+recovery or learning gain; they then keep their current values. Format 3
+has the same neuron record as format 2; it marks that layers of neurons
+append their [learning rule](learning.md#serialization) state.
 
 - `WeightsOnly`: restores flags, alpha, recovery, learning gain and weights; resets threshold to
   `baseline_threshold`, habituation state and output to 0, and keeps the

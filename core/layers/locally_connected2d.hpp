@@ -22,9 +22,8 @@ public:
     LayerType type() const override { return LayerType::LocallyConnected2D; }
 
     void forward() override;
-    // Every eligible neuron learns (see neuron::learningDelta) against its
-    // window as it is now, like a dense neuron.
-    void applyReward(float reward, float learningRate) override;
+    // Learning: every neuron that learns updates its weights against its
+    // window, like a dense neuron (current signs, or the input trace).
     bool learns() const override { return true; }
 
     // Neuron `index`'s weights, in window order (empty when not wired).
@@ -35,6 +34,7 @@ public:
 protected:
     void createWeights() override;
     void appendInputs(size_t count) override;
+    void updateWeights() override;
     void copyWeights(size_t index, std::vector<float>& out) const override;
     size_t expectedWeights(size_t) const override { return wired() ? windowSize() : 0; }
     void storeWeights(size_t index, std::span<const float> weights) override;

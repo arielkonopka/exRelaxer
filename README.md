@@ -12,7 +12,7 @@ automatically to every downstream layer.
 
 **Documentation:** [doc/](doc/README.md) has a detailed page for each class:
 [neuron](doc/neuron.md), [layer](doc/layer.md), [dense](doc/dense.md),
-[kernels](doc/kernels.md), [spatial](doc/spatial.md), [audio](doc/audio.md),
+[learning](doc/learning.md), [kernels](doc/kernels.md), [spatial](doc/spatial.md), [audio](doc/audio.md),
 [layer_factory](doc/layer_factory.md),
 [network](doc/network.md), and the
 test-support [pattern_benchmark](doc/pattern_benchmark.md). It also has
@@ -31,6 +31,11 @@ experiment so far.
   the signal changes again.
 - **Reward-modulated learning** – `applyReward(reward, learningRate)` moves
   the weights of recently active neurons toward the reward's sign.
+- **Learning rules per layer** – besides that sign rule, each layer can learn
+  with a graded trace rule, feedback alignment (per-neuron credit for hidden
+  layers from an error vector, `applyError`), node perturbation, or the
+  unsupervised Oja and BCM rules, with an optional learned bias and weight
+  decay; one network can mix them (see [doc/learning.md](doc/learning.md)).
 - **Networks** – `network` owns a graph of layers with forward and feedback
   edges, input sensors and output layers, runs them in a well-defined order,
   and can freeze individual layers.
@@ -321,21 +326,28 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Known limitations
 
-- **No bias term and a sign-only learning rule.** Neurons have no bias (use
-  an input held at 1.0) and learning uses only the sign of each input, so a
-  0 input never teaches anything.
-- **Learning is weak beyond the last layer.** Every eligible neuron gets the
-  same reward; there is no per-neuron credit assignment. Tasks work well when
-  frozen or hand-wired layers provide the features and memory and only a
-  readout learns. Gapped-pattern detection (`A,{0..1},B,{0..1},C` among
-  decoys) reaches ~0.96 valid-vs-decoy accuracy that way, and ~0.81–0.94
-  with a frozen *random* reservoir as memory; fully learned feedback
-  networks stay at chance. E-R neurons carry some memory on their own
-  (0.757 with no connections between them, vs 0.50 without E-R).
+- **The default rule has no bias and uses only input signs.** With the
+  default sign rule neurons have no bias (use an input held at 1.0, or a
+  rule with `withBias()`) and a 0 input never teaches anything. The other
+  [learning rules](doc/learning.md) have graded updates and an optional
+  learned bias.
+- **Learning is weak beyond the last layer with a global reward.** With
+  `applyReward`, every eligible neuron gets the same reward: there is no
+  per-neuron credit assignment. Tasks work well when frozen or hand-wired
+  layers provide the features and memory and only a readout learns.
+  Gapped-pattern detection (`A,{0..1},B,{0..1},C` among decoys) reaches
+  ~0.96 valid-vs-decoy accuracy that way, and ~0.81–0.94 with a frozen
+  *random* reservoir as memory. Fully learned feedback networks stay at
+  chance. E-R neurons carry some memory on their own (0.757 with no
+  connections between them, vs 0.50 without E-R). Feedback alignment
+  (`applyError`) now trains hidden layers from an error vector (a
+  bottleneck task: error 0.49 → 7 × 10⁻⁷), but on snake no learned hidden
+  layer beats a frozen random one yet ([research log §11](doc/research.md#11-learning-rules)).
 - **E-R makes learning steps very large.** Eligibility is
   `threshold / baseline_threshold − 1` and a firing lifts the threshold well
   above baseline, so E-R neurons take big steps and hit the weight clamp
-  quickly. There is no weight decay.
+  quickly. The sign rule has no weight decay (every other rule, and the
+  sign rule with `withDecay()`, can have it).
 - **Bounded, not squashed.** Weights and weighted sums are clamped at ±10;
   without the output clamp, networks with feedback loops diverge.
 - **Shared random streams.** Initial weights depend on everything created
@@ -345,6 +357,29 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files from older format versions load as weights only.
 
 ## Changelog
+
+### 2026-09-27: learning rules per layer
+
+- `LearningRule` (`core/learning.hpp`): every layer of neurons chooses how
+  it learns, through `LayerSpec::learningRule` or `network::setLearningRule`.
+  The rules are sign (the default and unchanged), trace (graded
+  three-factor with eligibility traces and a reward baseline), feedback
+  alignment, node perturbation, Oja and BCM (unsupervised, with optional
+  k-winners competition). Every rule can add a learned bias and weight
+  decay. See [doc/learning.md](doc/learning.md).
+- `network::applyError(errors, rate)`: output layers learn their own errors
+  and hidden feedback-alignment layers a fixed random projection of them.
+  `neuron_layer::applyModulators` gives each neuron its own reward.
+- Network format 9 (neuron format 3) saves the rule and its state; loaded
+  networks continue exactly. Older files load with the sign rule.
+- With the default rule, results are bit-identical and speed is the same
+  as before (within ±3 %).
+- `nntest run snake_rules`: snake with a rule for the readouts and for the
+  mix layer, reporting apples, steps and apples per 100 steps per game (see
+  [research log §11](doc/research.md#11-learning-rules)).
+  `dense_throughput` takes `--set rule=...` and times `applyError` too.
+- Python: `LearningRule`, `LayerSpec.dense(..., learning_rule=...)`,
+  `Network.set_learning_rule`, `apply_error`, `apply_modulators_to`, `bias`.
 
 ### 2026-09-27: snake
 
