@@ -47,6 +47,11 @@ public:
     // with E-R.
     void setRectified(bool rectified);
     bool rectified() const { return rectified_; }
+    // How habituation suppresses repeated inputs (see Habituation) for
+    // every neuron, now and later; used only by neurons with habituation.
+    // Throws std::invalid_argument for an invalid rule.
+    void setHabituationRule(const Habituation& rule);
+    const Habituation& habituationRule() const { return habituation_rule_; }
 
     // --- Learning -------------------------------------------------------
     // The rule this layer learns with (see learning.hpp). Setting it resets
@@ -180,6 +185,7 @@ private:
     Jitter recovery_jitter_, learning_jitter_, alpha_jitter_;  // likewise
     float gate_ = 0.0f;                                          // likewise
     bool rectified_ = false;                                     // likewise
+    Habituation habituation_rule_;                               // likewise
 
     LearningRule rule_;
     bool plain_ = true;               // no bias, traces or noise: fire() just activates

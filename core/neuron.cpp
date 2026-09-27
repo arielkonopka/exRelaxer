@@ -91,15 +91,19 @@ float neuron::activate(float weightedSum)
         // Branchless habituation update:
         //   similar    == is this step's raw sum ~equal to last step's?
         //   counter    == similar ? (counter + 1) : 0          [streak length]
-        //   habituated == counter has reached habituation_steps
+        //   habituated == counter has reached the rule's steps
         //   sum        == habituated ? 0 : sum                 [suppress the input]
-        // previous_input_ exists purely for habituation's own repeat
-        // detection and is not read anywhere else.
-        const bool similar = std::abs(sum - previous_input_) <= habituation_epsilon;
+        // With a decay, a habituated input fades by decay per tick instead
+        // of being cut. previous_input_ exists purely for habituation's own
+        // repeat detection and is not read anywhere else.
+        const float tolerance = std::max(habituation_epsilon,
+                                         habituation_.tolerance * std::max(std::abs(sum), std::abs(previous_input_)));
+        const bool similar = std::abs(sum - previous_input_) <= tolerance;
         habituation_counter_ = static_cast<int>(similar) * (habituation_counter_ + 1);
         previous_input_ = sum;
-        const bool habituated = habituation_counter_ >= habituation_steps;
-        sum *= static_cast<float>(!habituated);
+        const int habituatedTicks = habituation_counter_ - static_cast<int>(habituation_.steps) + 1;
+        if (habituatedTicks > 0)
+            sum *= habituation_.decay > 0.0f ? std::pow(habituation_.decay, static_cast<float>(habituatedTicks)) : 0.0f;
     }
     output_ = sum;
     if (has_er_) {

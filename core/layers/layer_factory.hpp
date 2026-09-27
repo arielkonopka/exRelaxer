@@ -33,6 +33,7 @@ struct LayerSpec
     Jitter alphaJitter = {};     // per-neuron E-R alpha (default: none, all default_alpha)
     LearningRule learningRule = {};  // how the layer learns (layers with weights; see learning.hpp)
     float gate = 0.0f;           // neurons without E-R: fixed firing threshold (see neuron::gate); 0 = linear
+    Habituation habituationRule = {};  // how habituation suppresses repeated inputs (default: cut after 100 exact repeats)
     bool rectify = false;        // neurons without E-R: ReLU, only sums above the gate pass (see neuron::rectified)
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D

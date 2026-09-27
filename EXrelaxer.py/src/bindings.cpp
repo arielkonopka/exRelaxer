@@ -291,6 +291,20 @@ NB_MODULE(_core, m)
         .def("__eq__", [](const DisparitySpec& a, const DisparitySpec& b) { return a == b; });
 
     // --- Jitter --------------------------------------------------------------
+    nb::class_<Habituation>(m, "Habituation",
+                            "How habituation suppresses a repeated input: after `steps` ticks of the same sum "
+                            "(within `tolerance`, relative), the input is scaled by decay^ticks (0: cut).")
+        .def(nb::init<>())
+        .def("__init__",
+             [](Habituation* h, std::uint32_t steps, float tolerance, float decay) {
+                 new (h) Habituation{steps, tolerance, decay};
+             },
+             "steps"_a = habituation_steps, "tolerance"_a = 0.0f, "decay"_a = 0.0f)
+        .def_rw("steps", &Habituation::steps)
+        .def_rw("tolerance", &Habituation::tolerance)
+        .def_rw("decay", &Habituation::decay)
+        .def("__eq__", [](const Habituation& a, const Habituation& b) { return a == b; });
+
     nb::class_<Jitter>(m, "Jitter", "Random per-neuron variation of E-R recovery, learning gain or alpha.")
         .def(nb::init<>())
         .def_static("none", &Jitter::none)
@@ -368,6 +382,8 @@ NB_MODULE(_core, m)
         .def_rw("learning_rule", &LayerSpec::learningRule)
         .def_rw("gate", &LayerSpec::gate,
                 "Neurons without E-R: fixed firing threshold (|sum| <= gate gives 0); 0 = linear.")
+        .def_rw("habituation_rule", &LayerSpec::habituationRule,
+                "How habituation suppresses repeated inputs (Habituation; default: cut after 100 exact repeats).")
         .def_rw("rectify", &LayerSpec::rectify,
                 "Neurons without E-R: ReLU, only sums above the gate pass (the rest give 0).")
         .def_rw("window", &LayerSpec::window)

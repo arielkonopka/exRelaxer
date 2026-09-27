@@ -32,6 +32,7 @@ neuron& neuron_layer::newNeuron()
     n.randomizeDynamics(recovery_jitter_, learning_jitter_, alpha_jitter_);
     n.setGate(gate_);
     n.setRectified(rectified_);
+    n.setHabituation(habituation_rule_);
     output_.push_back(n.output());
     resizeLearningState();
     return n;
@@ -66,6 +67,15 @@ void neuron_layer::setGate(float gate)
     gate_ = gate;
     for (neuron& n : neurons_)
         n.setGate(gate);
+}
+
+void neuron_layer::setHabituationRule(const Habituation& rule)
+{
+    if (!rule.valid())
+        throw std::invalid_argument("setHabituationRule: steps >= 1, tolerance in [0, 1), decay in [0, 1]");
+    habituation_rule_ = rule;
+    for (neuron& n : neurons_)
+        n.setHabituation(rule);
 }
 
 void neuron_layer::setRectified(bool rectified)
@@ -160,6 +170,7 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
     for (neuron& n : neurons_) {
         n.setGate(has_er_ ? 0.0f : gate_);
         n.setRectified(!has_er_ && rectified_);
+        n.setHabituation(habituation_rule_);
     }
     output_.resize(count);
     for (size_t i = 0; i < count; ++i)

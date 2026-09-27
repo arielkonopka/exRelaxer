@@ -96,6 +96,21 @@ struct Jitter
     bool operator==(const Jitter&) const = default;
 };
 
+// How habituation works (for neurons that have it). The defaults are the
+// original behaviour: after `steps` consecutive ticks whose raw sums differ by
+// at most habituation_epsilon, the input is cut to 0 until it changes.
+struct Habituation
+{
+    std::uint32_t steps = habituation_steps;  // streak length (ticks) before the input is suppressed; >= 1
+    float tolerance = 0.0f;  // "the same signal": |sum - previous| <= max(habituation_epsilon,
+                             // tolerance * max(|sum|, |previous|)); 0 = exact (up to the epsilon)
+    float decay = 0.0f;      // once habituated, the input is scaled by decay^(ticks habituated):
+                             // 0 cuts it at once (the original), closer to 1 fades it slowly; [0, 1]
+
+    bool valid() const { return steps >= 1 && tolerance >= 0.0f && tolerance < 1.0f && decay >= 0.0f && decay <= 1.0f; }
+    bool operator==(const Habituation&) const = default;
+};
+
 class neuron
 {
 public:
@@ -165,6 +180,10 @@ public:
     // setting (LayerSpec::rectify), like the gate.
     bool rectified() const { return rectified_; }
     void setRectified(bool value) { rectified_ = value; }
+    // How habituation suppresses a repeated input (see Habituation). A
+    // layer-level setting (LayerSpec::habituationRule), like the gate.
+    const Habituation& habituation() const { return habituation_; }
+    void setHabituation(const Habituation& value) { habituation_ = value; }
 
     // --- Serialization --------------------------------------------------
     // One record: flags, alpha, the weights (count + values, passed in since
@@ -194,6 +213,7 @@ private:
     float learning_gain_ = default_learning_gain;
     float gate_ = 0.0f;
     bool rectified_ = false;
+    Habituation habituation_;
     std::minstd_rand rng_;        // per neuron, so neurons can step in parallel; seeded from rng::spontaneousSeed()
 };
 

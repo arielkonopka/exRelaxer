@@ -42,6 +42,11 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a gate");
         dynamic_cast<neuron_layer&>(*impl).setGate(spec.gate);
     }
+    if (spec.habituationRule != Habituation{}) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a habituation rule");
+        dynamic_cast<neuron_layer&>(*impl).setHabituationRule(spec.habituationRule);
+    }
     if (spec.rectify) {
         if (!impl->hasNeurons())
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to rectify");
@@ -563,8 +568,9 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //        input sources (name and shape per addInputs) and connectInputs
 //  11  + fixed firing threshold (gate) per layer
 //  12  + rectification (ReLU) per layer
+//  13  + habituation rule (steps, tolerance, decay) per layer
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 12;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 13;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -801,6 +807,9 @@ void network::save(std::ostream& os) const
             writeMultimodal(os, node.spec);
             writeValue(os, node.spec.gate);
             writeValue<std::uint8_t>(os, node.spec.rectify);
+            writeValue<std::uint32_t>(os, node.spec.habituationRule.steps);
+            writeValue(os, node.spec.habituationRule.tolerance);
+            writeValue(os, node.spec.habituationRule.decay);
             break;
         }
         case OpKind::Connect:
@@ -926,6 +935,14 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
             }
             if (version >= 12)
                 spec.rectify = readValue<std::uint8_t>(is) != 0;
+            if (version >= 13) {
+                spec.habituationRule.steps = readValue<std::uint32_t>(is);
+                spec.habituationRule.tolerance = readValue<float>(is);
+                spec.habituationRule.decay = readValue<float>(is);
+                if (!spec.habituationRule.valid() || !std::isfinite(spec.habituationRule.tolerance) ||
+                    !std::isfinite(spec.habituationRule.decay))
+                    throw std::runtime_error("network::load: invalid habituation rule");
+            }
             net->addLayer(name, spec);
             break;
         }

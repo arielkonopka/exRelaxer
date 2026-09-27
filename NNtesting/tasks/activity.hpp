@@ -85,6 +85,9 @@ inline std::vector<nnt::ParamSpec> commonParams(std::vector<nnt::ParamSpec> extr
                           "linear network is as active as the trained E-R one"},
         {"recovery", "0.9", "E-R threshold decay per tick without firing (larger: slower recovery)"},
         {"habituation", "false", "habituation in the hidden paths"},
+        {"habituation_steps", "100", "habituation: ticks of the same input before it is suppressed"},
+        {"habituation_tolerance", "0", "habituation: relative change still counted as the same input (0: exact)"},
+        {"habituation_decay", "0", "habituation: suppressed input scaled by decay per tick (0: cut at once)"},
         {"learning", "fa", "fa: paths and readouts learn from the task errors (feedback alignment, delta rule); "
                            "readout: paths frozen, readouts learn (sign rule, error-driven)"},
         {"lr", "0.0003", "learning rate"},
@@ -130,6 +133,9 @@ public:
         const std::vector<size_t> sizes = parseSizes(p.getString("paths"));
         for (size_t i = 0; i < sizes.size(); ++i) {
             LayerSpec spec = LayerSpec::Dense(sizes[i], habituation, model == "er");
+            spec.habituationRule = {static_cast<std::uint32_t>(p.getInt("habituation_steps")),
+                                    static_cast<float>(p.getDouble("habituation_tolerance")),
+                                    static_cast<float>(p.getDouble("habituation_decay"))};
             if (model == "gate")
                 spec.gate = gate >= 0.0f ? gate : static_cast<float>(p.getDouble("gate"));
             const float recovery = static_cast<float>(p.getDouble("recovery"));

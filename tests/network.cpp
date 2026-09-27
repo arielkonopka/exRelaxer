@@ -1522,3 +1522,58 @@ TEST(GateTest, RectifiedNeuronIsAReLU)
     bad.rectify = true;
     EXPECT_THROW(net.addLayer("er", bad), std::invalid_argument);
 }
+
+TEST(HabituationTest, DefaultRuleCutsAfterExactRepeats)
+{
+    neuron n(true, false);
+    for (int i = 0; i < habituation_steps - 1; ++i)
+        EXPECT_EQ(n.activate(0.5f), 0.5f) << i;  // the first tick starts the streak only if the sum equals 0
+    float last = 0.5f;
+    for (int i = 0; i < 3; ++i)
+        last = n.activate(0.5f);
+    EXPECT_EQ(last, 0.0f);
+    EXPECT_EQ(n.activate(0.6f), 0.6f);  // a change restores it
+}
+
+TEST(HabituationTest, FasterFadingAndTolerantRules)
+{
+    neuron n(true, false);
+    n.setHabituation({3, 0.0f, 0.5f});
+    // Streak: tick 1 differs from the initial 0; ticks 2..4 repeat it.
+    EXPECT_EQ(n.activate(1.0f), 1.0f);
+    EXPECT_EQ(n.activate(1.0f), 1.0f);
+    EXPECT_EQ(n.activate(1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(n.activate(1.0f), 0.5f);   // habituated: fades
+    EXPECT_FLOAT_EQ(n.activate(1.0f), 0.25f);
+    EXPECT_EQ(n.activate(2.0f), 2.0f);         // a change restores it
+
+    neuron flicker(true, false);
+    flicker.setHabituation({3, 0.01f, 0.0f});  // 1 % counts as the same signal
+    float y = 0.0f;
+    for (int i = 0; i < 6; ++i)
+        y = flicker.activate(i % 2 ? 1.0f : 1.005f);
+    EXPECT_EQ(y, 0.0f);
+    neuron exact(true, false);
+    exact.setHabituation({3, 0.0f, 0.0f});
+    for (int i = 0; i < 6; ++i)
+        y = exact.activate(i % 2 ? 1.0f : 1.005f);
+    EXPECT_NE(y, 0.0f);  // without tolerance, flicker never habituates
+
+    network net;
+    LayerSpec spec = LayerSpec::Dense(2, true, false);
+    spec.habituationRule = {5, 0.02f, 0.9f};
+    const auto id = net.addLayer("h", spec);
+    net.addInputs(id, 1);
+    for (const neuron& m : net.layerAs<neuron_layer>(id).neurons())
+        EXPECT_EQ(m.habituation(), spec.habituationRule);
+    std::stringstream data;
+    net.save(data);
+    auto loaded = network::load(data);
+    EXPECT_EQ(loaded->layerSpec(id).habituationRule, spec.habituationRule);
+    for (const neuron& m : loaded->layerAs<neuron_layer>(id).neurons())
+        EXPECT_EQ(m.habituation(), spec.habituationRule);
+
+    LayerSpec bad = LayerSpec::Dense(1, true, false);
+    bad.habituationRule.decay = 1.5f;
+    EXPECT_THROW(net.addLayer("bad", bad), std::invalid_argument);
+}
