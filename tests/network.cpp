@@ -1610,6 +1610,29 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
     for (const neuron& m : loaded->layerAs<neuron_layer>(id).neurons())
         EXPECT_EQ(m.thresholdGrowth(), spec.thresholdGrowth);
 
+    // A format-13 file (no growth rule saved) loads with the log rule, the
+    // only one it knew: drop this layer's rule bytes and mark it version 13.
+    network plain;
+    const auto p = plain.addLayer("h", LayerSpec::Dense(2, false, true));
+    plain.addInputs(p, 1);
+    std::stringstream current;
+    plain.save(current);
+    std::string bytes = current.str();
+    const float amount = 0.5f;
+    std::string ruleBytes(1, static_cast<char>(ThresholdGrowth::Rule::Linear));
+    ruleBytes.append(reinterpret_cast<const char*>(&amount), sizeof amount);
+    const size_t at = bytes.find(ruleBytes);
+    ASSERT_NE(at, std::string::npos);
+    ASSERT_EQ(bytes.find(ruleBytes, at + 1), std::string::npos);
+    bytes.erase(at, ruleBytes.size());
+    const std::uint32_t v13 = 13;
+    bytes.replace(4, sizeof v13, reinterpret_cast<const char*>(&v13), sizeof v13);
+    std::stringstream old(bytes);
+    auto oldNet = network::load(old);
+    EXPECT_EQ(oldNet->layerSpec(p).thresholdGrowth.rule, Rule::Log);
+    for (const neuron& m : oldNet->layerAs<neuron_layer>(p).neurons())
+        EXPECT_EQ(m.thresholdGrowth().rule, Rule::Log);
+
     LayerSpec bad = LayerSpec::Dense(1, false, true);
     bad.thresholdGrowth.amount = -1.0f;
     EXPECT_THROW(net.addLayer("bad", bad), std::invalid_argument);
