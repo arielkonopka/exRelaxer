@@ -50,18 +50,24 @@ runs these stages in order:
    it (a high-gain neuron saturates at ±10).
 2. **Habituation** (if enabled). If the sum is "the same" as the previous
    one, a streak counter increments; otherwise it resets to 0. Once the
-   streak reaches the rule's `steps`, the sum is suppressed until the
+   streak reaches the rule's onset, the sum is suppressed until the
    signal changes. The previous sum stored is the raw one, from before
    suppression. The rule (`Habituation`, set per layer through
-   `LayerSpec::habituationRule` or with `neuron::setHabituation`) has three
+   `LayerSpec::habituationRule` or with `neuron::setHabituation`) has two
+   modes, cut (`decay` 0, the default) and fade (`decay` > 0), and four
    fields:
-   - `steps`: the streak length before suppression. Default
-     `habituation_steps`, 100.
+   - `steps`: cut mode, the streak length before the sum is cut to 0.
+     Default `habituation_steps`, 100.
    - `tolerance`: "the same" means `|sum − previous| ≤ max(habituation_epsilon,
      tolerance × max(|sum|, |previous|))`. Default 0, i.e. exact; a small
      tolerance lets a flickering sensor habituate too.
-   - `decay`: a suppressed sum is scaled by `decay^(ticks habituated)`.
-     Default 0, which cuts it at once; closer to 1 fades it slowly.
+   - `decay`: 0 (the default) is cut mode. A value in (0, 1] selects fade
+     mode: a suppressed sum is scaled by `decay^(ticks habituated)`, so
+     closer to 1 fades it more slowly.
+   - `fadeAfter`: fade mode, the streak length before fading starts.
+     Default 2: a repeated input starts fading on its second repeat.
+     Networks saved before format 15 load with `fadeAfter = steps`, which
+     is when fading started then.
 
    The defaults are the original behaviour. Note that the clamp comes
    first, so a neuron held at ±`max_output` sees an identical sum even when
@@ -71,10 +77,25 @@ runs these stages in order:
      threshold is raised (see [E-R](#excitationrelaxation-e-r));
    - otherwise output = 0 and the threshold **relaxes**:
      `threshold ×= recovery`, the neuron's own recovery factor (default
-     `recovery_factor`, 0.9; see [per-neuron dynamics](#per-neuron-dynamics)). If it falls to `min_threshold`
-     or below, the neuron fires **spontaneously** with a random value in
-     `[-spontaneous_min_amplitude, +spontaneous_min_amplitude]`, which raises
-     the threshold again through the same rule as a real firing.
+     `recovery_factor`, 0.9; see [per-neuron dynamics](#per-neuron-dynamics)). If it falls to the
+     spontaneous-firing level (`min_threshold` by default) or below, or a
+     random chance comes up, the neuron fires **spontaneously** with a
+     random value in `[-amplitude, +amplitude]`
+     (`spontaneous_min_amplitude`, 0.01, by default), which raises the
+     threshold again through the same rule as a real firing (a spontaneous
+     firing weaker than the threshold leaves it unchanged). `Spontaneous`,
+     set per layer through `LayerSpec::spontaneous` or with
+     `neuron::setSpontaneous`, holds the three settings:
+     - `below`: the threshold at or below which a silent neuron fires.
+       Default `min_threshold`, 1e-10: about 200 silent ticks at recovery
+       0.9. A higher level gives faster cycles: roughly
+       `ln(0.4 / below) / ln(1 / recovery)` ticks between firings.
+     - `amplitude`: the range of the random output. Default 0.01, too weak
+       to drive other neurons; around the resting threshold (0.2) and above,
+       spontaneous firings propagate.
+     - `rate`: an extra probability of firing on any silent tick. Default 0
+       (none); the random draw happens only when a rate is set, so the
+       default keeps the generator's sequence.
 
 4. **Gate** (only without E-R, if set). With `setGate(g)`, `g > 0`, the
    output is 0 whenever `|sum| ≤ g`: the same all-or-nothing firing as E-R,

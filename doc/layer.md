@@ -127,6 +127,7 @@ Derived classes decide how neurons are wired and own the weights.
 | `setGate(g)` / `gate()`, `setRectified(b)` / `rectified()` | neurons without E-R: a fixed firing threshold, and ReLU ([neuron](neuron.md#one-tick-activate)), for every neuron now and later; `std::invalid_argument` for a negative or non-finite gate, or a non-zero gate / rectification on a layer with E-R |
 | `setHabituationRule(h)` / `habituationRule()` | the [habituation](neuron.md#one-tick-activate) rule of every neuron, now and later; `std::invalid_argument` for an invalid rule |
 | `setThresholdGrowth(g)` / `thresholdGrowth()` | the [E-R threshold growth](neuron.md#excitationrelaxation-e-r) rule of every neuron, now and later; `std::invalid_argument` for an invalid rule |
+| `setSpontaneous(s)` / `spontaneous()` | the [spontaneous firing](neuron.md#one-tick-activate) setting (level, amplitude, rate) of every neuron, now and later; `std::invalid_argument` for an invalid setting |
 | `learningRule()`, `setLearningRule(rule)` | the layer's [learning rule](learning.md); setting it resets the rule's state, keeps the weights |
 | `bias(i)`, `setBias(i, value)` | a neuron's learned bias (rules with `bias`) |
 | `applyReward(r, rate)`, `applyModulators(m, rate)`, `applyFeedback(errors, rate)` | learning with one reward, one modulator per neuron, or feedback alignment's projection of an error vector |

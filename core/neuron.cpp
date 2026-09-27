@@ -94,14 +94,14 @@ float neuron::activate(float weightedSum)
         //   habituated == counter has reached the rule's steps
         //   sum        == habituated ? 0 : sum                 [suppress the input]
         // With a decay, a habituated input fades by decay per tick instead
-        // of being cut. previous_input_ exists purely for habituation's own
+        // of being cut, starting at the fadeAfter-th repeat (Habituation::onset). previous_input_ exists purely for habituation's own
         // repeat detection and is not read anywhere else.
         const float tolerance = std::max(habituation_epsilon,
                                          habituation_.tolerance * std::max(std::abs(sum), std::abs(previous_input_)));
         const bool similar = std::abs(sum - previous_input_) <= tolerance;
         habituation_counter_ = static_cast<int>(similar) * (habituation_counter_ + 1);
         previous_input_ = sum;
-        const int habituatedTicks = habituation_counter_ - static_cast<int>(habituation_.steps) + 1;
+        const int habituatedTicks = habituation_counter_ - static_cast<int>(habituation_.onset()) + 1;
         if (habituatedTicks > 0)
             sum *= habituation_.decay > 0.0f ? std::pow(habituation_.decay, static_cast<float>(habituatedTicks)) : 0.0f;
     }
@@ -114,11 +114,16 @@ float neuron::activate(float weightedSum)
         } else {
             output_ = 0.0f;
             threshold_ *= recovery_;
-            if (threshold_ <= min_threshold) {
-                // Effective input has been ~0 long enough to fully decay the
+            // Draws only when a rate is set, so the default keeps the
+            // generator's sequence.
+            const bool chance = spontaneous_.rate > 0.0f &&
+                                std::uniform_real_distribution<float>(0.0f, 1.0f)(rng_) < spontaneous_.rate;
+            if (threshold_ <= spontaneous_.below || chance) {
+                // Effective input has been ~0 long enough to decay the
                 // threshold (nothing coming in, or habituation suppressing a
-                // repeating signal). The neuron fires spontaneously at a small
-                // amplitude, which re-excites the threshold through excite().
+                // repeating signal), or the random chance came up. The neuron
+                // fires spontaneously, which re-excites the threshold through
+                // excite().
                 excite(spontaneousOutput());
             }
         }
@@ -149,12 +154,14 @@ void neuron::excite(float effectiveSum)
         grown = threshold_ * (1.0f + growth_.amount);
         break;
     }
-    threshold_ = std::max(baseline_threshold * 2, grown);
+    // A real firing always exceeds the threshold, so every rule raises it; a
+    // spontaneous one may be weaker, and then leaves it where it is.
+    threshold_ = std::max({threshold_, baseline_threshold * 2, grown});
 }
 
 float neuron::spontaneousOutput()
 {
-    std::uniform_real_distribution<float> distribution(-spontaneous_min_amplitude, spontaneous_min_amplitude);
+    std::uniform_real_distribution<float> distribution(-spontaneous_.amplitude, spontaneous_.amplitude);
     return distribution(rng_);
 }
 

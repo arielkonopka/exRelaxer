@@ -255,7 +255,7 @@ the building methods' exceptions.
 Binary, native endianness (not portable across platforms). Counts and ids
 are `uint64`.
 
-1. Magic `EXRN`, format version `uint32` (currently **14**).
+1. Magic `EXRN`, format version `uint32` (currently **15**).
 2. Operation count, then each operation: kind (`uint8`) and fields:
    - AddLayer: name length + bytes, `LayerType` (`uint8`), size,
      hasHabituation, hasER, frozen (`uint8` each; frozen is the state at save
@@ -273,7 +273,8 @@ are `uint64`.
      max disparity (`int32`), disparity window, measure (`uint8`); then
      (version 11) gate (`float`); (version 12) rectify (`uint8`); (version 13) habituation
      steps (`uint32`), tolerance, decay (`float`); (version 14) threshold growth
-     rule (`uint8`), amount (`float`)
+     rule (`uint8`), amount (`float`); (version 15) habituation fadeAfter
+     (`uint32`), spontaneous below, amplitude, rate (`float`)
    - Connect: from, to
    - Feedback: from, to, width
    - Inputs: target, count; then (version 10) name length + name, shape
@@ -301,6 +302,7 @@ are `uint64`.
 | 12 | rectification (`rectify`, ReLU) per layer |
 | 13 | habituation rule (steps, tolerance, decay) per layer |
 | 14 | E-R threshold growth rule (rule, amount) per layer; older files load with the `Log` rule |
+| 15 | habituation fadeAfter and spontaneous firing (below, amplitude, rate) per layer; older files load with `fadeAfter = steps` in fade mode and the original spontaneous firing |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.
