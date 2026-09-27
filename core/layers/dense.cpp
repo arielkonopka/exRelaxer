@@ -60,6 +60,7 @@ void dense::addGroup(Group group)
     for (size_t i = range.first; i < range.first + range.count; ++i)
         group_of_[i] = groups_.size();
     groups_.push_back(std::move(group));
+    weightsChanged();
 }
 
 void dense::appendToGroups(const InputRange& range, Source source, rng::WeightStream stream)
@@ -75,6 +76,7 @@ void dense::appendToGroups(const InputRange& range, Source source, rng::WeightSt
         if (source)
             group.sources.push_back(*source);
     }
+    weightsChanged();
 }
 
 void dense::groupUnwired(const InputRange& range, Source source, rng::WeightStream stream)
@@ -156,6 +158,7 @@ void dense::sourceGrew(const layer& source, size_t offset, size_t count)
         group.weights.appendColumns(count, w);
         group.append(range);
     }
+    weightsChanged();
 }
 
 void dense::forward()
@@ -283,6 +286,7 @@ void dense::storeWeights(size_t index, std::span<const float> weights)
 {
     Group& group = groups_[group_of_.at(index)];
     group.weights.setRow(index - group.neurons.first, weights);
+    weightsChanged();
 }
 
 size_t dense::inputCount(size_t index) const

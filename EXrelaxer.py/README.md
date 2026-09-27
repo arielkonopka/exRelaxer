@@ -114,7 +114,7 @@ describe the behaviour.
 | `edges`, `output_layers`, `update_order`, `inputs`, `input_values(name)`, `input_sources`, `input_count`, `layer_count`, `describe()` | the same |
 | `save(path)`, `Network.load(path, mode)`, `to_bytes()`, `Network.from_bytes(data, mode)` | `save`, `load` |
 | `LayerSpec.dense / conv2d / locally_connected2d / pool2d / retina / cochlea / history / resize2d / disparity(..., frozen=, recovery_jitter=, learning_jitter=, alpha_jitter=, learning_rule=)` | `LayerSpec` builders |
-| `LayerSpec` fields: `has_er`, `has_habituation`, `frozen`, `learning_rule`, `rectify`, `gate`, `habituation_rule`, `threshold_growth`, `spontaneous`, ... | the same |
+| `LayerSpec` fields: `has_er`, `has_habituation`, `frozen`, `learning_rule`, `rectify`, `gate`, `habituation_rule`, `threshold_growth`, `spontaneous`, `normalize`, ... | the same |
 | `Shape`, `Window2D`, `RetinaSpec` (`Sampling`), `CochleaSpec` (`FrequencyScale`, `Compression`), `ResizeSpec` (`Interpolation`), `DisparitySpec` (`DisparityMeasure`), `PoolMode`, `Jitter` (`uniform`, `normal`, `*_relative`, `.around`, `.within`) | the same |
 | `LearningRule` (`sign`, `traced`, `feedback_alignment`, `perturbation`, `oja`, `bcm`, `.with_bias`, `.with_decay`), `Habituation(steps, tolerance, decay, fade_after)`, `Spontaneous(below, amplitude, rate)`, `ThresholdGrowth(rule, amount)` (`ThresholdGrowth.Rule.LINEAR`, `LOG`, `FIXED`, `MULTIPLICATIVE`) | the same |
 | `filters.gaussian`, `difference_of_gaussians`, `gabor`, `gabor_bank`, `centre_surround_bank` | `exr::filters` |

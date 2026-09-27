@@ -48,6 +48,10 @@ experiment so far.
   and a gradual fade instead of the cut are configurable per layer
   (`LayerSpec::habituationRule`); the fade starts after `fadeAfter`
   identical steps (default 2).
+- **Normalised weighted sum** (optional, per layer: `LayerSpec::normalize`)
+  – each neuron's sum is divided by the length of its weight vector, so
+  only the weights' direction matters; the lengths are cached and
+  recomputed only after the weights change.
 - **Reward-modulated learning** – `applyReward(reward, learningRate)` moves
   the weights of recently active neurons toward the reward's sign.
 - **Learning rules per layer** – besides that sign rule, each layer can learn

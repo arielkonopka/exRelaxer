@@ -61,6 +61,15 @@ public:
     // invalid setting.
     void setSpontaneous(const Spontaneous& spontaneous);
     const Spontaneous& spontaneous() const { return spontaneous_; }
+    // Normalised weighted sum: each neuron's sum is divided by the length
+    // (L2 norm) of its weight vector before bias, habituation and E-R, so
+    // only the weights' direction matters and |sum| <= |inputs|. The norms
+    // are cached and recomputed only after the weights change. Throws
+    // std::invalid_argument on a layer that does not learn (fixed filters).
+    void setNormalized(bool normalized);
+    bool normalized() const { return normalized_; }
+    // The cached 1 / |w| of neuron `index` (1 when not normalised).
+    float inverseNorm(size_t index);
 
     // --- Learning -------------------------------------------------------
     // The rule this layer learns with (see learning.hpp). Setting it resets
@@ -113,7 +122,13 @@ protected:
     {
         if (!noise_.empty())
             drawNoise();
+        if (normalized_ && (norms_stale_ || inverse_norm_.size() != neurons_.size()))
+            refreshNorms();
     }
+    // Derived layers call this whenever weights change outside learning
+    // (wiring, growth, setWeights): normalised layers then recompute their
+    // norms before the next forward().
+    void weightsChanged() { norms_stale_ = true; }
     // Activates neuron i with its weighted sum (plus bias and noise) and
     // updates its traces; returns the output. Safe to call for different
     // neurons in parallel.
@@ -169,6 +184,9 @@ protected:
     virtual void storeSharedWeights(std::span<const float>) {}
     // Called after deserialize() rebuilt an unwired layer with a new count.
     virtual void neuronsReplaced() {}
+    // Squared length of neuron `index`'s weight vector (normalised sums).
+    // The default reads copyWeights(); layers sharing weights override it.
+    virtual float squaredWeightNorm(size_t index) const;
 
     std::vector<neuron> neurons_;
 
@@ -182,6 +200,7 @@ private:
     bool ruleStep(size_t i, float m, float learningRate, float& delta, float& keep) const;
     float fireWithRule(size_t i, float sum);
     void drawNoise();
+    void refreshNorms();
     // Sizes the rule's per-neuron state to the neuron count; new entries
     // get their initial values.
     void resizeLearningState();
@@ -199,7 +218,10 @@ private:
     Spontaneous spontaneous_;                                    // likewise
 
     LearningRule rule_;
-    bool plain_ = true;               // no bias, traces or noise: fire() just activates
+    bool normalized_ = false;         // likewise; see setNormalized
+    bool norms_stale_ = true;
+    std::vector<float> inverse_norm_; // normalized_: 1 / |w| per neuron
+    bool plain_ = true;               // no bias, traces, noise or normalisation: fire() just activates
     std::vector<float> bias_;         // rule.bias
     std::vector<float> post_;         // output trace P (every rule but Sign)
     std::vector<float> noise_;        // Perturbation: this tick's noise

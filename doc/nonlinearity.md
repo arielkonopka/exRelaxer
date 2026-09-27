@@ -61,7 +61,9 @@ growth rule (`linear`, the default, with amount 0.5; `log`, `fixed`,
 by default: `last`) learns on every tick of a presentation at `lr / ticks`
 instead of once from the last tick. `spontaneous_below`,
 `spontaneous_amplitude` and `spontaneous_rate` set E-R's spontaneous firing
-(see [neuron](neuron.md#one-tick-activate)). `pretrain_model` (`relu`,
+(see [neuron](neuron.md#one-tick-activate)). `normalize=true` divides
+every hidden neuron's weighted sum by the length of its weights (the
+readout keeps its raw sum). `pretrain_model` (`relu`,
 `gate`, `clamp` or `er`) with `pretrain` samples trains a network of those
 neurons first, on the start of the same training stream, then copies its
 weights and biases into `model` and continues for `train` samples

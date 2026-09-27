@@ -57,8 +57,9 @@ several sources, or from a source and sensors, integrates them all in one
 weighted sum per neuron.
 
 Errors: unknown id → `std::out_of_range`; duplicate or empty name, zero
-inputs, a non-default `learningRule`, `gate`, `rectify`, `habituationRule`
-or `thresholdGrowth` on a layer without neurons (or a gate / `rectify` with
+inputs, a non-default `learningRule`, `gate`, `rectify`, `habituationRule`,
+`thresholdGrowth`, `spontaneous` or `normalize` on a layer without neurons
+(or `normalize` on one with fixed filters) (or a gate / `rectify` with
 E-R) → `std::invalid_argument`; connecting a pair twice →
 `std::logic_error`; a layer type that does not support the operation →
 `std::logic_error`.
@@ -274,7 +275,8 @@ are `uint64`.
      (version 11) gate (`float`); (version 12) rectify (`uint8`); (version 13) habituation
      steps (`uint32`), tolerance, decay (`float`); (version 14) threshold growth
      rule (`uint8`), amount (`float`); (version 15) habituation fadeAfter
-     (`uint32`), spontaneous below, amplitude, rate (`float`)
+     (`uint32`), spontaneous below, amplitude, rate (`float`); (version 16)
+     normalize (`uint8`)
    - Connect: from, to
    - Feedback: from, to, width
    - Inputs: target, count; then (version 10) name length + name, shape
@@ -303,6 +305,7 @@ are `uint64`.
 | 13 | habituation rule (steps, tolerance, decay) per layer |
 | 14 | E-R threshold growth rule (rule, amount) per layer; older files load with the `Log` rule |
 | 15 | habituation fadeAfter and spontaneous firing (below, amplitude, rate) per layer; older files load with `fadeAfter = steps` in fade mode and the original spontaneous firing |
+| 16 | normalised weighted sum (`normalize`) per layer; older files load without it |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.

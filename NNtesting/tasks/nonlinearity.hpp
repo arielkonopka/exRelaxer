@@ -228,7 +228,7 @@ class Mlp
 public:
     Mlp(const std::string& model, size_t inputs, size_t depth, size_t width, float gate,
         const ThresholdGrowth& growth = {}, const Spontaneous& spontaneous = {},
-        std::optional<Habituation> habituation = std::nullopt)
+        std::optional<Habituation> habituation = std::nullopt, bool normalize = false)
         : model_(model == "linear" ? "clamp" : model == "er_memoryless" ? "er" : model),
           memoryless_(model == "er_memoryless"), inputs_(inputs), depth_(depth), width_(width)
     {
@@ -242,6 +242,7 @@ public:
             if (habituation)
                 spec.habituationRule = *habituation;
             spec.rectify = model_ == "relu";
+            spec.normalize = normalize;  // hidden layers only: the readout keeps its raw sum
             if (model_ == "gate")
                 spec.gate = gate;
             if (model_ == "er") {

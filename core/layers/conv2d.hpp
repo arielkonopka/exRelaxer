@@ -47,11 +47,16 @@ protected:
 
     // The kernels are saved once, after the neuron records.
     void copyWeights(size_t, std::vector<float>& out) const override { out.clear(); }
+    float squaredWeightNorm(size_t index) const override;
     size_t expectedWeights(size_t) const override { return 0; }
     void storeWeights(size_t, std::span<const float>) override {}
     bool hasSharedWeights() const override { return true; }
     void copySharedWeights(std::vector<float>& out) const override { out = kernels_; }
-    void storeSharedWeights(std::span<const float> weights) override { kernels_.assign(weights.begin(), weights.end()); }
+    void storeSharedWeights(std::span<const float> weights) override
+    {
+        kernels_.assign(weights.begin(), weights.end());
+        weightsChanged();
+    }
 
 private:
     std::span<const float> kernelRow(size_t channel) const;
