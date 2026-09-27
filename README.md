@@ -402,6 +402,20 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-09-27: per-layer E-R resting threshold
+
+- **E-R resting threshold per layer** (`LayerSpec::restingThreshold`,
+  `neuron_layer::setRestingThreshold`, `neuron::setRestingThreshold`,
+  Python `LayerSpec.resting_threshold`): the threshold E-R relaxes to,
+  its learning-eligibility boundary and half its floor after firing.
+  Default 0.2 (`baseline_threshold`), as before. Network format 17 saves it.
+- Experiments: `resting_threshold` (a value, or `auto`: scaled by the
+  layer's mean 1/|w|, for normalised sums).
+- Finding ([research log §19](doc/research.md#19-normalised-weighted-sum)):
+  recalibrating the resting threshold changes nothing, because E-R's
+  thresholds follow its sums. Normalised networks need a larger learning
+  rate instead, and at 10× the rate they match the raw ones' best.
+
 ### 2026-09-27: normalised weighted sum
 
 - **Normalised weighted sum** (`LayerSpec::normalize`,

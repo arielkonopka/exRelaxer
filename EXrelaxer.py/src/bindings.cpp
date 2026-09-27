@@ -421,6 +421,8 @@ NB_MODULE(_core, m)
                 "How E-R thresholds grow on firing (ThresholdGrowth; default: linear, amount 0.5).")
         .def_rw("rectify", &LayerSpec::rectify,
                 "Neurons without E-R: ReLU, only sums above the gate pass (the rest give 0).")
+        .def_rw("resting_threshold", &LayerSpec::restingThreshold,
+                "E-R resting threshold (default baseline_threshold, 0.2): eligibility boundary, half the floor after firing.")
         .def_rw("normalize", &LayerSpec::normalize,
                 "Dense, Conv2D, LocallyConnected2D: divide each weighted sum by the length of the neuron's weights.")
         .def_rw("window", &LayerSpec::window)

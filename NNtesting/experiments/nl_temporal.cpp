@@ -84,6 +84,8 @@ nnt::Register experiment({
         {"habituation_decay", "0", "habituation: 0 cuts; a value in (0, 1] fades the input by that factor per repeat"},
         {"habituation_fade_after", "2", "habituation with a decay: repeats before fading starts"},
         {"normalize", "false", "hidden layers divide each weighted sum by the length of the neuron's weights"},
+        {"resting_threshold", "0.2", "E-R resting threshold of the hidden layers, or auto: 0.2 times their mean "
+                                     "1/|w| at initialization, with the gate model's gate scaled the same way"},
         {"learn_ticks", "last", "training: learn from the last tick's error (last) or from every tick at lr/ticks (all)"},
         {"depth", "1", "hidden layers"},
         {"width", "16", "neurons per hidden layer"},
@@ -125,6 +127,7 @@ nnt::Register experiment({
         Mlp net(model, task.inputs(), depth, width, static_cast<float>(p.getDouble("gate")),
                 er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
                 habituationRule, p.getBool("normalize"));
+        const float restingFactor = net.calibrateThresholds(p.getString("resting_threshold"));
         const std::string learnTicks = p.getString("learn_ticks");
         if (learnTicks != "last" && learnTicks != "all")
             throw std::invalid_argument("learn_ticks must be last or all");
@@ -210,6 +213,7 @@ nnt::Register experiment({
             Mlp pre(pretrainModel, task.inputs(), depth, width, static_cast<float>(p.getDouble("gate")),
                     er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
                 habituationRule, p.getBool("normalize"));
+            pre.calibrateThresholds(p.getString("resting_threshold"));
             cur = &pre;
             run(trainStream, 0, pretrain, true, nullptr, nullptr, 0);
             t.record("pretrain_validation", metricOf(validate()));
@@ -295,8 +299,8 @@ nnt::Register experiment({
         }
 
         t.record("er_alpha", default_alpha);
-        t.record("er_resting_threshold", baseline_threshold);
-        t.record("er_threshold_floor_after_firing", 2.0 * baseline_threshold);
+        t.record("er_resting_threshold", baseline_threshold * restingFactor);
+        t.record("er_threshold_floor_after_firing", 2.0 * baseline_threshold * restingFactor);
         t.record("er_recovery", recovery_factor);
         t.record("er_spontaneous_below_threshold", min_threshold);
         t.record("er_spontaneous_amplitude", spontaneous_min_amplitude);

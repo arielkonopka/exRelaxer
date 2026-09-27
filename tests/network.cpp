@@ -1690,7 +1690,7 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
     const size_t at = bytes.find(ruleBytes);
     ASSERT_NE(at, std::string::npos);
     ASSERT_EQ(bytes.find(ruleBytes, at + 1), std::string::npos);
-    bytes.erase(at, ruleBytes.size() + sizeof(std::uint32_t) + 3 * sizeof(float) + sizeof(std::uint8_t));
+    bytes.erase(at, ruleBytes.size() + sizeof(std::uint32_t) + 4 * sizeof(float) + sizeof(std::uint8_t));
     const std::uint32_t v13 = 13;
     bytes.replace(4, sizeof v13, reinterpret_cast<const char*>(&v13), sizeof v13);
     std::stringstream old(bytes);
@@ -1769,4 +1769,44 @@ TEST(NormalizedSumTest, ConvolutionUsesItsKernelLength)
     net.step();  // the retina's output reaches the convolution
     const float retinaSum = std::accumulate(net.getLayer(image).output().begin(), net.getLayer(image).output().end(), 0.0f);
     EXPECT_FLOAT_EQ(layer.neurons()[0].output(), retinaSum / 2.0f);
+}
+
+TEST(RestingThresholdTest, ScalesRestFloorAndEligibilityAndIsSaved)
+{
+    neuron n(false, true);
+    n.setRestingThreshold(0.05f);
+    EXPECT_FLOAT_EQ(n.threshold(), 0.05f);  // at rest: moves with it
+    EXPECT_EQ(n.activate(0.04f), 0.0f);
+    EXPECT_EQ(n.activate(0.06f), 0.06f);    // fires above the new rest (0.2 would block it)
+    EXPECT_GE(n.threshold(), 0.1f);         // floor after firing: twice the rest
+    EXPECT_LT(n.threshold(), 0.2f);
+    EXPECT_TRUE(n.eligible());
+    EXPECT_FLOAT_EQ(n.learningDelta(1.0f, 1.0f), n.learningGain() * (n.threshold() / 0.05f - 1.0f));
+
+    network net;
+    LayerSpec spec = LayerSpec::Dense(3, false, true);
+    spec.restingThreshold = 0.05f;
+    const auto id = net.addLayer("h", spec);
+    net.addInputs(id, 2);
+    for (const neuron& m : net.layerAs<neuron_layer>(id).neurons())
+        EXPECT_FLOAT_EQ(m.threshold(), 0.05f);
+    net.setInputs({1.0f, -1.0f});
+    net.step();
+    std::stringstream data;
+    net.save(data);
+    const std::string bytes = data.str();
+    std::stringstream full(bytes), weights(bytes);
+    auto restored = network::load(full, DeserializeMode::FullState);
+    auto reset = network::load(weights, DeserializeMode::WeightsOnly);
+    EXPECT_FLOAT_EQ(restored->layerSpec(id).restingThreshold, 0.05f);
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_EQ(restored->layerAs<neuron_layer>(id).neurons()[i].threshold(),
+                  net.layerAs<neuron_layer>(id).neurons()[i].threshold());  // full state keeps thresholds
+        EXPECT_FLOAT_EQ(reset->layerAs<neuron_layer>(id).neurons()[i].threshold(), 0.05f);  // back at the new rest
+        EXPECT_FLOAT_EQ(restored->layerAs<neuron_layer>(id).neurons()[i].restingThreshold(), 0.05f);
+    }
+
+    LayerSpec bad = LayerSpec::Dense(1);
+    bad.restingThreshold = 0.0f;
+    EXPECT_THROW(net.addLayer("bad", bad), std::invalid_argument);
 }

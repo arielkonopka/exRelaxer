@@ -1080,13 +1080,46 @@ tables in [`summary.md`](../results/normalize/summary.md).
   unchanged on l4. ReLU is unchanged or slightly better (it is scale-invariant), the gate
   slightly worse (l1 0.091 → 0.101) and clamp unchanged. On temporal tasks E-R is unchanged, slightly better on t2
   (0.80 vs 0.76).
-- **It hurts E-R in the activity experiments** (accuracy 1.0 → 0.85–0.87,
-  and 0.33 once all paths are fatigued), while the gate and the linear
-  network are unaffected. These networks have 40 inputs per neuron, so the
-  normalised sums are several times smaller than the raw ones. E-R's
-  thresholds (resting 0.2, floor 0.4 after firing) are absolute, so the
-  same firing now leaves a relatively higher threshold. This is inferred,
-  not tested; a gain on the normalised sum would test it.
+- **It hurts E-R in the activity experiments** at their fixed learning
+  rate (accuracy 1.0 → 0.85–0.87, and 0.33 once all paths are fatigued),
+  while the gate and the linear network are unaffected. The recalibration
+  below shows that this is a learning-rate effect, not a threshold one.
+
+**Recalibrated thresholds.** The user asked to recalibrate the thresholds
+for normalised sums. E-R's resting threshold (0.2, also the eligibility
+boundary and half the floor after firing) is now a per-layer setting
+(`LayerSpec::restingThreshold`, network format 17). The experiments'
+`resting_threshold=auto` scales it by the layer's mean 1/|w| at
+initialization: 0.055 in the activity networks (40 inputs of uniform ±1
+weights, |w| ≈ 3.6), and 0.23 in `nl_static` / `nl_temporal`, whose
+initialization already gives |w| ≈ 1 (so their grids were not rerun).
+The activity experiments were run at three learning rates, raw and
+normalised, with the resting threshold 0.2 or auto
+([`calibration.md`](../results/normalize/calibration.md), 5–10 trials):
+
+| E-R, medians | raw, lr 0.0003 / 0.001 / 0.003 | normalised, rest 0.2 | normalised, rest auto |
+|------|------|------|------|
+| `er_economy` accuracy | **1.0** / 0.06 / 0.24 | 0.87 / 0.99 / **1.0** | 0.86 / 0.99 / **1.0** |
+| `er_paths` accuracy | **0.995** / 0.07 / 0.30 | 0.85 / 0.99 / **0.998** | 0.85 / 0.99 / **0.999** |
+| `er_fatigue` accuracy, all paths fatigued | **1.0** / 0 / 0 | 0.33 / 0.67 / **1.0** | 0.33 / 0.5 / **1.0** |
+| `er_history` accuracy after a different history | **0.85** / 0.10 / 0.40 | 0.30 / 0.40 / **0.85** | 0.30 / 0.35 / **0.90** |
+| `er_history` pattern change | 0.86 / 0.57 / 0.58 | 0.77 / 0.79 / 0.78 | 0.77 / 0.79 / 0.78 |
+| `er_economy` gate accuracy | 0.82 / 0.38 / 0.32 | 0.82 / 0.96 / **0.99** | 0.83 / 0.96 / **0.99** |
+
+- **Recalibrating the resting threshold changes nothing.** E-R's
+  thresholds follow the size of the sums they fire on (their mean is
+  about 1.0 during training, far above either resting value), so where
+  they rest hardly matters. The §19 explanation above (absolute thresholds
+  too high for smaller sums) was wrong.
+- **The learning rate was the cause.** A normalised sum changes by a
+  factor 1/|w| less per weight update, so it needs a larger learning rate.
+  At 10× the rate, normalised E-R matches raw E-R at its best on every
+  activity experiment, while raw E-R collapses (0.06). The usable range
+  moves up and gets wider.
+- **Normalised, the fixed-threshold gate catches up**: 0.99 vs 0.82 raw
+  on `er_economy`, 1.0 once all paths are fatigued. E-R keeps its
+  history effect (0.78 of hidden patterns change after a different
+  history, 0.86 raw), which the gate does not have.
 
 ## Conclusions
 
@@ -1155,11 +1188,13 @@ tables in [`summary.md`](../results/normalize/summary.md).
     repeat cuts E-R's active neurons by a third at unchanged accuracy on
     feed-forward tasks, and brings a fixed threshold within 0.04 of E-R. It
     hurts E-R on static regression and weakens E-R's history effect.
-15. **A normalised weighted sum stabilises learning but does not help E-R**
-    (§19). It halves divergence at large learning rates for every model
-    with a bounded transfer, but E-R's absolute thresholds do not fit the
-    smaller normalised sums: it loses accuracy where neurons have many
-    inputs.
+15. **A normalised weighted sum stabilises learning; it needs a larger
+    learning rate, not new thresholds** (§19). It halves divergence at
+    large learning rates, and at 10× the rate normalised E-R matches its
+    best raw results. E-R's thresholds follow the sums, so recalibrating
+    their resting value changes nothing. Normalised, a fixed threshold is
+    as accurate as E-R on the activity tasks; E-R's history effect
+    remains its own.
 
 ## Open questions and next steps
 
@@ -1175,9 +1210,9 @@ tables in [`summary.md`](../results/normalize/summary.md).
 - **Why fading helps the fixed threshold** (§18: 0.82 → 0.96 on
   `er_economy`, 3× lower error on l4): isolate it, for example by
   measuring learning eligibility per tick with and without fading.
-- **Normalised sum with a gain**: `g · Σ x·w / |w|`, with g about
-  √(inputs) or learned per neuron, to keep E-R's thresholds in range (§19);
-  normalising the readouts too, to remove the remaining divergence.
+- **Normalised sums at larger learning rates**: repeat the `nl_static` /
+  `nl_temporal` grids with lr up to 0.1 (§19 showed the usable range moves
+  up), and normalise the readouts too, to remove the remaining divergence.
 - **Habituation versus E-R as memory**: compare them on change-detection
   and lag tasks at equal activity, and combine them on t2 and parity.
 - **Deserialization of older files** (next version): read everything a file

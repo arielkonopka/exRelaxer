@@ -58,7 +58,7 @@ weighted sum per neuron.
 
 Errors: unknown id → `std::out_of_range`; duplicate or empty name, zero
 inputs, a non-default `learningRule`, `gate`, `rectify`, `habituationRule`,
-`thresholdGrowth`, `spontaneous` or `normalize` on a layer without neurons
+`thresholdGrowth`, `spontaneous`, `restingThreshold` or `normalize` on a layer without neurons
 (or `normalize` on one with fixed filters) (or a gate / `rectify` with
 E-R) → `std::invalid_argument`; connecting a pair twice →
 `std::logic_error`; a layer type that does not support the operation →
@@ -276,7 +276,7 @@ are `uint64`.
      steps (`uint32`), tolerance, decay (`float`); (version 14) threshold growth
      rule (`uint8`), amount (`float`); (version 15) habituation fadeAfter
      (`uint32`), spontaneous below, amplitude, rate (`float`); (version 16)
-     normalize (`uint8`)
+     normalize (`uint8`); (version 17) resting threshold (`float`)
    - Connect: from, to
    - Feedback: from, to, width
    - Inputs: target, count; then (version 10) name length + name, shape
@@ -306,6 +306,7 @@ are `uint64`.
 | 14 | E-R threshold growth rule (rule, amount) per layer; older files load with the `Log` rule |
 | 15 | habituation fadeAfter and spontaneous firing (below, amplitude, rate) per layer; older files load with `fadeAfter = steps` in fade mode and the original spontaneous firing |
 | 16 | normalised weighted sum (`normalize`) per layer; older files load without it |
+| 17 | E-R resting threshold per layer; older files load with 0.2 |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.

@@ -84,7 +84,9 @@ factor per further identical tick, starting after `habituation_fade_after`
 repeats, default 2). Spontaneous E-R firing is set with
 `spontaneous_below` (1e-10), `spontaneous_amplitude` (0.01) and
 `spontaneous_rate` (0), the fields of `Spontaneous`. `normalize=true`
-divides each path neuron's weighted sum by the length of its weights. See `Habituation` in `core/neuron.hpp`, and
+divides each path neuron's weighted sum by the length of its weights;
+`resting_threshold` (0.2, or `auto`: 0.2 times the paths' mean 1/|w|)
+sets E-R's resting threshold in the paths. See `Habituation` in `core/neuron.hpp`, and
 [neuron](neuron.md#excitationrelaxation-e-r) for the threshold growth rule:
 `growth` (`linear`, the default, `log`, `fixed` or `multiplicative`) and
 `growth_amount` (0.5; not used by `log`).
