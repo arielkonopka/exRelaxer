@@ -20,7 +20,7 @@ and `NNtesting/tools/capacity.py`.
 | `nonlinearity/growth/` | §16 | threshold growth rules on temporal and static tasks |
 | `er-training/` | §17 | pretraining without E-R and switching, vs longer E-R training |
 | `er-cycles/` | §17 | spontaneous-firing settings in `er_silence` |
-| `rerun/` | §18 | every E-R experiment again with the current defaults and three habituation variants; `run.sh` reproduces it |
+| `rerun/` | §18 | every E-R experiment again with the current defaults and three habituation variants; `summary.md` (from `analyze.py`), `raw/`, `run.sh` |
 
 Runs recorded before 2026-09-27 evening used the logarithmic threshold
 growth rule, the default at the time; pass `--set growth=log` to reproduce

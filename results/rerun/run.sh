@@ -6,7 +6,7 @@
 #   fade2  habituation fades a repeated input by 0.9 per tick from its 2nd repeat
 # Usage: sh results/rerun/run.sh OUT_DIR   (from the repository root, after ./build.sh)
 set -e
-OUT=${1:-results/rerun/raw}
+OUT=${1:-results/rerun/raw}   # raw/ holds the gzipped output of the recorded run
 mkdir -p "$OUT"
 NN=./build/NNtesting/nntest
 variant() {

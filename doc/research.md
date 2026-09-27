@@ -29,6 +29,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [15. How E-R behaves: learning, silence, state, habituation](#15-how-e-r-behaves-learning-silence-state-habituation)
 - [16. Temporal tasks and the threshold growth rule](#16-temporal-tasks-and-the-threshold-growth-rule)
 - [17. Training E-R, spontaneous cycles and early fading](#17-training-e-r-spontaneous-cycles-and-early-fading)
+- [18. Rerun with linear growth and three habituation variants](#18-rerun-with-linear-growth-and-three-habituation-variants)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -929,6 +930,123 @@ training, 10 trials; `spontaneous_below` × `spontaneous_amplitude` ×
   acts; with 1 % tolerance, fading after 2 gives 717 spikes but accuracy
   0.97 over the sample and 0.13 at its end.
 
+## 18. Rerun with linear growth and three habituation variants
+
+Every E-R experiment again, with the current defaults (linear threshold
+growth) and three habituation settings on every E-R-capable layer:
+**off**; **cut5**, the input is cut after 5 identical ticks (decay 0);
+**fade2**, the input fades by 0.9 per tick from its 2nd identical tick.
+The library's default habituation (cut after 100) is unchanged; cut5 is
+an experiment setting. The "log, off" column is the earlier run (log
+growth, no habituation) where one exists, with the same parameters.
+`nl_static` and `nl_temporal` were reduced to depth {1, 2, 3} × width
+{4 … 64}, lr {0.001 … 0.03}, 5 seeds, lr chosen per network on validation.
+Full tables: [`results/rerun/summary.md`](../results/rerun/summary.md);
+raw files and `run.sh` in [`results/rerun/`](../results/rerun/).
+
+**Activity-economy experiments** (medians over trials, E-R unless noted):
+
+| Metric | log, off | off | cut5 | fade2 |
+|------|------|------|------|------|
+| `er_economy` accuracy | 0.997 | 1.0 | 1.0 | 1.0 |
+| `er_economy` active fraction | 0.50 | 0.47 | 0.47 | **0.33** |
+| `er_economy` accuracy per 100 spikes | 0.75 | 0.80 | 0.80 | **1.13** |
+| `er_economy` gate accuracy | 0.785 | 0.823 | 0.827 | **0.957** |
+| `er_paths` gate accuracy | 0.785 | 0.831 | 0.869 | **0.962** |
+| `er_fatigue` share of first answers on the fatigued path | 0.39 | 0.14 | 0.14 | 0 |
+| `er_fatigue` accuracy, all paths fatigued | 0.667 | 1.0 | 1.0 | 1.0 |
+| `er_history` pattern change after a different history | 0.53 | **0.86** | 0.86 | 0.66 |
+| `er_history` accuracy after that history | 0.90 | 0.85 | 0.85 | 0.80 |
+| `er_silence` largest threshold after silence | 0.46 | 0.017 | 0.017 | 0.014 |
+| `er_habituation` spikes per 500-tick sample | 26 523 | 30 107 | 446 | 321 |
+| `er_habituation` accuracy at the sample's end | 1.0 | 1.0 | 0 | 0 |
+
+- Linear growth alone (log → off) keeps every result and improves some:
+  E-R's history effect grows (0.53 → 0.86 of hidden patterns change after
+  a different history), and a long silence no longer leaves high
+  thresholds (0.46 → 0.017).
+- cut5 changes nothing in these experiments except `er_habituation`,
+  because their inputs change at least every 5 ticks.
+- fade2 is the only variant that saves activity during ordinary
+  inference: a third fewer active neurons and spikes in `er_economy` at the
+  same accuracy. It also weakens the history effect (0.86 → 0.66).
+- fade2 lifts the fixed-threshold gate from 0.82 to 0.96, close to E-R. So
+  E-R's lead over the gate in §13 shrinks to 0.04 once inputs fade. This
+  fits the caveat that part of E-R's advantage under feedback alignment
+  may come from its longer eligibility after firing; the mechanism was not
+  isolated here.
+- On held stimuli both habituation variants keep the answer over the
+  sample but lose it at its end (as in §15, §17); the linear readout model
+  under fade2 keeps it (0.99), because its many small inputs rarely repeat
+  exactly.
+
+**Static tasks** (`nl_static`, best median test MSE; ReLU needs 4–32
+neurons for MSE ≈ 7e-4 on every task in every variant):
+
+| Task | E-R log, off | E-R off | E-R cut5 | E-R fade2 | gate off | gate fade2 |
+|------|------|------|------|------|------|------|
+| l0 linear | 0.045 | 0.046 | 0.046 | 0.255 | 0.0008 | 0.0007 |
+| l1 x1·x2 | 0.088 | **0.034** | 0.037 | 0.045 | 0.091 | 0.045 |
+| l2 sin(x1·x2) | 0.077 | **0.030** | 0.030 | 0.040 | 0.078 | 0.031 |
+| l3 | 0.074 | 0.060 | 0.060 | 0.074 | 0.119 | 0.068 |
+| l4 k=1 | 0.30 | 0.15 | 0.15 | 0.31 | 0.25 | **0.084** |
+| l4 k=16 | 0.19 | 0.10 | 0.10 | 0.35 | 0.10 | **0.039** |
+
+- Linear growth halves E-R's static error on most tasks (l1 0.088 →
+  0.034, l4 k=1 0.30 → 0.15). E-R still never reaches 1e-3.
+- fade2 hurts E-R on static tasks (l0 0.046 → 0.26, l4 0.15 → 0.31): a
+  held sample fades while E-R is still settling. It helps the gate
+  (l4 0.25 → 0.084), which then beats E-R on l4. The cause was not
+  isolated.
+- cut5 has no effect: samples are held for fewer than 5 ticks.
+
+**Temporal tasks** (`nl_temporal`, best median test accuracy; in brackets
+the smallest network that solves delayed XOR in ≥ 80 % of seeds):
+
+| Task | model | log, off | off | cut5 | fade2 |
+|------|------|------|------|------|------|
+| t1 delayed XOR | E-R | 0.95 (64) | **1.0 (8)** | 0.97 (4) | 0.98 (24) |
+| t1 | ReLU | 0.51 | 0.51 | **1.0 (4)** | **1.0 (4)** |
+| t1 | gate / clamp | 0.51 | 0.51 | 1.0 (8) | 1.0 (16) |
+| t1 | memoryless E-R | 0.50 | 0.51 | 0.51 | 0.51 |
+| t2 x(t) ∧ ¬x(t−3) | E-R | 0.84 | 0.76 | 0.78 | 0.75 |
+| t2 | ReLU | 0.75 | 0.75 | 0.75 | 0.80 |
+| t3 parity 4 | E-R | 0.62 | 0.59 | 0.55 | 0.56 |
+| t3 parity 4 | best other | 0.50 | 0.50 | 0.57 (gate) | 0.56 (ReLU) |
+| t3 parity 8, t4 | all | chance / ceiling | same | same | same |
+
+- **Habituation is itself a one-step memory.** With cut5 or fade2, ReLU,
+  gate and clamp networks solve delayed XOR, which none of them could
+  before (ReLU with 4 neurons). Each bit is held for 3 ticks, so a neuron
+  whose input repeats from the previous step crosses the 5-tick cut, or
+  starts fading, during the new step. Its output then encodes "same as
+  before", which is exactly the XOR of the two bits. Resetting the state
+  (memoryless E-R, which also resets habituation) removes it again.
+- Conclusion 13 therefore needs a correction: E-R is not the only state
+  that beats the no-memory ceiling. Any per-neuron history does, and
+  habituation, a change detector, fits this task better than E-R.
+- Neither habituation variant reaches further back: t2 stays at 0.75–0.80
+  and parity 8 and t4 stay at chance for every model. E-R's best t2 result
+  (0.84) came from the log rule and was not reproduced here (0.76). §17
+  reached 0.84 with linear growth only after 80 000 samples.
+
+**Other experiments** (`bar_orientation`, `chirp_direction`, `snake`,
+`snake_rules`, `stereo_depth`, `gapped_pattern`, `audiovisual`, with their
+own defaults) pass all their built-in checks under linear growth. Where
+earlier files exist the numbers match them: stereo 0.98 (was 0.975),
+audiovisual with both senses 0.965 (same), snake 13.4 apples (sweep
+median 11.8).
+
+**Caveats carried over from the audit:**
+- `er_fatigue`'s "share on the fatigued path" is 1 minus the other path's
+  share, and the paths never compete, so its drop is not evidence of
+  rerouting.
+- The default sign rule reads a neuron's inputs after the whole step. With
+  feedback edges it learns from values the neuron never saw.
+  Feed-forward experiments, which include everything here, are unaffected.
+- Feedback-alignment training accuracy uses the label during the sample,
+  so only test numbers are compared above.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -988,6 +1106,15 @@ training, 10 trials; `spontaneous_below` × `spontaneous_amplitude` ×
     growth, delayed XOR needs 8 neurons instead of 64, and a long silence
     no longer blinds the network.
 
+14. **Habituation is a memory too, and early fading is the activity saver
+    during normal inference** (§18). Habituation that cuts or fades
+    repeated input gives even ReLU networks the one-step memory that
+    delayed XOR needs, so correction to 13: E-R is one of several kinds
+    of neuron state that beat the no-memory ceiling. Fading from the 2nd
+    repeat cuts E-R's active neurons by a third at unchanged accuracy on
+    feed-forward tasks, and brings a fixed threshold within 0.04 of E-R. It
+    hurts E-R on static regression and weakens E-R's history effect.
+
 ## Open questions and next steps
 
 - **Alpha 2.0** (the search's recommendation) has not been applied; alpha is
@@ -997,8 +1124,13 @@ training, 10 trials; `spontaneous_below` × `spontaneous_amplitude` ×
   recovery, learning gain and alpha are per neuron today, and baseline is
   global.
 - **Linear threshold growth is the default** since 2026-09-27 (§16, the
-  user's decision). §1–§16 were run with the log rule. Next: sweep its
-  amount and recovery, and repeat the temporal grid with it.
+  user's decision). §1–§16 were run with the log rule; §18 repeated the
+  E-R experiments with it. Next: sweep its amount and recovery.
+- **Why fading helps the fixed threshold** (§18: 0.82 → 0.96 on
+  `er_economy`, 3× lower error on l4): isolate it, for example by
+  measuring learning eligibility per tick with and without fading.
+- **Habituation versus E-R as memory**: compare them on change-detection
+  and lag tasks at equal activity, and combine them on t2 and parity.
 - **Deserialization of older files** (next version): read everything a file
   contains and default only what is missing; version-3 jitter widths become
   uniform jitter settings.
