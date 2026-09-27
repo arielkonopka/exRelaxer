@@ -11,6 +11,7 @@ of known limitations, see the [project README](../README.md).
 | [dense](dense.md) | `dense`: wiring groups, growth propagation, SIMD forward pass and learning |
 | [spatial](spatial.md) | image layers: `retina` (grid and spiral sampling), `conv2d`, `locally_connected2d`, `pool2d`, `Window2D` |
 | [audio](audio.md) | sound layers: `cochlea` (FFT into mel or linear frequency bands), `history` (the last ticks side by side: a spectrogram) |
+| [multimodal](multimodal.md) | several senses in one network: named input sources, microphones, `resize2d`, stereo `disparity` |
 | [kernels](kernels.md) | weight layout, SIMD kernels, determinism, parallelism, performance, random streams |
 | [layer_factory](layer_factory.md) | `layer_factory`, `LayerSpec`: creating layers by type, registering new types |
 | [network](network.md) | `network`: layer graph, inputs/outputs, update order, freezing, save/load |

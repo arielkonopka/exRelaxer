@@ -80,10 +80,19 @@ public:
 
     // Creates `count` sensors owned by the network (initially 0) and
     // attaches them to `target`. Returns the index of the first new sensor.
-    size_t addInputs(LayerId target, size_t count);
+    // With a `name`, the sensors are a named input source (a camera, a
+    // microphone...): set them with setInputs(name, values) and attach them
+    // to more layers with connectInputs. Names must be unique; unnamed
+    // sources are only reachable by index.
+    size_t addInputs(LayerId target, size_t count, const std::string& name = "");
     // Sensors for an image, channel after channel, row after row (e.g. for a
-    // retina); the same as addInputs(target, image.size()).
-    size_t addInputs(LayerId target, const Shape& image);
+    // retina); like addInputs(target, image.size(), name), and the source
+    // remembers the shape.
+    size_t addInputs(LayerId target, const Shape& image, const std::string& name = "");
+    // Attaches the named source's sensors to one more layer: several layers
+    // read the same sensors (e.g. one camera feeding a retina and a dense
+    // layer). Throws std::out_of_range for an unknown name.
+    void connectInputs(const std::string& name, LayerId target);
 
     // Marks a layer as output; outputs() concatenates output layers in the
     // order they were marked.
@@ -124,6 +133,8 @@ public:
     void setInput(size_t index, float value);
     void setInputs(std::span<const float> values);  // values.size() must equal inputCount()
     void setInputs(std::initializer_list<float> values);
+    // Only the named source's sensors (values.size() must equal its size).
+    void setInputs(const std::string& name, std::span<const float> values);
 
     void step();                                     // forward() on every layer, in update order
     void applyReward(float reward, float learningRate);  // every layer that is not frozen
@@ -159,6 +170,20 @@ public:
     size_t inputCount() const { return inputs_.size(); }
     std::span<const float> inputs() const { return inputs_; }
 
+    // A block of sensors created by one addInputs call.
+    struct InputSource
+    {
+        std::string name;             // "" if unnamed
+        size_t first;                 // index of its first sensor
+        Shape shape;                  // flat(count) unless created with a shape
+        std::vector<LayerId> targets; // the layers reading it, in attach order
+        size_t size() const { return shape.size(); }
+    };
+    const std::vector<InputSource>& inputSources() const { return sources_; }
+    // Throws std::out_of_range for an unknown name.
+    const InputSource& inputSource(const std::string& name) const;
+    std::span<const float> inputs(const std::string& name) const;
+
     // Throws std::logic_error if the forward edges form a cycle (other than
     // self-connections) and no custom order is set.
     const std::vector<LayerId>& updateOrder() const;
@@ -169,8 +194,8 @@ public:
     void describe(std::ostream& os) const;
 
     // --- Serialization --------------------------------------------------
-    // Writes the construction history (every addLayer, connect, addFeedback
-    // and addInputs call, in order, with each layer's current frozen flag),
+    // Writes the construction history (every addLayer, connect, addFeedback,
+    // addInputs and connectInputs call, in order, with each layer's current frozen flag),
     // the output layers, a custom update order if set, the input values and
     // each layer's own state. Replaying the
     // history is what restores the wiring, which layers do not save.
@@ -197,23 +222,26 @@ private:
     };
 
     // One entry per successful build call, replayed by load().
-    enum class OpKind : uint8_t { AddLayer, Connect, Feedback, Inputs };
+    enum class OpKind : uint8_t { AddLayer, Connect, Feedback, Inputs, ConnectInputs };
     struct BuildOp
     {
         OpKind kind;
-        size_t a;      // AddLayer: layer id; Connect/Feedback: from; Inputs: target
-        size_t b;      // Connect/Feedback: to
+        size_t a;      // AddLayer: layer id; Connect/Feedback: from; Inputs, ConnectInputs: target
+        size_t b;      // Connect/Feedback: to; Inputs, ConnectInputs: input source index
         size_t count;  // Feedback: width; Inputs: sensor count
     };
 
     void checkId(LayerId id) const;
     neuron_layer& neuronLayer(LayerId id);
     std::vector<LayerId> topologicalOrder() const;
+    size_t addSource(LayerId target, const Shape& shape, const std::string& name);
+    size_t findSource(const std::string& name) const;
 
     const layer_factory& factory;
     std::vector<Node> nodes;
     std::vector<Edge> edges_;
     std::vector<float> inputs_;  // every sensor, in addInputs order; layers read ranges of it
+    std::vector<InputSource> sources_;
     std::vector<LayerId> outputs_;
     std::vector<BuildOp> ops_;
 

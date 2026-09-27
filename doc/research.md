@@ -18,6 +18,7 @@ constants in force at the time, the constants are given.
 - [9. E-R firing frequency](#9-e-r-firing-frequency)
 - [10. Performance parameters](#10-performance-parameters)
 - [11. Learning rules](#11-learning-rules)
+- [12. Several senses and stereo vision](#12-several-senses-and-stereo-vision)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -392,6 +393,71 @@ flat up to 0.003, feedback alignment down to 9.9 at 0.003, perturbation to
 0.5 at 0.003. A 16-neuron mix gives the same ranking (frozen 13.7, every
 learned mix 12–13).
 
+## 12. Several senses and stereo vision
+
+Named input sources, a cochlea with several microphones, `Resize2D` and
+`Disparity` ([multimodal](multimodal.md)) were tested with two experiments.
+Result files: `/mnt/project-files/reports/multimodal/` in the project.
+
+**Stereo depth** (`nntest run stereo_depth`, 5 trials). Julesz random-dot
+stereograms, 16 × 32: each eye sees only ±1 dots; an 8 × 8 square floats in
+front (disparity 3) in the left or the right half. A single learned
+readout (sign rule, error-driven) answers which half.
+
+| Model | Accuracy |
+|-------|----------|
+| left eye → average pool → readout | 0.49 |
+| both eyes → average pool → readout (no matching) | 0.50 |
+| both eyes → Disparity (0..5, window 3) → average pool → readout | **0.98** (correlation 0.98, difference 0.98, normalized 0.98) |
+
+With 20 % of the right eye's dots redrawn, correlation and normalized
+matching keep 0.97, but absolute difference drops to 0.62: every
+mismatched dot adds a full unit of difference at every disparity, which
+buries the small margin at the true one. Pooling 4 × 4 learned faster than
+8 × 8 (0.93 vs 0.89 after 400 stereograms); 1000 stereograms are the
+default. The depth is invisible to one eye and to a linear readout of both,
+so the Disparity layer is doing the work: matching is a product (or
+difference) of the two views, which no weighted sum of them computes.
+
+**Sight and sound** (`nntest run audiovisual`, 5 trials). Four objects,
+each with its own look (a bar at its own orientation, at a random place on
+a 16 × 16 image with uniform ±0.5 pixel noise) and sound (a tone at its own
+pitch, 250 Hz to 3.5 kHz with ±15 % detuning, ±0.5 noise). Sight is a
+frozen Gabor bank and max pooling; sound is a 16-band cochlea. One readout
+per object, one vs rest, error-driven.
+
+| Readouts on | Accuracy |
+|-------------|----------|
+| sight | 0.79 |
+| sound | 0.95 |
+| both | **0.96** |
+
+With both senses noisier (±0.8 pixels, ±1.0 sound) the gain is clearer:
+sight 0.71, sound 0.75, both **0.86**.
+
+The sign rule could not use the sound at all (0.09, worse than chance): the
+cochlea's bands are all positive and the sign rule sees only each input's
+sign, so every weight moves together. The graded trace rule is the default
+for this experiment.
+
+**Learning what things sound like by watching them.** Readouts on sight
+learn the objects from labels, in silence. Then, without labels, the
+network sees and hears 1000 objects, and a second set of readouts, on
+sound only, learns to agree with what sight chooses (sight's choice is its
+target). Tested by sound alone, in the dark, it names the object **0.66**
+of the time (0.52–0.76 over trials; chance 0.25, 0.29 without the watching
+phase), although it was never told what any object sounds like. Its
+teacher was right 0.79 of the time; the sound readouts do worse than their
+teacher, not better, so they learn its mistakes too. The gap to supervised
+sound readouts (0.95) is the cost of a noisy teacher.
+
+An unsupervised shared layer did not work as well: a 16–32-neuron Oja or
+BCM layer (winners 1–2) reading sight and sound, trained on paired objects,
+then frozen, with readouts taught by sight and tested by sound, reached
+0.2–0.4 (controls 0.2–0.3). The layer's units were driven mostly by sight's
+128 inputs, and uncentred inputs make Oja's first component the mean
+rather than the object.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -415,6 +481,11 @@ learned mix 12–13).
 8. **Feedback alignment trains hidden layers** from an error vector (a
    bottleneck task: 0.49 → 7 × 10⁻⁷). On snake no hidden rule beats a frozen
    random mix, and sign-rule readouts remain the best.
+9. **Stereo and cross-modal learning work with fixed matching and learned
+   readouts.** A Disparity layer finds depth that neither eye shows
+   (0.98 vs 0.50); two senses beat either; and sight can teach readouts on
+   sound without labels (0.66, chance 0.25). Graded inputs such as cochlea
+   bands need a graded rule.
 
 ## Open questions and next steps
 

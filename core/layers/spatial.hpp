@@ -11,6 +11,42 @@
 
 namespace exr {
 
+// Resize2D: every input channel resampled to height x width.
+enum class Interpolation : std::uint8_t {
+    Nearest = 0,   // the input pixel under the output pixel's centre
+    Bilinear = 1,  // weighted by distance from the four nearest input pixels (pixel centres aligned)
+    Area = 2       // the mean of the input pixels the output pixel covers (for shrinking; bilinear when enlarging)
+};
+
+struct ResizeSpec
+{
+    size_t height = 0;  // output height and width
+    size_t width = 0;
+    Interpolation interpolation = Interpolation::Bilinear;
+    bool operator==(const ResizeSpec&) const = default;
+};
+
+// Disparity: how well a left and a right view match at each horizontal shift.
+enum class DisparityMeasure : std::uint8_t {
+    Correlation = 0,  // mean of left * right: high where both are active together
+    Difference = 1,   // mean of |left - right|: 0 where they match
+    Normalized = 2    // normalized cross-correlation over the window, in [-1, 1] (0 where either is flat)
+};
+
+// Output channel d compares left pixel x with right pixel x - (minDisparity + d),
+// averaged over a window x window box and every channel. Near objects appear
+// further left in the right view, so their disparity is larger.
+struct DisparitySpec
+{
+    int minDisparity = 0;
+    int maxDisparity = 4;   // inclusive: maxDisparity - minDisparity + 1 output channels
+    size_t window = 3;      // odd box size, in pixels
+    DisparityMeasure measure = DisparityMeasure::Correlation;
+
+    size_t count() const { return static_cast<size_t>(maxDisparity - minDisparity + 1); }
+    bool operator==(const DisparitySpec&) const = default;
+};
+
 // A sliding window over height x width, with zero padding on each side.
 // Output height = (height + 2 * padY - kernelHeight) / strideY + 1, likewise
 // for the width; 0 when the kernel does not fit.

@@ -67,16 +67,24 @@ void network::addFeedback(LayerId from, LayerId to, size_t width)
     this->ops_.push_back({OpKind::Feedback, from, to, width});
 }
 
-size_t network::addInputs(LayerId target, const Shape& image)
+size_t network::addInputs(LayerId target, const Shape& image, const std::string& name)
 {
-    return addInputs(target, image.size());
+    return addSource(target, image, name);
 }
 
-size_t network::addInputs(LayerId target, size_t count)
+size_t network::addInputs(LayerId target, size_t count, const std::string& name)
+{
+    return addSource(target, Shape::flat(count), name);
+}
+
+size_t network::addSource(LayerId target, const Shape& shape, const std::string& name)
 {
     checkId(target);
+    const size_t count = shape.size();
     if (count == 0)
         throw std::invalid_argument("network: addInputs needs at least one input");
+    if (!name.empty() && std::ranges::any_of(this->sources_, [&](const InputSource& s) { return s.name == name; }))
+        throw std::invalid_argument("network: an input source named '" + name + "' already exists");
 
     // The layer keeps a range of inputs_ (the vector object, not its data),
     // so later sensors may reallocate it.
@@ -88,8 +96,41 @@ size_t network::addInputs(LayerId target, size_t count)
         this->inputs_.resize(first);
         throw;
     }
-    this->ops_.push_back({OpKind::Inputs, target, 0, count});
+    this->sources_.push_back({name, first, shape, {target}});
+    this->ops_.push_back({OpKind::Inputs, target, this->sources_.size() - 1, count});
     return first;
+}
+
+size_t network::findSource(const std::string& name) const
+{
+    for (size_t i = 0; i < this->sources_.size(); ++i)
+        if (!name.empty() && this->sources_[i].name == name)
+            return i;
+    throw std::out_of_range("network: no input source named '" + name + "'");
+}
+
+const network::InputSource& network::inputSource(const std::string& name) const
+{
+    return this->sources_[findSource(name)];
+}
+
+std::span<const float> network::inputs(const std::string& name) const
+{
+    const InputSource& source = inputSource(name);
+    return std::span<const float>(this->inputs_).subspan(source.first, source.size());
+}
+
+void network::connectInputs(const std::string& name, LayerId target)
+{
+    checkId(target);
+    const size_t index = findSource(name);
+    InputSource& source = this->sources_[index];
+    if (std::ranges::find(source.targets, target) != source.targets.end())
+        throw std::invalid_argument("network: input source '" + name + "' already feeds layer '" +
+                                    this->nodes[target].name + "'");
+    this->nodes[target].impl->attachInputs(InputRange(this->inputs_, source.first, source.size()));
+    source.targets.push_back(target);
+    this->ops_.push_back({OpKind::ConnectInputs, target, index, 0});
 }
 
 void network::addOutput(LayerId id)
@@ -246,6 +287,15 @@ void network::setInputs(std::span<const float> values)
 void network::setInputs(std::initializer_list<float> values)
 {
     setInputs(std::span<const float>(values.begin(), values.size()));
+}
+
+void network::setInputs(const std::string& name, std::span<const float> values)
+{
+    const InputSource& source = inputSource(name);
+    if (values.size() != source.size())
+        throw std::invalid_argument("network: input source '" + name + "' has " + std::to_string(source.size()) +
+                                    " sensors, got " + std::to_string(values.size()) + " values");
+    std::ranges::copy(values, this->inputs_.begin() + static_cast<std::ptrdiff_t>(source.first));
 }
 
 void network::step()
@@ -429,9 +479,18 @@ void network::describe(std::ostream& os) const
     }
     os << std::right;
 
-    for (const BuildOp& op : this->ops_)
-        if (op.kind == OpKind::Inputs)
-            os << "  inputs: " << op.count << " -> " << this->nodes[op.a].name << "\n";
+    for (const InputSource& source : this->sources_) {
+        os << "  inputs";
+        if (!source.name.empty())
+            os << " '" << source.name << "'";
+        os << ": " << source.size();
+        if (source.shape.height > 1 || source.shape.width > 1)
+            os << " (" << describeShape(source.shape) << ")";
+        os << " ->";
+        for (size_t i = 0; i < source.targets.size(); ++i)
+            os << (i ? ", " : " ") << this->nodes[source.targets[i]].name;
+        os << "\n";
+    }
 
     if (!this->edges_.empty())
     {
@@ -477,11 +536,13 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //   8  + audio parameters per layer (cochlea)
 //   9  + learning rule per layer; layers of neurons append the rule's state
 //        (neuron format 3)
+//  10  + cochlea channels, resize and disparity parameters per layer; named
+//        input sources (name and shape per addInputs) and connectInputs
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 9;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 10;
 // Files from this version on carry the full state; older ones load as
-// weights only. (Versions 7 and 8 only added parameters of layer types that
-// did not exist before, whose defaults are right for older files.)
+// weights only. (Versions 7, 8 and 10 only added parameters whose defaults
+// are right for older files.)
 constexpr std::uint32_t FIRST_FULL_STATE_VERSION = 6;
 
 // Upper bounds for counts read from a stream, so corrupt data fails with an
@@ -550,6 +611,39 @@ void writeAudio(std::ostream& os, const LayerSpec& spec)
 }
 
 void readAudio(std::istream& is, LayerSpec& spec);
+
+size_t readCount(std::istream& is, std::string_view what);
+
+// Version 10: cochlea channels, resize and disparity.
+void writeMultimodal(std::ostream& os, const LayerSpec& spec)
+{
+    writeCount(os, spec.cochlea.channels);
+    writeCount(os, spec.resize.height);
+    writeCount(os, spec.resize.width);
+    writeValue(os, static_cast<std::uint8_t>(spec.resize.interpolation));
+    writeValue<std::int32_t>(os, spec.disparity.minDisparity);
+    writeValue<std::int32_t>(os, spec.disparity.maxDisparity);
+    writeCount(os, spec.disparity.window);
+    writeValue(os, static_cast<std::uint8_t>(spec.disparity.measure));
+}
+
+void readMultimodal(std::istream& is, LayerSpec& spec)
+{
+    spec.cochlea.channels = readCount(is, "cochlea channels");
+    spec.resize.height = readCount(is, "resize height");
+    spec.resize.width = readCount(is, "resize width");
+    const auto interpolation = readValue<std::uint8_t>(is);
+    if (interpolation > static_cast<std::uint8_t>(Interpolation::Area))
+        throw std::runtime_error("network::load: unknown interpolation " + std::to_string(interpolation));
+    spec.resize.interpolation = static_cast<Interpolation>(interpolation);
+    spec.disparity.minDisparity = readValue<std::int32_t>(is);
+    spec.disparity.maxDisparity = readValue<std::int32_t>(is);
+    spec.disparity.window = readCount(is, "disparity window");
+    const auto measure = readValue<std::uint8_t>(is);
+    if (measure > static_cast<std::uint8_t>(DisparityMeasure::Normalized))
+        throw std::runtime_error("network::load: unknown disparity measure " + std::to_string(measure));
+    spec.disparity.measure = static_cast<DisparityMeasure>(measure);
+}
 
 void writeLearningRule(std::ostream& os, const LearningRule& rule)
 {
@@ -679,6 +773,7 @@ void network::save(std::ostream& os) const
             writeSpatial(os, node.spec);
             writeAudio(os, node.spec);
             writeLearningRule(os, node.spec.learningRule);
+            writeMultimodal(os, node.spec);
             break;
         }
         case OpKind::Connect:
@@ -690,9 +785,20 @@ void network::save(std::ostream& os) const
             writeCount(os, op.b);
             writeCount(os, op.count);
             break;
-        case OpKind::Inputs:
+        case OpKind::Inputs: {
+            const InputSource& source = this->sources_[op.b];
             writeCount(os, op.a);
             writeCount(os, op.count);
+            writeCount(os, source.name.size());
+            binary_io::writeChars(os, source.name);
+            writeCount(os, source.shape.channels);
+            writeCount(os, source.shape.height);
+            writeCount(os, source.shape.width);
+            break;
+        }
+        case OpKind::ConnectInputs:
+            writeCount(os, op.b);
+            writeCount(os, op.a);
             break;
         }
     }
@@ -784,6 +890,8 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 readAudio(is, spec);
             if (version >= 9)
                 spec.learningRule = readLearningRule(is);
+            if (version >= 10)
+                readMultimodal(is, spec);
             net->addLayer(name, spec);
             break;
         }
@@ -803,7 +911,32 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
         case OpKind::Inputs: {
             const size_t target = readCount(is, "layer id");
             const size_t count = readCount(is, "input count");
-            net->addInputs(target, count);
+            if (version < 10) {
+                net->addInputs(target, count);
+                break;
+            }
+            const size_t name_length = readCount(is, "input source name length");
+            if (name_length > MAX_NAME_LENGTH)
+                throw std::runtime_error("network::load: implausible input source name length");
+            std::string name(name_length, '\0');
+            binary_io::readChars(is, name);
+            Shape shape;
+            shape.channels = readCount(is, "input channels");
+            shape.height = readCount(is, "input height");
+            shape.width = readCount(is, "input width");
+            if (shape.size() != count)
+                throw std::runtime_error("network::load: input source shape does not match its sensor count");
+            net->addInputs(target, shape, name);
+            break;
+        }
+        case OpKind::ConnectInputs: {
+            if (version < 10)
+                throw std::runtime_error("network::load: unknown operation 4");
+            const size_t index = readCount(is, "input source");
+            const size_t target = readCount(is, "layer id");
+            if (index >= net->sources_.size() || net->sources_[index].name.empty())
+                throw std::runtime_error("network::load: connectInputs names an unknown input source");
+            net->connectInputs(net->sources_[index].name, target);
             break;
         }
         default:
