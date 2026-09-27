@@ -475,7 +475,7 @@ prototypes, each held for 4 ticks. 10 trials each. Result files:
 | Learning | Model | Accuracy | Active fraction | Spikes per decision | Accuracy per 100 spikes |
 |----------|-------|----------|-----------------|---------------------|-------------------------|
 | paths FA + readouts | er | 0.995 | 0.50 | 133 | 0.75 |
-| | gate (matched) | 0.747 | 0.50 | 134 | 0.56 |
+| | gate (matched) | 0.762 | 0.49 | 132 | 0.58 |
 | | linear | 0.987 | 1.00 | 268 | 0.37 |
 | readouts only | er | 0.941 | 0.49 | 133 | 0.71 |
 | | gate (matched) | 0.953 | 0.50 | 133 | 0.72 |
@@ -490,9 +490,11 @@ prototypes, each held for 4 ticks. 10 trials each. Result files:
 - E-R's active runs are shorter (5.2 vs 8.6 ticks for the gate): it
   alternates neurons more.
 - With the paths learning (FA), E-R was the only sparse model that
-  learned well (0.995 vs 0.747); with frozen paths the matched gate is as
-  good as E-R. So E-R's adaptive threshold helps FA credit assignment
-  through a thresholded layer; it does not make inference cheaper than a
+  learned well (0.995 vs 0.762); with frozen paths the matched gate is as
+  good as E-R. Silent gated neurons take no FA step, just as silent E-R
+  neurons don't (the surrogate derivative is 0 for both). So E-R's
+  adaptive threshold helps FA credit assignment through a thresholded
+  layer; it does not make inference cheaper than a
   fixed threshold.
 
 **Path preference** (`nntest run er_paths`, Exp 2). Drive per neuron,

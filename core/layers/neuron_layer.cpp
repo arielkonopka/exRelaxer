@@ -388,11 +388,11 @@ bool neuron_layer::ruleStep(size_t i, float m, float learningRate, float& delta,
         return delta != 0.0f;
     case LearningRuleType::FeedbackAlignment: {
         // Surrogate derivative of the neuron: 1 while it takes part (with
-        // E-R: eligible, i.e. fired recently; without: always, its output is
-        // its clamped sum), 0 when silent or held at the output clamp in the
-        // direction the modulator pushes.
+        // E-R: eligible, i.e. fired recently; with a gate: firing; otherwise
+        // always, its output is its clamped sum), 0 when silent or held at
+        // the output clamp in the direction the modulator pushes.
         const float y = nr.output();
-        if ((nr.hasER() && !nr.eligible()) || (y >= max_output && m > 0.0f) || (y <= -max_output && m < 0.0f))
+        if ((nr.hasER() && !nr.eligible()) || (nr.gate() > 0.0f && y == 0.0f) || (y >= max_output && m > 0.0f) || (y <= -max_output && m < 0.0f))
             return false;
         delta = rate * m;
         return true;

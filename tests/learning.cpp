@@ -491,3 +491,19 @@ TEST(LearningRuleTest, OneNetworkMixesEveryRule)
         ASSERT_EQ(net.outputs(), restored->outputs()) << t;
     }
 }
+
+TEST(LearningRuleTest, FeedbackAlignmentSkipsSilentGatedNeurons)
+{
+    // A fixed threshold makes a neuron silent; like a silent E-R neuron, it
+    // then has no derivative and does not learn.
+    Plain p(1, 2, LearningRule::feedbackAlignment());
+    p.layer().setGate(0.5f);
+    p.setWeights(0, {0.3f});  // |sum| 0.3 <= 0.5: silent
+    p.setWeights(1, {0.9f});  // fires
+    p.net.setInputs(std::vector<float>{1.0f});
+    p.net.step();
+    EXPECT_EQ(p.net.outputs()[0], 0.0f);
+    p.net.applyError(std::vector<float>{1.0f, 1.0f}, 0.1f);
+    EXPECT_EQ(p.layer().weights(0)[0], 0.3f);
+    EXPECT_GT(p.layer().weights(1)[0], 0.9f);
+}

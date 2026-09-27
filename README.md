@@ -387,6 +387,8 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   `neuron::setGate`, `neuron_layer::setGate`. Output is 0 while
   |sum| ≤ gate; the threshold never adapts. Network format 11 saves it;
   `describe()` shows it in the E-R column. Python: `LayerSpec.gate`.
+  Under feedback alignment a silent gated neuron does not learn (its
+  surrogate derivative is 0, as for a silent E-R neuron).
 - `nntest run er_economy`, `er_paths`, `er_fatigue`, `er_history`: does
   E-R use less activity, prefer cheaper paths or respond to its history,
   with no activity penalty? It is as sparse as a fixed threshold of the
