@@ -72,3 +72,19 @@ around its own body.
 
 Parameters to try: `--set mix=0,64,256`, `--set train=200,1000`,
 `--set approach=0,0.1,0.5`, `--set width=15 --set height=15`.
+
+## Other learning rules
+
+`nntest run snake_rules` is the same experiment with a
+[learning rule](../../../doc/learning.md) for the readouts (`readout=`) and
+for the mixing layer (`mix=`, or `frozen`):
+
+```bash
+./build/NNtesting/nntest run snake_rules --set readout=sign --set mix=frozen,sign,trace,fa,perturbation,oja,bcm --set mix_lr=0.0003
+./build/NNtesting/nntest run snake_rules --set readout=fa --set lr=0.003 --set bias=true --set mix=frozen,fa
+```
+
+It reports apples and steps per game (test and training), apples per 100
+steps, and the training cost per step. The sign readouts over a frozen mix
+(13.6 apples, 103 steps) are still the best; the results for every rule are
+in the [research log](../../../doc/research.md#11-learning-rules).

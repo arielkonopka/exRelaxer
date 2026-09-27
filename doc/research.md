@@ -17,6 +17,7 @@ constants in force at the time, the constants are given.
 - [8. Per-neuron jitter](#8-per-neuron-jitter)
 - [9. E-R firing frequency](#9-e-r-firing-frequency)
 - [10. Performance parameters](#10-performance-parameters)
+- [11. Learning rules](#11-learning-rules)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -322,6 +323,75 @@ and recovery. Not implemented yet.
 Intermediate thread counts (7–14) were slower than both 3 and 20 threads on
 mid-sized groups.
 
+## 11. Learning rules
+
+Six learning rules, chosen per layer ([learning](learning.md)): sign (the
+original), trace, feedback alignment, node perturbation, Oja and BCM.
+
+**Credit assignment beyond the last layer.** A 2-neuron linear bottleneck
+between 6 inputs and 4 outputs, where the target depends on two directions
+of the input (`LearningRuleTest.FeedbackAlignmentTrainsAHiddenLayer`):
+with the hidden layer frozen at its random start the mean squared error
+stays at 0.49. With feedback alignment training it through `applyError`,
+the error falls to 7 × 10⁻⁷ at rate 0.03, or 0.009 at rate 0.01
+(5000 samples). It is the first mechanism here that trains a hidden layer
+towards a task.
+
+XOR through 16 hidden neurons does not learn with any rule: without E-R the
+neurons are linear up to the ±10 clamp, and with E-R the threshold's own
+dynamics make the evaluation noisy (loss 0.8–1.2 for frozen and trained
+hidden layers alike). Nonlinear hidden features need a nonlinearity the
+learning rules can use; E-R's threshold is a poor one.
+
+**Snake** (`nntest run snake_rules`, 10 × 10, 200 training games, 50 test
+games, 10 trials; control: the same network untrained, 0.06 apples in 64
+steps). Mix = the 64-neuron mixing layer, 64 → 3 readouts. Mix learning
+rate 0.0003.
+
+| Readouts | Mix | Apples / game | Steps / game | Apples / 100 steps | Best | µs / training step |
+|----------|-----|---------------|--------------|--------------------|------|--------------------|
+| sign (lr 0.03) | frozen | **13.6 ± 0.6** | 103 ± 5 | 13.2 | 25.0 | 1.4 |
+| sign | sign | 13.6 ± 0.4 | 102 ± 4 | 13.3 | 27.5 | 1.7 |
+| sign | trace | 13.7 ± 0.7 | 103 ± 5 | 13.2 | 24.7 | 1.6 |
+| sign | feedback alignment | 13.0 ± 0.4 | 98 ± 4 | 13.3 | 25.0 | 1.6 |
+| sign | perturbation | 10.9 ± 1.4 | 86 ± 9 | 11.7 | 22.2 | 1.8 |
+| sign | Oja | 10.8 ± 1.1 | 96 ± 11 | 12.5 | 23.2 | 1.8 |
+| sign | BCM | 12.6 ± 0.5 | 95 ± 4 | 13.3 | 25.8 | 1.8 |
+| trace (lr 0.03) | frozen | 12.9 ± 1.1 | 99 ± 8 | 13.0 | 25.1 | 1.7 |
+| feedback alignment (lr 0.003, bias) | frozen | 11.0 ± 0.4 | 79 ± 3 | 13.9 | 23.6 | 1.6 |
+| feedback alignment | feedback alignment | 9.9 ± 0.4 | 71 ± 3 | 13.9 | 21.9 | 1.7 |
+| feedback alignment | BCM | 10.2 ± 0.5 | 73 ± 4 | 14.0 | 23.9 | 2.1 |
+| feedback alignment | Oja | 6.4 ± 1.3 | 97 ± 16 | 8.9 | 16.8 | 1.6 |
+| perturbation (lr 0.03, noise 1) | frozen | 0.1 | 26 ± 17 | 1.1 | 1.5 | 1.1 |
+
+(± is the standard error over trials.)
+
+- **Snake does not need hidden learning.** No mix rule beats the frozen
+  random mix; the sign-rule readouts already use its features well, and
+  games end when the snake traps itself, which one-step values cannot
+  foresee.
+- **Feedback-alignment readouts are the most efficient** (13.9 apples per
+  100 steps against 13.2) but die sooner: they regress the reward's
+  size, not its sign. Error-driven gating matters: with `reward=target`
+  they fail (0.1–0.2 apples).
+- **Trace readouts** match sign readouts at the same rate (12.9 vs 13.6,
+  within noise) when the reward baseline is off. With a baseline, the
+  error-driven gating biases the baseline and they fall to about 5.
+- **Perturbation readouts do not learn snake**: each readout learns only
+  when its action is chosen, and the noise's effect on one step's squared
+  error is small next to the variance between states. In the mix, it
+  costs apples at rates above 0.0003.
+- **Oja** in the mix loses apples and makes results vary more: unit-norm
+  principal components throw away the directions the readouts used.
+  **BCM** is close to frozen.
+
+Tuning (sweeps in the same experiment): sign readouts 0.03; trace readouts
+best at 0.03 (4.0 at 0.1, 0.3 at 1.0); feedback-alignment readouts
+0.001–0.003 (0.5 at 0.1); mix rules best at 0.0003, sign and trace mixes
+flat up to 0.003, feedback alignment down to 9.9 at 0.003, perturbation to
+0.5 at 0.003. A 16-neuron mix gives the same ranking (frozen 13.7, every
+learned mix 12–13).
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -342,6 +412,9 @@ mid-sized groups.
    with the constants; recovery and alpha jitter showed no reliable effect.
 7. **E-R, as implemented, cannot produce slow rhythms**; frequency diversity
    needs a different threshold-growth rule.
+8. **Feedback alignment trains hidden layers** from an error vector (a
+   bottleneck task: 0.49 → 7 × 10⁻⁷). On snake no hidden rule beats a frozen
+   random mix, and sign-rule readouts remain the best.
 
 ## Open questions and next steps
 
