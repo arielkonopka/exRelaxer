@@ -113,6 +113,7 @@ def main():
     ap.add_argument("--generations", type=int, default=300)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--init", default="", help="start from these weights (a best_theta.npy of the same network)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     p = params(json.loads(args.config), args.scenario)
@@ -126,7 +127,10 @@ def main():
         s = np.load(state_path)
         theta, m, v, gen, best = s["theta"], s["m"], s["v"], int(s["gen"]), float(s["best"])
     else:
-        theta, m, v, gen, best = theta0.copy(), np.zeros_like(theta0), np.zeros_like(theta0), 0, -np.inf
+        start = np.load(args.init) if args.init else theta0
+        if start.shape != theta0.shape:
+            raise ValueError(f"--init has {start.size} weights, this network {theta0.size}")
+        theta, m, v, gen, best = start.copy(), np.zeros_like(theta0), np.zeros_like(theta0), 0, -np.inf
     rng = np.random.default_rng(args.seed + gen)
     sigma, lr = args.sigma * scale, args.lr * scale
 
