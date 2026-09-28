@@ -1202,9 +1202,9 @@ long search).
   The one-step readout rules do not assign credit in Doom.
 - `es.py` skips credit assignment: an evolution strategy (OpenAI-ES,
   12 antithetic pairs, centred ranks, Adam) moves the readout weights
-  towards the candidates that scored best on the same two episodes; the
-  current weights are scored on six fixed validation episodes the
-  gradient never sees. Five topologies, 500 generations each on
+  towards the candidates that scored best on the same three episodes;
+  the current weights are scored on ten fixed validation episodes the
+  gradient never sees (two and six on `map01`). Five topologies, 500 generations each on
   `defend_the_center` (validation reward, mean of the last 100
   generations; spikes per step):
 
@@ -1237,7 +1237,8 @@ long search).
 
 - Evolution learns to explore (twice the distance, more items and doors)
   but not to fight or finish the level; the arena weights give no lasting
-  head start. A run with three-minute episodes is under way.
+  head start. A run with three-minute episodes is under way. Every Doom
+  experiment is recorded in [doom](doom.md).
 
 **Takeaway.** E-R is not better at dynamic tasks in general. Its state is
 a cheap change detector that stateless networks lack, but one frame of

@@ -1,7 +1,8 @@
 # doom_rl
 
 Doom learned from reward alone, seeing and hearing the game at its smallest
-settings. Part of the dynamic ladder ([doc/dynamic.md](../../../doc/dynamic.md)).
+settings. Part of the dynamic ladder ([doc/dynamic.md](../../../doc/dynamic.md));
+every experiment and result is recorded in [doc/doom.md](../../../doc/doom.md).
 
 ```bash
 python3 -m pip install vizdoom          # headless
