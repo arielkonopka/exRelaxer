@@ -17,10 +17,10 @@ findings in [§20](research.md#20-dynamic-ladder-time-varying-input-and-doom).
 |---|---|
 | Network | one hidden layer, 128 E-R neurons with fading habituation (tolerance 0.05, decay 0.9 per tick from the 2nd repeat), no feedback; 6 network ticks per game step |
 | Senses | screen 160 × 120 gray pooled 8 × 8 to 20 × 15; stereo sound through a two-ear cochlea |
-| Trained by | evolution of the 8 action readouts (`es.py`, [D5](#d5-evolution-of-the-readouts-topologies-on-defend_the_center-2026-09-28)); the hidden layer is the frozen random network |
-| `defend_the_center` | validation reward −4.8 → +0.95 (mean of the last 100 of 500 generations), about 5 kills per episode, 145 spikes per step |
-| `map01` | explores (twice the untrained distance, more items and doors); no exits, also with three-minute episodes ([D6](#d6-evolution-on-a-whole-level-map01-2026-09-28), [D7](#d7-map01-with-three-minute-episodes-2026-09-28)) |
-| Files | `results/dynamic/doom_agent/cmp_er_d1_none/` (arena), `.../map01_er_d1_from_dtc/` (MAP01): `best.exr`, `best_theta.npy`, `config.json` |
+| Trained by | evolution of every weight, the hidden layer's and the 8 action readouts' (`es.py`, `evolve` `all`, [D9](#d9-evolving-every-weight-depth-1-2-and-3-on-defend_the_center-2026-09-28)) |
+| `defend_the_center` | 30 fresh games: reward +3.78 (untrained −5.05), 6.7 kills, survives 57% of games, 172 spikes per step |
+| `map01` | not yet tried with every weight evolving; readout-only agents explore but never exit ([D6](#d6-evolution-on-a-whole-level-map01-2026-09-28), [D7](#d7-map01-with-three-minute-episodes-2026-09-28)) |
+| Files | `results/dynamic/doom_agent/evolve_all_d1/`: `final_theta.npy`, `config.json` |
 
 Rebuild it in Python:
 
@@ -28,10 +28,15 @@ Rebuild it in Python:
 import json, numpy as np, sys
 sys.path.insert(0, "NNtesting/experiments/doom_rl")
 import es
-d = "results/dynamic/doom_agent/cmp_er_d1_none"
+d = "results/dynamic/doom_agent/evolve_all_d1"
 p = json.load(open(d + "/config.json"))["params"]
-player = es.build(p, 0, np.load(d + "/best_theta.npy"))   # net seed 0
+player = es.build(p, 0, np.load(d + "/final_theta.npy"))   # net seed 0
 ```
+
+These agents were evolved before the library defaults of 2026-09-28
+(raw sums, spontaneous amplitude 0.01). Their `config.json` has no
+`normalize` or `spontaneous_amplitude`, so `doom_rl` rebuilds them that
+way; new runs record both.
 
 ## Setup shared by all entries
 
@@ -222,6 +227,86 @@ within the run's noise. The readouts alone seem to have reached what the
 frozen random features allow on a whole level.
 
 Data: `results/dynamic/es_map01_er_d1_long.jsonl.gz`.
+
+### D8. Every weight evolving on `map01` (2026-09-28, interrupted)
+
+**Question.** Do the hidden layer's features limit the whole-level agent
+(D6, D7)? The user chose to evolve the hidden E-R layer too.
+
+**Setup.** As D6 with `evolve` `all` (43 520 weights instead of 1 024),
+24 antithetic pairs, σ 0.05 and step 0.02 relative to each layer's
+weight RMS, starting from D7's evolved readouts.
+
+**Status.** The project's shared folder, where it wrote, failed at
+generation 34 and the run died with it. Validation had reached −1.9
+(best 0.82). Not resumed: the arena comparison (D9, D10) came first. Data:
+`results/dynamic/es_map01_er_d1_all_interrupted.jsonl.gz`.
+
+### D9. Evolving every weight: depth 1, 2 and 3 on `defend_the_center` (2026-09-28)
+
+**Question.** The user: sound should help (monsters grunt), but the
+network may be unable to link sound and action; depth might help, and
+earlier depth hurt. Train deeper networks, all E-R with habituation and
+no feedback lines, with every weight evolving.
+
+**Setup.** `es.py` with `evolve` `all`, 12 antithetic pairs, 3 episodes
+per candidate, 10 validation episodes, σ 0.05 and step 0.02 relative to
+each layer's weight RMS, 500 generations, one seed each. 128 E-R neurons
+per layer with fading habituation, sound on. Final weights tested on 30
+fresh games (seed 4242). The runs used the defaults before 2026-09-28.
+
+**Result.**
+
+| Network | Validation, first 20 gens | Last 100 gens | Fresh games: reward | Kills | Deaths | Spikes |
+|---------|---------------------------|---------------|---------------------|-------|--------|--------|
+| **1 layer** | −5.00 | +2.95 | **+3.78** | 6.7 | 0.43 | **172** |
+| 2 layers | −4.02 | +3.02 | +3.18 | 6.1 | 0.47 | 334 |
+| 3 layers | −4.78 | −1.02 | −0.80 | 5.3 | 1.00 | 488 |
+| 1 layer, readouts only (D5), same fresh games | | | +1.36 | 4.6 | 0.50 | 145 |
+| untrained (1 layer) | | | −5.05 | 1.0 | 1.00 | 169 |
+
+**Conclusion.**
+- Evolving the hidden layer too roughly triples the 1-layer agent's
+  reward on fresh games (+3.78 vs +1.36) and adds two kills per game.
+- With every weight evolving, a second layer no longer hurts (+3.18,
+  within one seed's noise of 1 layer) but does not help either; a third
+  layer still fails (never survives a game).
+- One seed per depth; the 1- vs 2-layer difference is not established.
+
+Data: `results/dynamic/es_evolve_all_all_d{1,2,3}.jsonl.gz`; agent in
+`results/dynamic/doom_agent/evolve_all_d1/`.
+
+### D10. Growing layers during evolution (2026-09-28)
+
+**Question.** The user: add layers while the network runs, as soon as it
+starts learning.
+
+**Setup.** As D9, starting with 1 layer, `--grow-to 3`: a layer is added
+on top once the mean validation reward of the last 20 generations beats
+the first 20 at the current depth by 1.0. The readouts read every layer,
+and their weights from a new layer start at zero, so growing does not
+change play (checked: identical reward and kills before and after two
+growths on a test game).
+
+**Result.** It grew to 2 layers at generation 77 and to 3 at 133.
+Validation, mean of the last 100 generations: **+4.36**, the best of all
+runs (best single generation 8.06), 7.9 kills. On the 30 fresh games:
+reward +2.21, 6.4 kills, 0.67 deaths, 496 spikes per step (untrained 1
+layer −5.27).
+
+**Conclusion.**
+- A grown 3-layer network plays far better than one evolved at 3 layers
+  from the start (+2.21 vs −0.80 on fresh games): growing makes depth
+  trainable.
+- It does not beat the plain 1-layer network on fresh games (+2.21 vs
+  +3.78), although it led on its validation games; the gap between its
+  validation and fresh scores suggests it fitted the validation seeds'
+  situations more than the others (it had the most weights), or seed
+  noise. It fires about three times as many spikes.
+
+Data: `results/dynamic/es_evolve_all_grow3.jsonl.gz`; agent in
+`results/dynamic/doom_agent/evolve_all_grow3/` (3 layers, `readout_from`
+`all`).
 
 ## Open questions
 

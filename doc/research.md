@@ -1239,7 +1239,13 @@ long search).
 - Evolution learns to explore (twice the distance, more items and doors)
   but not to fight or finish the level; the arena weights give no lasting
   head start. Three-minute episodes (600 more generations) do not
-  change that: still no exits, and a flat validation curve. Every Doom
+  change that: still no exits, and a flat validation curve.
+- Evolving **every weight** (`evolve` `all`, the hidden E-R layers too)
+  roughly triples the 1-layer agent's reward on 30 fresh arena games
+  (+3.78 vs +1.36, 6.7 kills, survives 57% of games). With every weight
+  evolving a second layer no longer hurts (+3.18) and a third still fails
+  (−0.80), unless the network grows to it during evolution (+2.21; details
+  in [doom](doom.md), D9 and D10). Every Doom
   experiment is recorded in [doom](doom.md).
 
 **Takeaway.** E-R is not better at dynamic tasks in general. Its state is

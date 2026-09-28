@@ -92,6 +92,19 @@ class Player:
             spec.rectify = model == "relu"
             if model == "gate":
                 spec.gate = p["gate"]
+            if model == "er":
+                spec.spontaneous = exr.Spontaneous(amplitude=p.get("spontaneous_amplitude", 0.01))
+            return normalized(spec)
+
+        # Settings saved before the 2026-09-28 defaults lack these keys: they
+        # rebuild as they were evolved (raw sums, spontaneous amplitude 0.01).
+        def normalized(spec):
+            if p.get("normalize", False):
+                if not hasattr(spec, "normalize"):
+                    raise RuntimeError("normalize needs exrelaxer with LayerSpec.normalize (network format 16)")
+                spec.normalize = True
+            elif hasattr(spec, "normalize"):
+                spec.normalize = False
             return spec
 
         # Hidden stack h1 .. h<depth>: h1 reads the eye (and the ears), each
@@ -135,8 +148,8 @@ class Player:
         rule = exr.LearningRule.sign() if p["rule"] == "sign" else exr.LearningRule.traced(p["trace"])
         self.readouts = []
         for name in ACTIONS:
-            out = net.add_layer(name.lower(), exr.LayerSpec.dense(1, False, False, learning_rule=rule))
-            for h in (self.layers if p["readout_from"] == "all" else self.layers[-1:]):
+            out = net.add_layer(name.lower(), normalized(exr.LayerSpec.dense(1, False, False, learning_rule=rule)))
+            for h in (self.layers if p.get("readout_from", "top") == "all" else self.layers[-1:]):
                 net.connect(h, out)
             if self.reservoir is not None:
                 net.connect(self.reservoir, out)
@@ -255,6 +268,8 @@ PARAMS = {
     "bands": (16, "cochlea bands per ear"),
     "pool": (4, "screen pooling: 4 gives 40 x 30"),
     "ticks": (3, "network ticks per game step (the sound is split across them)"),
+    "normalize": (True, "weighted sums divided by the weights' length (the library default since 2026-09-28)"),
+    "spontaneous_amplitude": (0.1, "E-R spontaneous firing amplitude (the library default since 2026-09-28)"),
     "readout_from": ("top", "which hidden layers the readouts read: top, or all (every layer, bottom first)"),
     "rule": ("sign", "readout learning rule: sign (as in snake) or trace (traced, eligibility over recent ticks)"),
     "reward_mode": ("error", "error: learn only while the chosen readout's sign disagrees with the reward; always"),
