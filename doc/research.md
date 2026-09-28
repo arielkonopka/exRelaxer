@@ -31,6 +31,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [17. Training E-R, spontaneous cycles and early fading](#17-training-e-r-spontaneous-cycles-and-early-fading)
 - [18. Rerun with linear growth and three habituation variants](#18-rerun-with-linear-growth-and-three-habituation-variants)
 - [19. Normalised weighted sum](#19-normalised-weighted-sum)
+- [20. Dynamic ladder: time-varying input and Doom](#20-dynamic-ladder-time-varying-input-and-doom)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -1120,6 +1121,85 @@ normalised, with the resting threshold 0.2 or auto
   on `er_economy`, 1.0 once all paths are fatigued. E-R keeps its
   history effect (0.78 of hidden patterns change after a different
   history, 0.86 raw), which the gate does not have.
+## 20. Dynamic ladder: time-varying input and Doom
+
+**Question** (the user's): is E-R better at dynamic tasks, and can it play
+Doom? §16 compared E-R only with networks that have no memory at all. The
+control that matters is the same stateless network shown the previous
+frame too (a frame window, the usual trick in game-playing networks).
+
+**The missing control on §16's tasks** (`nl_temporal --set window=1`, 3
+seeds): ReLU given x(t−1) solves delayed XOR with 8 neurons in every seed
+within 1000 steps, where E-R without a window needs 32 neurons and is
+unreliable at 8. With `window=3` ReLU solves t2 (x(t) ∧ ¬x(t−3)) too. E-R
+with `window=1` reaches 0.97 on t2: its state adds about one step to the
+window.
+
+**Setup.** `nntest run dyn_ladder` ([dynamic](dynamic.md)): motion
+direction on a 16-pixel retina (`dir`), change detection between 4 random
+patterns (`change`), velocity of a bump (`vel`, regression) and a closed-loop
+catch game with bouncing balls (`catch`, imitation of an oracle). Models
+relu, er, er_memoryless, gate; `window` 0 or 1; width 16, 64; lr {0.001,
+0.003, 0.01, 0.03} chosen on validation; 5 seeds; linear growth. Raw
+results for this section are in [`results/dynamic/`](../results/dynamic/).
+
+**Results** (median test score at width 64: accuracy, R², catch rate):
+
+| Task | Single-frame ceiling | relu | gate | er_memoryless | er | relu + 1 frame | er + 1 frame |
+|------|------|------|------|------|------|------|------|
+| dir | 0.56 | 0.52 | 0.52 | 0.52 | 0.62 (0.69 at 256) | 1.00 | 1.00 |
+| change | 0.70 | 0.70 | 0.70 | 0.70 | **0.98** | 1.00 | 0.92 |
+| vel (R²) | 0 | 0.00 | −0.01 | −0.01 | 0.01 (0.04 at 256) | 0.93 | 0.84 |
+| catch | chase 0.04 | 0.32 | 0.30 | 0.32 | 0.32 | 1.00 | 0.60 |
+
+- Without a window, only E-R goes above the single-frame ceiling, and
+  resetting its state removes the gain: it is the state again.
+- E-R's state is a **novelty detector**: thresholds adapt to the current
+  pattern, so a change stands out (0.98). It carries little of the order
+  of events (direction 0.62–0.69) and nothing graded (velocity), so it
+  cannot tell where the ball is going.
+- One past frame lets every stateless model solve all four tasks. Adding
+  E-R to a frame window **hurts** (catch 0.60 vs 1.00 for relu, 0.88 for
+  memoryless E-R): the state interferes with what the window provides.
+- Activity: no saving. On `change` E-R fires 147 spikes per step, relu with
+  a window 84; on `catch` E-R 32–41, relu with a window 87.
+- The log growth rule does not help (width 256, log vs linear: `dir`
+  0.71 vs 0.70, `vel` R² 0.02 vs 0.08).
+
+**Doom, imitation** (`doom`, ViZDoom `predict_position`: lead a walking
+monster with one slow rocket; 40 × 30 pixels, 64 hidden, 600 training
+episodes, 3 seeds). The oracle (object positions, never shown) wins 0.58;
+aiming at the monster's current position wins 0.10. Without a window no
+model learns from pixels: win rate 0.07 (er), 0.00 (relu, gate), oracle
+agreement ≤ 0.5.
+
+**Doom, from reward** (`doom_rl`: the screen at ViZDoom's minimum plus
+stereo sound through a two-ear cochlea, a frozen 256-neuron mix and 8
+learned action readouts; reward from hurt, death, kills, ammo, armor,
+items, keys, doors, level exit and idling; 200 training episodes, 3 seeds).
+- First attempt (the reward as is, trace rule): every readout was driven
+  to the −10 clamp by the steady penalties and the agent stood still.
+  Error-driven learning (as on snake) and a running reward baseline fixed
+  that.
+- `defend_the_center`: relu and gate **without sound** learned to keep
+  running (11 000–12 000 map units per episode vs ≈ 800 untrained),
+  took 34–39 health points of damage instead of 100 and survived to the
+  timeout (reward −0.3 vs −6.1). No model learned to kill (≤ 0.4 per
+  episode; one exploratory run reached 5.2). E-R did not learn to survive
+  (damage 100). With sound, no model learned: with 3 seeds this may be
+  seed variance rather than an effect of hearing.
+- `map01` (a whole level, one-minute episodes): nothing beyond the
+  untrained network: no kills, doors, items or exits.
+
+**Takeaway.** E-R is not better at dynamic tasks in general. Its state is
+a cheap change detector that stateless networks lack, but one frame of
+history gives a plain ReLU network everything E-R gives and more (order,
+speed, planning in catch), and combining the two is worse than the window
+alone. Doom from reward alone, with a frozen random mix and one-step
+reward on the chosen action, learns survival on a small arena at best; a
+whole level needs credit over many steps and learned features, which this
+setup does not have.
+
 
 ## Conclusions
 
@@ -1179,7 +1259,6 @@ normalised, with the resting threshold 0.2 or auto
     networks, and does not help continuous history. With linear threshold
     growth, delayed XOR needs 8 neurons instead of 64, and a long silence
     no longer blinds the network.
-
 14. **Habituation is a memory too, and early fading is the activity saver
     during normal inference** (§18). Habituation that cuts or fades
     repeated input gives even ReLU networks the one-step memory that
@@ -1195,6 +1274,13 @@ normalised, with the resting threshold 0.2 or auto
     their resting value changes nothing. Normalised, a fixed threshold is
     as accurate as E-R on the activity tasks; E-R's history effect
     remains its own.
+16. **E-R is a change detector, not a better dynamic network.** Given one
+    past frame, stateless ReLU solves motion direction, velocity and a
+    catch game where E-R alone cannot, and E-R on top of a frame window
+    hurts. Only on change detection does E-R's state beat the single-frame
+    ceiling by itself (0.98 vs 0.70). Doom from pixels is not learned by
+    imitation; from reward, a frozen mix learns to survive a small arena
+    but not to fight or finish a level.
 
 ## Open questions and next steps
 

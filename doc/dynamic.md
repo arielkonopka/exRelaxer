@@ -7,7 +7,7 @@ state wins there. These experiments add the control that matters: the same
 stateless networks shown the last frame as well (a frame window, the
 standard trick in game-playing networks). Each task's answer lies in how
 the input changes, never in one frame. Results: research log
-[§17](research.md#17-dynamic-ladder-time-varying-input-and-doom).
+[§20](research.md#20-dynamic-ladder-time-varying-input-and-doom).
 
 ## Models
 
@@ -73,4 +73,20 @@ python3 -m pip install vizdoom
 NNtesting/nntest.py run doom --trials 3 --set scenario=predict_position,basic \
     --set model=relu,er,gate --set window=0,1 --set lr=0.001,0.003,0.01 --out doom.jsonl
 python3 NNtesting/tools/dyn_summary.py doom.jsonl
+```
+
+## Doom from reward (`doom_rl`, Python)
+
+The screen at ViZDoom's smallest resolution (pooled to 40 × 30) and stereo
+sound through a two-ear cochlea feed a frozen random mix of relu, E-R or
+gate neurons and 8 action readouts that learn from reward alone. The
+reward comes from the game's state on any map: health lost and death are
+penalised, kills, ammo, armor, items, keys, opened doors and leaving the
+level rewarded, firing and idling cost a little. Sound needs OpenAL
+(`libopenal1`). See
+[NNtesting/experiments/doom_rl/README.md](../NNtesting/experiments/doom_rl/README.md).
+
+```bash
+NNtesting/nntest.py run doom_rl --trials 3 --set scenario=defend_the_center,map01 \
+    --set model=relu,er,gate --set sound=true,false --set train=200 --out doom_rl.jsonl
 ```

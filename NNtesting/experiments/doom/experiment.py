@@ -231,6 +231,7 @@ def play_oracle(game, oracle, p, episodes, lead=True):
 def run(t):
     if vzd is None:
         raise RuntimeError("vizdoom is not installed: python3 -m pip install vizdoom")
+    exr.set_threads(1)  # one game step is far too small for OpenMP; threads only add waiting
     p = t.params
     if p["scenario"] not in ("basic", "predict_position"):
         raise ValueError("scenario must be basic or predict_position")
