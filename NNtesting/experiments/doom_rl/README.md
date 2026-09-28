@@ -1,7 +1,8 @@
 # doom_rl
 
 Doom learned from reward alone, seeing and hearing the game at its smallest
-settings. Part of the dynamic ladder ([doc/dynamic.md](../../../doc/dynamic.md)).
+settings. Part of the dynamic ladder ([doc/dynamic.md](../../../doc/dynamic.md));
+every experiment and result is recorded in [doc/doom.md](../../../doc/doom.md).
 
 ```bash
 python3 -m pip install vizdoom          # headless
@@ -57,6 +58,26 @@ trained networks of the top rung, and resumes from the same `--out`.
 
 ```bash
 python3 NNtesting/experiments/doom_rl/search.py --out results/doom-search/defend_the_center --workers 4 --hours 20
+```
+
+## Evolution (es.py)
+
+The readout rules did not beat the untrained network (research log §20),
+so `es.py` evolves the readouts instead: OpenAI-ES (antithetic pairs,
+centred ranks, Adam, step sizes relative to the weights' RMS) scored by
+the shaped reward below, every candidate on the same episodes, the current
+weights on fixed validation episodes. The hidden layers stay the frozen
+random network. It writes `<out>/log.jsonl`, `state.npz` (resumes),
+`best.exr` and `best_theta.npy`; `--init` starts from saved weights of the
+same network. The best topology found so far is one E-R layer with
+fading habituation (tolerance 0.05, decay 0.9 from the 2nd repeat) and no
+feedback: the defaults plus `--config '{"depth": 1, "feedback": "none"}'`.
+
+```bash
+python3 NNtesting/experiments/doom_rl/es.py --out results/doom-es/dtc --workers 4 --generations 500 \
+    --config '{"depth": 1, "feedback": "none"}'
+python3 NNtesting/experiments/doom_rl/es.py --scenario map01 --out results/doom-es/map01 \
+    --init results/doom-es/dtc/best_theta.npy --config '{"depth": 1, "feedback": "none", "episode_tics": 6300}'
 ```
 
 ## Reward (rewards.py)

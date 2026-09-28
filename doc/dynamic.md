@@ -52,6 +52,8 @@ its range over seeds and the spikes per step.
 
 ## Doom (`doom`, Python)
 
+Every Doom experiment and its results are recorded in [doom](doom.md).
+
 [ViZDoom](https://github.com/Farama-Foundation/ViZDoom) (`pip install
 vizdoom`; it runs headless, about 5000 game steps per second here). The
 screen (160 × 120 gray) is average-pooled 4× to 40 × 30 = 1200 inputs per

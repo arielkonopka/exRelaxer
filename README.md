@@ -402,6 +402,17 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-09-28: Doom by evolution
+
+- `doom_rl/es.py`: evolves the action readouts of the frozen doom_rl
+  network (OpenAI-ES scored by the game reward; resumable; `--init` warm
+  start). `doom_rl/search.py` and `retest.py` search topology and settings.
+- Findings ([research log §20](doc/research.md#20-dynamic-ladder-time-varying-input-and-doom)):
+  the searched readout-rule winners were seed luck (trained ≤ untrained).
+  Evolution works: one E-R layer with fading habituation and no feedback
+  is the best and most frugal agent on `defend_the_center` (validation
+  reward −4.8 → +0.95); on MAP01 it learns to explore but not to finish.
+
 ### 2026-09-27: dynamic ladder and Doom
 
 - `nntest run dyn_ladder`: motion direction, change detection, velocity
