@@ -402,6 +402,21 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-09-28: new defaults
+
+- `default_alpha` 2.0 (was 1.2; log growth rule only; saved per neuron).
+- `spontaneous_min_amplitude` 0.1 (was 0.01; files older than format 15
+  load 0.01, `legacy_spontaneous_amplitude`).
+- Normalised weighted sums in every layer made by `LayerSpec::Dense`,
+  `Conv2D` or `LocallyConnected2D` (Python `LayerSpec.dense`, ...); a bare
+  `LayerSpec` stays raw; files older than format 16 load raw sums. The
+  experiments' `normalize` and `spontaneous_amplitude` parameters default
+  to the new values; pass `normalize=false` or `spontaneous_amplitude=0.01`
+  to reproduce older results (output layers are now normalised too).
+- Finding ([research log §21](doc/research.md#21-new-defaults-and-spontaneous-firing-after-silence)):
+  a reconnected network goes blind after a long silence only under the log
+  growth rule; the spontaneous amplitude does not change that.
+
 ### 2026-09-28: Doom by evolution
 
 - `doom_rl/es.py`: evolves the action readouts of the frozen doom_rl

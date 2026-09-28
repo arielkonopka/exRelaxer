@@ -32,6 +32,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [18. Rerun with linear growth and three habituation variants](#18-rerun-with-linear-growth-and-three-habituation-variants)
 - [19. Normalised weighted sum](#19-normalised-weighted-sum)
 - [20. Dynamic ladder: time-varying input and Doom](#20-dynamic-ladder-time-varying-input-and-doom)
+- [21. New defaults and spontaneous firing after silence](#21-new-defaults-and-spontaneous-firing-after-silence)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -1252,6 +1253,55 @@ setup does not have. Evolving the readouts instead gives the goal's agent:
 one E-R layer with habituation, the fewest spikes of every topology tried.
 
 
+## 21. New defaults and spontaneous firing after silence
+
+On 2026-09-28 the user made three settings the library defaults:
+- **alpha 2.0** (`default_alpha`, was 1.2), the search's recommendation
+  (§4). Alpha acts only under the log growth rule, so networks with the
+  default linear rule are unchanged. Alpha is saved per neuron, so saved
+  networks keep theirs.
+- **Spontaneous firing amplitude 0.1** (`spontaneous_min_amplitude`, was
+  0.01). The user's reasoning: strong enough spontaneous firing should
+  keep a network from going blind after it has been cut off from its
+  input and then reconnected. Files older than format 15 load 0.01.
+- **Normalised weighted sums** (§19) in every layer built with
+  `LayerSpec::Dense`, `Conv2D` or `LocallyConnected2D`; a bare
+  `LayerSpec` stays raw, and files older than format 16 load raw sums.
+  Snake (sign-rule readouts) is unchanged: 13.4 ± 0.5 apples vs 13.8 ± 1.2
+  before (3 seeds).
+
+**Does the amplitude keep the network from going blind?** `er_silence`
+(trained E-R network, inputs zeroed for 300 or 3000 ticks, then the task
+again; 10 seeds, `results/defaults/`). Accuracy on the first 5 samples
+after the silence vs straight after training:
+
+| Growth rule | Recurrence | amplitude 0.01 | 0.1 | 1.0 |
+|-------------|------------|----------------|-----|-----|
+| linear (default) | no | 0.96 → 0.96 | 0.96 → 0.96 | 0.96 → 0.96 |
+| linear | yes | 1.00 → 1.00 | 1.00 → 1.00 | 1.00 → 1.00 |
+| log | no | 1.00 → 0.34 | 1.00 → 0.40 | 1.00 → 0.42 |
+| log | yes | 0.96 → 0.90 | 0.96 → 0.90 | 0.96 → 0.52 |
+
+(With habituation in fade mode; without habituation and with the linear
+rule the same holds at every amplitude from 0.01 to 1.0, for 300 and 3000
+ticks, raw or normalised sums.)
+- Under the **linear rule** the network never goes blind: after a long
+  silence the thresholds have relaxed to almost zero, so the first input
+  makes it over-respond (1.6–2 times the usual spikes), not go silent,
+  and its answers are unchanged. The amplitude only changes how often it
+  fires spontaneously (313 per 1000 ticks at 0.01 and 0.1, 32 at 1.0,
+  because a strong spontaneous firing raises the threshold more).
+- Under the **log rule** it does go blind: a firing far above a threshold
+  near zero raises it by `alpha × ln(|v| / thr)`, which is large, so the
+  thresholds overshoot (mean 9.8 at the end of the silence with amplitude
+  0.01) and the reconnected input cannot pass. A larger amplitude helps
+  a little without recurrence (0.34 → 0.42) and hurts with it (0.90 →
+  0.52), where the network keeps re-exciting itself.
+
+So in these tests blindness after silence is a property of the log
+growth rule, and the spontaneous amplitude does not prevent it; the
+linear rule (the default since §16) does.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -1334,6 +1384,11 @@ one E-R layer with habituation, the fewest spikes of every topology tried.
     untrained network. Evolving the readouts works: one E-R layer with
     habituation and no feedback is the best and most frugal Doom agent on
     the arena, and on a whole level it learns to explore but not to finish.
+17. **Blindness after silence comes from the log growth rule, not from
+    weak spontaneous firing** (§21). Under the linear rule a reconnected
+    network answers as before at any spontaneous amplitude from 0.01 to
+    1.0; under the log rule thresholds overshoot during the silence and a
+    larger amplitude does not fix it.
 
 ## Open questions and next steps
 
