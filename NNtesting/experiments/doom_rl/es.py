@@ -82,6 +82,17 @@ def play(task):
     return stats["reward"], stats["kills"], player.spikes / max(player.ticks_seen, 1) * p["ticks"]
 
 
+def retry(what, write, tries=5):
+    """Shared folders can fail a write now and then (EIO): retry, then carry on."""
+    for i in range(tries):
+        try:
+            return write()
+        except OSError as e:
+            if i == tries - 1:
+                print(f"warning: {what} not written: {e}", flush=True)
+            time.sleep(2 * (i + 1))
+
+
 def centred_ranks(x):
     r = np.empty(len(x))
     r[np.argsort(x)] = np.arange(len(x))
@@ -140,17 +151,20 @@ def main():
             step = lr * (m / (1 - 0.9 ** gen)) / (np.sqrt(v / (1 - 0.999 ** gen)) + 1e-8)
             if val > best:
                 best = val
-                build(p, args.net_seed, theta).net.save(os.path.join(args.out, "best.exr"))
-                np.save(os.path.join(args.out, "best_theta.npy"), theta)
+                net = build(p, args.net_seed, theta).net
+                retry("best.exr", lambda: net.save(os.path.join(args.out, "best.exr")))
+                retry("best_theta.npy", lambda: np.save(os.path.join(args.out, "best_theta.npy"), theta))
             theta = theta + step
-            np.savez(state_path, theta=theta, m=m, v=v, gen=gen, best=best)
+            retry("state.npz", lambda: np.savez(state_path, theta=theta, m=m, v=v, gen=gen, best=best))
             line = {"generation": gen, "validation_reward": val, "validation_kills": val_kills,
                     "validation_spikes_per_step": val_spikes, "population_mean": float(rewards.mean()),
                     "population_best": float(rewards.max()),
                     "kills_mean": float(np.mean([r[1] for r in results])), "best_validation": best,
                     "seconds": time.time() - start}
-            with open(os.path.join(args.out, "log.jsonl"), "a") as f:
-                f.write(json.dumps(line) + "\n")
+            def append():
+                with open(os.path.join(args.out, "log.jsonl"), "a") as f:
+                    f.write(json.dumps(line) + "\n")
+            retry("log.jsonl", append)
             print(f"gen {gen}: validation {val:.2f} (kills {val_kills:.1f}), population {rewards.mean():.2f} "
                   f"best {rewards.max():.2f}, {line['seconds']:.0f} s", flush=True)
 
