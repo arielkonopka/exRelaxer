@@ -22,7 +22,7 @@ and `NNtesting/tools/capacity.py`.
 | `er-cycles/` | §17 | spontaneous-firing settings in `er_silence` |
 | `normalize/` | §19 | normalised weighted sum in the hidden layers, same grids as `rerun/` (off); `summary.md`, `raw/`, `run.sh`; recalibrated resting thresholds × learning rate: `calibration.md`, `run_calibration.sh` |
 | `rerun/` | §18 | every E-R experiment again with the current defaults and three habituation variants; `summary.md` (from `analyze.py`), `raw/`, `run.sh` |
-| `dynamic/` | §20 | `dyn_ladder` pilot and E-R at width 256, `nl_temporal` with a frame window, `doom` imitation, `doom_rl` pilots, architectures (depth, feedback, reservoir) and longer E-R runs |
+| `dynamic/` | §20 | `dyn_ladder` pilot and E-R at width 256, `nl_temporal` with a frame window, `doom` imitation, `doom_rl` pilots, architectures (depth, feedback, reservoir) and longer E-R runs; evolution (`es_*`: five topologies on defend_the_center, MAP01), the search retest, and the evolved agents' weights and settings (`doom_agent/`, rebuild with `es.build`) |
 
 Runs recorded before 2026-09-27 evening used the logarithmic threshold
 growth rule, the default at the time; pass `--set growth=log` to reproduce

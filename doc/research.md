@@ -1191,6 +1191,54 @@ items, keys, doors, level exit and idling; 200 training episodes, 3 seeds).
 - `map01` (a whole level, one-minute episodes): nothing beyond the
   untrained network: no kills, doors, items or exits.
 
+**Doom, the E-R + habituation agent** (the user's goal since 2026-09-27:
+an E-R network with habituation that plays Doom, its topology found by a
+long search).
+- `search.py` (successive halving over topology, E-R, habituation, ticks,
+  pooling and learning settings, 1558 evaluations on `defend_the_center`)
+  found winners that were seed luck: `retest.py` replayed the top five on
+  three fresh seeds with 30 test episodes each, and trained networks
+  scored worse than the same networks untrained (reward −4.97 vs −4.21).
+  The one-step readout rules do not assign credit in Doom.
+- `es.py` skips credit assignment: an evolution strategy (OpenAI-ES,
+  12 antithetic pairs, centred ranks, Adam) moves the readout weights
+  towards the candidates that scored best on the same two episodes; the
+  current weights are scored on six fixed validation episodes the
+  gradient never sees. Five topologies, 500 generations each on
+  `defend_the_center` (validation reward, mean of the last 100
+  generations; spikes per step):
+
+| Network | First 20 gens | Last 100 gens | Best | Kills | Spikes |
+|---------|---------------|---------------|------|-------|--------|
+| **E-R + habituation, 1 layer, no feedback** | −4.79 | **+0.95** | **4.74** | 5.1 | **145** |
+| E-R + habituation, 2 layers, recurrent | −2.64 | −1.04 | 0.80 | 5.1 | 363 |
+| E-R, no habituation, 2 layers, recurrent | −2.49 | −0.83 | 0.48 | 5.3 | 365 |
+| E-R + habituation, 3 layers, feedback both ways, 256 reservoir | −4.10 | −2.25 | 0.29 | 3.8 | 796 |
+| ReLU, 2 layers, recurrent | −6.11 | −6.11 | −6.11 | 0 | 763 |
+
+- The simplest network is the best and the most frugal. Habituation makes
+  no measurable difference in the 2-layer network; depth, feedback and a
+  reservoir make things worse. The ReLU network never moves: every
+  candidate plays the same game, so the ranks carry no signal. The
+  untrained E-R network already kills about one monster per episode from
+  its own activity, so part of every E-R score comes before evolution.
+- `map01` (1-layer E-R + habituation, one-minute episodes, 400
+  generations, from scratch and from the arena agent's weights; 12 fresh
+  episodes):
+
+| | Untrained | Evolved from scratch | Evolved from the arena agent |
+|---|---|---|---|
+| Reward | −2.68 | −1.54 | −1.57 |
+| Distance walked | 1287 | 2694 | 2582 |
+| Items | 0.75 | 1.83 | 2.08 |
+| Doors | 0.42 | 0.75 | 0.75 |
+| Kills | 0.08 | 0.17 | 0.25 |
+| Exits | 0 | 0 | 0 |
+
+- Evolution learns to explore (twice the distance, more items and doors)
+  but not to fight or finish the level; the arena weights give no lasting
+  head start. A run with three-minute episodes is under way.
+
 **Takeaway.** E-R is not better at dynamic tasks in general. Its state is
 a cheap change detector that stateless networks lack, but one frame of
 history gives a plain ReLU network everything E-R gives and more (order,
@@ -1198,7 +1246,8 @@ speed, planning in catch), and combining the two is worse than the window
 alone. Doom from reward alone, with a frozen random mix and one-step
 reward on the chosen action, learns survival on a small arena at best; a
 whole level needs credit over many steps and learned features, which this
-setup does not have.
+setup does not have. Evolving the readouts instead gives the goal's agent:
+one E-R layer with habituation, the fewest spikes of every topology tried.
 
 
 ## Conclusions
@@ -1279,8 +1328,10 @@ setup does not have.
     catch game where E-R alone cannot, and E-R on top of a frame window
     hurts. Only on change detection does E-R's state beat the single-frame
     ceiling by itself (0.98 vs 0.70). Doom from pixels is not learned by
-    imitation; from reward, a frozen mix learns to survive a small arena
-    but not to fight or finish a level.
+    imitation; from reward, one-step readout rules learn nothing beyond the
+    untrained network. Evolving the readouts works: one E-R layer with
+    habituation and no feedback is the best and most frugal Doom agent on
+    the arena, and on a whole level it learns to explore but not to finish.
 
 ## Open questions and next steps
 
