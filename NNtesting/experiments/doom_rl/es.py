@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Evolves the action readouts of an E-R network with habituation to play
-Doom: an evolution strategy (OpenAI-ES: antithetic Gaussian perturbations,
-centred-rank fitness, Adam) on the readout weights, scored directly by the
-shaped game reward of rewards.py. The hidden E-R layers stay the frozen
-random network doom_rl builds; no learning rule runs during play.
+"""Evolves an E-R network with habituation to play Doom: an evolution
+strategy (OpenAI-ES: antithetic Gaussian perturbations, centred-rank
+fitness, Adam) on its weights, scored directly by the shaped game reward of
+rewards.py. With `evolve` "readout" (the default) only the action readouts
+evolve and the hidden E-R layers stay the random network doom_rl builds;
+with "all" the hidden layers' weights evolve too (steps are relative to
+each layer's weight RMS). No learning rule runs during play.
 
 Why: in doom_rl the reward-driven readout rules did not beat the untrained
 network (research log §20), so the credit-assignment problem is skipped
@@ -18,6 +20,8 @@ validation weights so far.
 
     python3 NNtesting/experiments/doom_rl/es.py --out results/doom-es/dtc --workers 4 --generations 300
     python3 NNtesting/experiments/doom_rl/es.py --out ... --config '{"depth": 2, "feedback": "recurrent"}'
+    python3 NNtesting/experiments/doom_rl/es.py --scenario map01 --out ... --init <readout best_theta.npy> \
+        --config '{"depth": 1, "feedback": "none", "evolve": "all"}'
 """
 import argparse
 import json
@@ -33,7 +37,7 @@ sys.path.insert(0, HERE)
 
 DEFAULTS = {"model": "er", "habituation": True, "habituation_tolerance": 0.05, "habituation_decay": 0.9,
             "habituation_fade_after": 2, "sound": True, "depth": 2, "width": 128, "feedback": "recurrent",
-            "ticks": 6, "pool": 8, "reservoir": 0}
+            "ticks": 6, "pool": 8, "reservoir": 0, "evolve": "readout"}
 
 _worker = {}
 
@@ -54,21 +58,40 @@ def init_worker(p, net_seed):
     _worker.update(p=p, net_seed=net_seed, game=e.make_game(p, 1))
 
 
+def groups(player, evolve):
+    """The weight vectors that evolve, as groups of (layer, neuron): the
+    readouts, then (evolve == "all") each hidden layer's neurons."""
+    out = [[(r, 0) for r in player.readouts]]
+    if evolve == "all":
+        out += [[(h, i) for i in range(player.net.layer_size(h))] for h in player.layers]
+    return out
+
+
 def build(p, net_seed, theta):
     import exrelaxer as exr
     import experiment as e
-    exr.reseed(net_seed)  # the same frozen hidden network every time
+    exr.reseed(net_seed)  # the same random network every time; theta replaces what evolves
     player = e.Player(p)
     if theta is not None:
-        fan = len(theta) // len(player.readouts)
-        for i, r in enumerate(player.readouts):
-            player.net.set_weights(r, 0, theta[i * fan:(i + 1) * fan].astype(np.float32))
+        at = 0
+        for group in groups(player, p.get("evolve", "readout")):
+            for layer, i in group:
+                n = len(player.net.weights(layer, i))
+                player.net.set_weights(layer, i, theta[at:at + n].astype(np.float32))
+                at += n
     return player
 
 
-def readout_weights(p, net_seed):
+def initial_weights(p, net_seed):
+    """The network's own weights of everything that evolves, and for each
+    weight the RMS of its group, so that steps are relative to each group's scale."""
     player = build(p, net_seed, None)
-    return np.concatenate([np.asarray(player.net.weights(r, 0), dtype=np.float64) for r in player.readouts])
+    theta, rms = [], []
+    for group in groups(player, p.get("evolve", "readout")):
+        w = np.concatenate([np.asarray(player.net.weights(layer, i), dtype=np.float64) for layer, i in group])
+        theta.append(w)
+        rms.append(np.full(len(w), np.sqrt(np.mean(w ** 2))))
+    return np.concatenate(theta), np.concatenate(rms), len(theta[0])
 
 
 def play(task):
@@ -121,16 +144,21 @@ def main():
         json.dump({"args": vars(args), "params": p}, f, indent=1)
 
     state_path = os.path.join(args.out, "state.npz")
-    theta0 = readout_weights(p, args.net_seed)
-    scale = float(np.sqrt(np.mean(theta0 ** 2)))
+    theta0, scale, readouts = initial_weights(p, args.net_seed)
     if os.path.exists(state_path):
         s = np.load(state_path)
         theta, m, v, gen, best = s["theta"], s["m"], s["v"], int(s["gen"]), float(s["best"])
     else:
-        start = np.load(args.init) if args.init else theta0
-        if start.shape != theta0.shape:
-            raise ValueError(f"--init has {start.size} weights, this network {theta0.size}")
-        theta, m, v, gen, best = start.copy(), np.zeros_like(theta0), np.zeros_like(theta0), 0, -np.inf
+        start = theta0.copy()
+        if args.init:
+            init = np.load(args.init)
+            if init.size == theta0.size:
+                start = init.astype(np.float64)
+            elif init.size == readouts:  # evolved readouts only: the rest starts as the network's own
+                start[:readouts] = init
+            else:
+                raise ValueError(f"--init has {init.size} weights, this network {theta0.size} ({readouts} readout)")
+        theta, m, v, gen, best = start, np.zeros_like(theta0), np.zeros_like(theta0), 0, -np.inf
     rng = np.random.default_rng(args.seed + gen)
     sigma, lr = args.sigma * scale, args.lr * scale
 
