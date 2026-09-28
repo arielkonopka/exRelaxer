@@ -19,7 +19,7 @@ findings in [§20](research.md#20-dynamic-ladder-time-varying-input-and-doom).
 | Senses | screen 160 × 120 gray pooled 8 × 8 to 20 × 15; stereo sound through a two-ear cochlea |
 | Trained by | evolution of the 8 action readouts (`es.py`, [D5](#d5-evolution-of-the-readouts-topologies-on-defend_the_center-2026-09-28)); the hidden layer is the frozen random network |
 | `defend_the_center` | validation reward −4.8 → +0.95 (mean of the last 100 of 500 generations), about 5 kills per episode, 145 spikes per step |
-| `map01` | explores (twice the untrained distance, more items and doors); no exits ([D6](#d6-evolution-on-a-whole-level-map01-2026-09-28)) |
+| `map01` | explores (twice the untrained distance, more items and doors); no exits, also with three-minute episodes ([D6](#d6-evolution-on-a-whole-level-map01-2026-09-28), [D7](#d7-map01-with-three-minute-episodes-2026-09-28)) |
 | Files | `results/dynamic/doom_agent/cmp_er_d1_none/` (arena), `.../map01_er_d1_from_dtc/` (MAP01): `best.exr`, `best_theta.npy`, `config.json` |
 
 Rebuild it in Python:
@@ -194,16 +194,34 @@ be too short to reach the exit.
 Data: `results/dynamic/es_map01_*.jsonl.gz`; agent in
 `results/dynamic/doom_agent/map01_er_d1_from_dtc/`.
 
-### D7. `map01` with three-minute episodes (2026-09-28, running)
+### D7. `map01` with three-minute episodes (2026-09-28)
 
 **Question.** Does the agent reach the exit when episodes are long enough?
 
 **Setup.** As D6, three-minute episodes (`episode_tics` 6300), 600
 generations, starting from the D6 warm-started run's final weights.
+Tested on the same 12 fresh episodes as D6, three-minute episodes.
 
-**Status.** At generation 196 validation has not moved (−6.4 in the first
-50 generations, −5.9 in generations 150–196; the scale is lower than D6
-because longer episodes collect more penalty). No exits so far.
+**Result.** Validation reward did not move over 600 generations (−5.95 in
+the first 100, −5.95 in the last 100; best −3.36). On the fresh episodes:
+
+| | Untrained | D6 weights (start) | After 600 generations |
+|---|---|---|---|
+| Reward | −7.69 | −6.82 | −5.30 |
+| Distance walked | 1526 | 2486 | 3305 |
+| Items | 0.17 | 2.17 | 2.33 |
+| Doors | 0.42 | 0.75 | 0.67 |
+| Kills | 0.00 | 0.08 | 0.75 |
+| Deaths | 0.25 | 0.42 | 0.25 |
+| Exits | 0 | 0 | 0 |
+
+**Conclusion.** Longer episodes do not bring the exit within reach. The
+evolved agent walks farther and kills a little more than its starting
+weights on fresh games, but the flat validation curve means this is
+within the run's noise. The readouts alone seem to have reached what the
+frozen random features allow on a whole level.
+
+Data: `results/dynamic/es_map01_er_d1_long.jsonl.gz`.
 
 ## Open questions
 

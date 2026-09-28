@@ -1237,7 +1237,8 @@ long search).
 
 - Evolution learns to explore (twice the distance, more items and doors)
   but not to fight or finish the level; the arena weights give no lasting
-  head start. A run with three-minute episodes is under way. Every Doom
+  head start. Three-minute episodes (600 more generations) do not
+  change that: still no exits, and a flat validation curve. Every Doom
   experiment is recorded in [doom](doom.md).
 
 **Takeaway.** E-R is not better at dynamic tasks in general. Its state is
