@@ -71,7 +71,13 @@ random network. It writes `<out>/log.jsonl`, `state.npz` (resumes),
 `best.exr` and `best_theta.npy`; `--init` starts from saved weights of the
 same network. With `evolve` `all` (in `--config`) the hidden layers'
 weights evolve too, each layer's steps relative to its own weight RMS;
-`--init` then also accepts evolved readouts alone. The best topology found so far is one E-R layer with
+`--init` then also accepts evolved readouts alone. `--grow-to N` (with
+`evolve` `all`) grows the network during the run: it starts at `depth`
+and adds a hidden layer on top, up to N, as soon as the current network
+learns (the mean validation reward of the last `--grow-window`
+generations beats the first window at this depth by `--grow-margin`).
+The readouts then read every layer (`readout_from` `all`), and their
+weights from a new layer start at zero, so growing does not change play. The best topology found so far is one E-R layer with
 fading habituation (tolerance 0.05, decay 0.9 from the 2nd repeat) and no
 feedback: the defaults plus `--config '{"depth": 1, "feedback": "none"}'`.
 

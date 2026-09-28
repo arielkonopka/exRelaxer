@@ -136,7 +136,8 @@ class Player:
         self.readouts = []
         for name in ACTIONS:
             out = net.add_layer(name.lower(), exr.LayerSpec.dense(1, False, False, learning_rule=rule))
-            net.connect(self.layers[-1], out)
+            for h in (self.layers if p["readout_from"] == "all" else self.layers[-1:]):
+                net.connect(h, out)
             if self.reservoir is not None:
                 net.connect(self.reservoir, out)
             net.add_output(out)
@@ -254,6 +255,7 @@ PARAMS = {
     "bands": (16, "cochlea bands per ear"),
     "pool": (4, "screen pooling: 4 gives 40 x 30"),
     "ticks": (3, "network ticks per game step (the sound is split across them)"),
+    "readout_from": ("top", "which hidden layers the readouts read: top, or all (every layer, bottom first)"),
     "rule": ("sign", "readout learning rule: sign (as in snake) or trace (traced, eligibility over recent ticks)"),
     "reward_mode": ("error", "error: learn only while the chosen readout's sign disagrees with the reward; always"),
     "baseline": (0.01, "rate of the running reward mean subtracted before learning (0: learn from the raw reward)"),
