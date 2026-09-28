@@ -285,6 +285,21 @@ public:
     // Ticks for an input to reach the output, plus `settle`.
     size_t hold(size_t settle) const { return depth_ + 1 + settle; }
     network& net() { return net_; }
+    // The `resting_threshold` option on every hidden layer (see
+    // er_options::calibrateRestingThreshold). With "auto", a gate model's
+    // gate is scaled by the same factor. Returns the mean factor.
+    float calibrateThresholds(const std::string& setting)
+    {
+        double sum = 0.0;
+        for (size_t l = 0; l < depth_; ++l) {
+            auto& layer = net_.layerAs<neuron_layer>(hidden_[l]);
+            const float factor = er_options::calibrateRestingThreshold(layer, setting);
+            if (model_ == "gate" && setting == "auto")
+                layer.setGate(layer.gate() * factor);
+            sum += factor;
+        }
+        return static_cast<float>(sum / static_cast<double>(depth_));
+    }
     const neuron_layer& hidden(size_t l) const { return net_.layerAs<neuron_layer>(hidden_[l]); }
     bool memoryless() const { return memoryless_; }
     const std::string& model() const { return model_; }

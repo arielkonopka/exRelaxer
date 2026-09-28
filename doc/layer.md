@@ -128,6 +128,7 @@ Derived classes decide how neurons are wired and own the weights.
 | `setHabituationRule(h)` / `habituationRule()` | the [habituation](neuron.md#one-tick-activate) rule of every neuron, now and later; `std::invalid_argument` for an invalid rule |
 | `setThresholdGrowth(g)` / `thresholdGrowth()` | the [E-R threshold growth](neuron.md#excitationrelaxation-e-r) rule of every neuron, now and later; `std::invalid_argument` for an invalid rule |
 | `setSpontaneous(s)` / `spontaneous()` | the [spontaneous firing](neuron.md#one-tick-activate) setting (level, amplitude, rate) of every neuron, now and later; `std::invalid_argument` for an invalid setting |
+| `setRestingThreshold(r)` / `restingThreshold()` | the E-R resting threshold (eligibility boundary, half the floor after firing) of every neuron, now and later; neurons at rest move to it; `std::invalid_argument` outside (0, max_output] |
 | `setNormalized(b)` / `normalized()` | the [normalised weighted sum](neuron.md#one-tick-activate): each sum divided by the length of the neuron's weights; `std::invalid_argument` on layers with fixed filters (Retina, Cochlea). Derived layers call `weightsChanged()` whenever they change weights outside learning, so the cached norms are recomputed |
 | `learningRule()`, `setLearningRule(rule)` | the layer's [learning rule](learning.md); setting it resets the rule's state, keeps the weights |
 | `bias(i)`, `setBias(i, value)` | a neuron's learned bias (rules with `bias`) |

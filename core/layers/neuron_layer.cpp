@@ -35,6 +35,7 @@ neuron& neuron_layer::newNeuron()
     n.setHabituation(habituation_rule_);
     n.setThresholdGrowth(growth_);
     n.setSpontaneous(spontaneous_);
+    n.setRestingThreshold(resting_);
     output_.push_back(n.output());
     resizeLearningState();
     return n;
@@ -87,6 +88,15 @@ void neuron_layer::setThresholdGrowth(const ThresholdGrowth& growth)
     growth_ = growth;
     for (neuron& n : neurons_)
         n.setThresholdGrowth(growth);
+}
+
+void neuron_layer::setRestingThreshold(float resting)
+{
+    if (!(resting > 0.0f) || !(resting <= max_output))
+        throw std::invalid_argument("setRestingThreshold: the resting threshold must be in (0, max_output]");
+    resting_ = resting;
+    for (neuron& n : neurons_)
+        n.setRestingThreshold(resting);
 }
 
 void neuron_layer::setSpontaneous(const Spontaneous& spontaneous)
@@ -193,6 +203,7 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
         n.setHabituation(habituation_rule_);
         n.setThresholdGrowth(growth_);
         n.setSpontaneous(spontaneous_);
+        n.setRestingThreshold(resting_, mode != DeserializeMode::FullState);  // a full state keeps its thresholds
     }
     output_.resize(count);
     for (size_t i = 0; i < count; ++i)

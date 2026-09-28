@@ -156,7 +156,7 @@ void neuron::excite(float effectiveSum)
     }
     // A real firing always exceeds the threshold, so every rule raises it; a
     // spontaneous one may be weaker, and then leaves it where it is.
-    threshold_ = std::max({threshold_, baseline_threshold * 2, grown});
+    threshold_ = std::max({threshold_, resting_ * 2, grown});
 }
 
 float neuron::spontaneousOutput()
@@ -172,7 +172,7 @@ bool neuron::eligible() const
     // relaxation after a real firing, and the neuron still took part in the
     // decision. Without E-R the threshold never moves, so the question is
     // simply whether it output something this tick.
-    return has_er_ ? threshold_ > baseline_threshold : std::abs(output_) > firing_epsilon;
+    return has_er_ ? threshold_ > resting_ : std::abs(output_) > firing_epsilon;
 }
 
 float neuron::learningDelta(float reward, float learningRate) const
@@ -180,7 +180,7 @@ float neuron::learningDelta(float reward, float learningRate) const
     // Eligibility with E-R: how far above baseline the threshold still sits,
     // as a ratio. The threshold decays exponentially every quiet tick, so
     // recent firings dominate without any extra state.
-    const float eligibility = has_er_ ? threshold_ / baseline_threshold - 1.0f : 1.0f;
+    const float eligibility = has_er_ ? threshold_ / resting_ - 1.0f : 1.0f;
     return learningRate * learning_gain_ * reward * eligibility;
 }
 
@@ -266,7 +266,7 @@ std::vector<float> neuron::deserialize(std::istream& is, DeserializeMode mode, s
         output_ = output;
         std::istringstream(std::to_string(rng_state)) >> rng_;
     } else {
-        threshold_ = baseline_threshold;
+        threshold_ = resting_;
         previous_input_ = 0.0f;
         habituation_counter_ = 0;
         output_ = 0.0f;

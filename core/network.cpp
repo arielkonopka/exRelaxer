@@ -57,6 +57,11 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a spontaneous-firing setting");
         dynamic_cast<neuron_layer&>(*impl).setSpontaneous(spec.spontaneous);
     }
+    if (spec.restingThreshold != baseline_threshold) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a resting threshold");
+        dynamic_cast<neuron_layer&>(*impl).setRestingThreshold(spec.restingThreshold);
+    }
     if (spec.normalize) {
         if (!impl->hasNeurons())
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to normalise");
@@ -587,8 +592,9 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //  14  + E-R threshold growth rule (rule, amount) per layer
 //  15  + habituation fadeAfter; spontaneous firing (below, amplitude, rate) per layer
 //  16  + normalised weighted sum flag per layer
+//  17  + E-R resting threshold per layer
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 16;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 17;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -835,6 +841,7 @@ void network::save(std::ostream& os) const
             writeValue(os, node.spec.spontaneous.amplitude);
             writeValue(os, node.spec.spontaneous.rate);
             writeValue<std::uint8_t>(os, node.spec.normalize);
+            writeValue(os, node.spec.restingThreshold);
             break;
         }
         case OpKind::Connect:
@@ -990,6 +997,11 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
             }
             if (version >= 16)
                 spec.normalize = readValue<std::uint8_t>(is) != 0;
+            if (version >= 17) {
+                spec.restingThreshold = readValue<float>(is);
+                if (!(spec.restingThreshold > 0.0f) || !(spec.restingThreshold <= max_output))
+                    throw std::runtime_error("network::load: invalid resting threshold");
+            }
             net->addLayer(name, spec);
             break;
         }

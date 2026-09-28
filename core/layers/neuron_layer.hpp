@@ -61,6 +61,11 @@ public:
     // invalid setting.
     void setSpontaneous(const Spontaneous& spontaneous);
     const Spontaneous& spontaneous() const { return spontaneous_; }
+    // E-R resting threshold (see neuron::setRestingThreshold) for every
+    // neuron, now and later; neurons at rest move to it. Throws
+    // std::invalid_argument outside (0, max_output].
+    void setRestingThreshold(float resting);
+    float restingThreshold() const { return resting_; }
     // Normalised weighted sum: each neuron's sum is divided by the length
     // (L2 norm) of its weight vector before bias, habituation and E-R, so
     // only the weights' direction matters and |sum| <= |inputs|. The norms
@@ -216,6 +221,7 @@ private:
     Habituation habituation_rule_;                               // likewise
     ThresholdGrowth growth_;                                     // likewise
     Spontaneous spontaneous_;                                    // likewise
+    float resting_ = baseline_threshold;                         // likewise
 
     LearningRule rule_;
     bool normalized_ = false;         // likewise; see setNormalized
