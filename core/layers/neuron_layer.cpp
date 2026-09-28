@@ -35,6 +35,7 @@ neuron& neuron_layer::newNeuron()
     n.setHabituation(habituation_rule_);
     n.setThresholdGrowth(growth_);
     n.setSpontaneous(spontaneous_);
+    n.setRestingThreshold(resting_);
     output_.push_back(n.output());
     resizeLearningState();
     return n;
@@ -87,6 +88,15 @@ void neuron_layer::setThresholdGrowth(const ThresholdGrowth& growth)
     growth_ = growth;
     for (neuron& n : neurons_)
         n.setThresholdGrowth(growth);
+}
+
+void neuron_layer::setRestingThreshold(float resting)
+{
+    if (!(resting > 0.0f) || !(resting <= max_output))
+        throw std::invalid_argument("setRestingThreshold: the resting threshold must be in (0, max_output]");
+    resting_ = resting;
+    for (neuron& n : neurons_)
+        n.setRestingThreshold(resting);
 }
 
 void neuron_layer::setSpontaneous(const Spontaneous& spontaneous)
@@ -193,6 +203,7 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
         n.setHabituation(habituation_rule_);
         n.setThresholdGrowth(growth_);
         n.setSpontaneous(spontaneous_);
+        n.setRestingThreshold(resting_, mode != DeserializeMode::FullState);  // a full state keeps its thresholds
     }
     output_.resize(count);
     for (size_t i = 0; i < count; ++i)
@@ -249,7 +260,51 @@ void neuron_layer::resizeLearningState()
     noise_trace_.resize(perturb ? n : 0, 0.0f);
     baseline_.resize(t == LearningRuleType::Trace || perturb ? n : 0, 0.0f);
     theta_.resize(t == LearningRuleType::BCM ? n : 0, 1.0f);
-    plain_ = bias_.empty() && post_.empty() && noise_.empty();
+    plain_ = bias_.empty() && post_.empty() && noise_.empty() && !normalized_;
+}
+
+void neuron_layer::setNormalized(bool normalized)
+{
+    if (normalized && !learns())
+        throw std::invalid_argument("setNormalized: this layer type has fixed filters, not learned weights");
+    normalized_ = normalized;
+    norms_stale_ = true;
+    inverse_norm_.clear();
+    resizeLearningState();
+}
+
+float neuron_layer::squaredWeightNorm(size_t index) const
+{
+    std::vector<float> w;
+    copyWeights(index, w);
+    float s = 0.0f;
+    for (float x : w)
+        s += x * x;
+    return s;
+}
+
+void neuron_layer::refreshNorms()
+{
+    // A neuron with (almost) no weights keeps its raw sum: dividing by ~0
+    // would blow up a sum that is itself ~0.
+    const size_t n = neurons_.size();
+    inverse_norm_.resize(n);
+    parallelChunks(n, kernels::threadsFor(n * 64), [&](size_t i0, size_t i1) {
+        for (size_t i = i0; i < i1; ++i) {
+            const float norm = std::sqrt(squaredWeightNorm(i));
+            inverse_norm_[i] = norm > normalization_epsilon ? 1.0f / norm : 1.0f;
+        }
+    });
+    norms_stale_ = false;
+}
+
+float neuron_layer::inverseNorm(size_t index)
+{
+    if (!normalized_)
+        return 1.0f;
+    if (norms_stale_ || inverse_norm_.size() != neurons_.size())
+        refreshNorms();
+    return inverse_norm_.at(index);
 }
 
 void neuron_layer::setBias(size_t index, float value)
@@ -272,6 +327,8 @@ std::vector<float> neuron_layer::feedbackRow(size_t index) const
 
 float neuron_layer::fireWithRule(size_t i, float sum)
 {
+    if (normalized_)
+        sum *= inverse_norm_[i];
     if (!bias_.empty())
         sum += bias_[i];
     if (!noise_.empty())
@@ -408,6 +465,7 @@ void neuron_layer::learn(Modulator m, float learningRate)
     if (!any_active.load(std::memory_order_relaxed))
         return;
     updateWeights();
+    norms_stale_ = true;
     if (!bias_.empty())
         for (size_t i = 0; i < n; ++i)
             if (step_active_[i])

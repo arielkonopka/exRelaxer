@@ -40,6 +40,7 @@ inline constexpr int habituation_steps = 100;               // consecutive "same
 inline constexpr float recovery_factor = 0.9f;              // default per-step multiplicative threshold decay while not firing (0 < b < 1)
 inline constexpr float min_threshold = 0.0000000001f;       // threshold floor; at/below this, spontaneous firing kicks in
 inline constexpr float spontaneous_min_amplitude = 0.01f;   // fixed +/- amplitude for spontaneous (dormant) firing
+inline constexpr float normalization_epsilon = 1e-6f;       // normalised layers: a weight vector shorter than this keeps its raw sum
 inline constexpr float firing_epsilon = 1e-6f;              // outputs at or below this magnitude count as "didn't fire" for learning (hasER == false only)
 inline constexpr float baseline_threshold = 0.2f;           // the neuron's resting E-R threshold and learning-eligibility boundary
 inline constexpr float max_weight = 10.0f;                  // learning clamps every weight to [-max_weight, max_weight]
@@ -245,6 +246,19 @@ public:
     // A layer-level setting (LayerSpec::spontaneous), like the gate.
     const Spontaneous& spontaneous() const { return spontaneous_; }
     void setSpontaneous(const Spontaneous& value) { spontaneous_ = value; }
+    // E-R resting threshold (default baseline_threshold): where the
+    // threshold relaxes towards, the learning-eligibility boundary, and half
+    // the floor after a firing. A layer-level setting
+    // (LayerSpec::restingThreshold), like the gate; lets a layer match E-R
+    // to the scale of its sums (e.g. normalised ones). With
+    // `moveThreshold`, a neuron now at rest moves to the new resting value.
+    float restingThreshold() const { return resting_; }
+    void setRestingThreshold(float value, bool moveThreshold = true)
+    {
+        if (moveThreshold && threshold_ == resting_)
+            threshold_ = value;
+        resting_ = value;
+    }
 
     // --- Serialization --------------------------------------------------
     // One record: flags, alpha, the weights (count + values, passed in since
@@ -263,7 +277,8 @@ private:
     void excite(float effectiveSum); // shared by real and spontaneous excitation: sets output, lifts threshold
     float spontaneousOutput();       // random output in [-amplitude, amplitude] (see Spontaneous)
 
-    float threshold_;             // E-R: current firing threshold, starts at baseline_threshold
+    float threshold_;             // E-R: current firing threshold, starts at resting_
+    float resting_ = baseline_threshold;  // E-R: resting threshold (see setRestingThreshold)
     float previous_input_ = 0.0f; // habituation only: last raw (pre-habituation) weighted sum
     int habituation_counter_ = 0; // habituation only: consecutive "same signal" streak length
     bool has_habituation_;

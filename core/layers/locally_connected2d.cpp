@@ -23,6 +23,7 @@ void locally_connected2d::createWeights()
         rng::drawWeights(rng::WeightStream::Initial, w);
         weights_.emplace_back(outputChannels(), windowSize(), w);
     }
+    weightsChanged();
 }
 
 void locally_connected2d::appendInputs(size_t count)
@@ -32,6 +33,7 @@ void locally_connected2d::appendInputs(size_t count)
         rng::drawWeights(rng::WeightStream::Growth, w);
         m.appendColumns(count, w);
     }
+    weightsChanged();
 }
 
 void locally_connected2d::forward()
@@ -121,6 +123,7 @@ void locally_connected2d::setWeights(size_t index, const std::vector<float>& wei
 void locally_connected2d::storeWeights(size_t index, std::span<const float> weights)
 {
     weights_.at(index % positions()).setRow(index / positions(), weights);
+    weightsChanged();
 }
 
 } // namespace exr

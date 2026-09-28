@@ -6,7 +6,7 @@ shaped game reward of rewards.py. The hidden E-R layers stay the frozen
 random network doom_rl builds; no learning rule runs during play.
 
 Why: in doom_rl the reward-driven readout rules did not beat the untrained
-network (research log §19), so the credit-assignment problem is skipped
+network (research log §20), so the credit-assignment problem is skipped
 here: every candidate plays the same episodes, and the better half pulls
 the weights its way.
 

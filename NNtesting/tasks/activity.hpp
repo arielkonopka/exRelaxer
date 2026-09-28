@@ -93,6 +93,9 @@ inline std::vector<nnt::ParamSpec> commonParams(std::vector<nnt::ParamSpec> extr
         {"spontaneous_amplitude", "0.01", "E-R: spontaneous output drawn uniformly in +- this"},
         {"spontaneous_rate", "0", "E-R: extra probability of a spontaneous firing on any silent tick"},
         {"habituation_fade_after", "2", "habituation with a decay: repeats before fading starts"},
+        {"normalize", "false", "hidden paths divide each weighted sum by the length of the neuron's weights"},
+        {"resting_threshold", "0.2", "E-R resting threshold of the paths, or auto: 0.2 times the paths' mean 1/|w| "
+                                     "(recalibrated for normalised sums)"},
         {"growth", "linear", "E-R threshold growth on firing: linear (default), log (original), fixed, multiplicative"},
         {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
         {"learning", "fa", "fa: paths and readouts learn from the task errors (feedback alignment, delta rule); "
@@ -144,6 +147,7 @@ public:
                                     static_cast<float>(p.getDouble("habituation_tolerance")),
                                     static_cast<float>(p.getDouble("habituation_decay")),
                                     static_cast<std::uint32_t>(p.getInt("habituation_fade_after"))};
+            spec.normalize = p.getBool("normalize");
             if (model == "gate")
                 spec.gate = gate >= 0.0f ? gate : static_cast<float>(p.getDouble("gate"));
             if (model == "er") {
@@ -183,8 +187,14 @@ public:
         pathOf_.resize(hidden_);
         for (size_t i = 0; i < paths_.size(); ++i)
             std::fill_n(pathOf_.begin() + static_cast<std::ptrdiff_t>(first_[i]), sizes[i], i);
+        if (model == "er")
+            for (auto path : paths_)
+                restingFactor_ = er_options::calibrateRestingThreshold(net_->layerAs<neuron_layer>(path),
+                                                                       p.getString("resting_threshold"));
         refreshWeights();
     }
+    // Resting threshold / the default after calibration (last path; 1 without E-R).
+    float restingFactor() const { return restingFactor_; }
 
     const std::string& model() const { return model_; }
     size_t pathCount() const { return paths_.size(); }
@@ -271,6 +281,7 @@ public:
     }
 
 private:
+    float restingFactor_ = 1.0f;
     std::string model_, learning_;
     std::unique_ptr<network> net_;
     std::vector<network::LayerId> paths_, readouts_;

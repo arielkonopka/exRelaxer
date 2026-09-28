@@ -48,6 +48,10 @@ experiment so far.
   and a gradual fade instead of the cut are configurable per layer
   (`LayerSpec::habituationRule`); the fade starts after `fadeAfter`
   identical steps (default 2).
+- **Normalised weighted sum** (optional, per layer: `LayerSpec::normalize`)
+  – each neuron's sum is divided by the length of its weight vector, so
+  only the weights' direction matters; the lengths are cached and
+  recomputed only after the weights change.
 - **Reward-modulated learning** – `applyReward(reward, learningRate)` moves
   the weights of recently active neurons toward the reward's sign.
 - **Learning rules per layer** – besides that sign rule, each layer can learn
@@ -413,7 +417,34 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   from hurt, death, kills, ammo, armor, items, keys, doors, level exit and
   idling.
 - `NNtesting/tools/dyn_summary.py`; [doc/dynamic.md](doc/dynamic.md);
-  [research log §19](doc/research.md#19-dynamic-ladder-time-varying-input-and-doom).
+  [research log §20](doc/research.md#20-dynamic-ladder-time-varying-input-and-doom).
+### 2026-09-27: per-layer E-R resting threshold
+
+- **E-R resting threshold per layer** (`LayerSpec::restingThreshold`,
+  `neuron_layer::setRestingThreshold`, `neuron::setRestingThreshold`,
+  Python `LayerSpec.resting_threshold`): the threshold E-R relaxes to,
+  its learning-eligibility boundary and half its floor after firing.
+  Default 0.2 (`baseline_threshold`), as before. Network format 17 saves it.
+- Experiments: `resting_threshold` (a value, or `auto`: scaled by the
+  layer's mean 1/|w|, for normalised sums).
+- Finding ([research log §19](doc/research.md#19-normalised-weighted-sum)):
+  recalibrating the resting threshold changes nothing, because E-R's
+  thresholds follow its sums. Normalised networks need a larger learning
+  rate instead, and at 10× the rate they match the raw ones' best.
+
+### 2026-09-27: normalised weighted sum
+
+- **Normalised weighted sum** (`LayerSpec::normalize`,
+  `neuron_layer::setNormalized`, Python `LayerSpec.normalize`): a layer
+  divides each neuron's sum by the length of its weights. Off by default.
+  Norms are cached and recomputed only after weights change. Network
+  format 16 saves it.
+- `nl_static`, `nl_temporal` and the activity experiments take
+  `normalize=true` (hidden layers).
+- Findings ([research log §19](doc/research.md#19-normalised-weighted-sum)):
+  about half as many runs diverge at large learning rates, but the best
+  results do not improve and E-R loses accuracy in networks with many
+  inputs per neuron.
 
 ### 2026-09-27: early fading, spontaneous firing settings, rerun
 

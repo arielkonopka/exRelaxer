@@ -228,7 +228,7 @@ class Mlp
 public:
     Mlp(const std::string& model, size_t inputs, size_t depth, size_t width, float gate,
         const ThresholdGrowth& growth = {}, const Spontaneous& spontaneous = {},
-        std::optional<Habituation> habituation = std::nullopt)
+        std::optional<Habituation> habituation = std::nullopt, bool normalize = false)
         : model_(model == "linear" ? "clamp" : model == "er_memoryless" ? "er" : model),
           memoryless_(model == "er_memoryless"), inputs_(inputs), depth_(depth), width_(width)
     {
@@ -242,6 +242,7 @@ public:
             if (habituation)
                 spec.habituationRule = *habituation;
             spec.rectify = model_ == "relu";
+            spec.normalize = normalize;  // hidden layers only: the readout keeps its raw sum
             if (model_ == "gate")
                 spec.gate = gate;
             if (model_ == "er") {
@@ -284,6 +285,21 @@ public:
     // Ticks for an input to reach the output, plus `settle`.
     size_t hold(size_t settle) const { return depth_ + 1 + settle; }
     network& net() { return net_; }
+    // The `resting_threshold` option on every hidden layer (see
+    // er_options::calibrateRestingThreshold). With "auto", a gate model's
+    // gate is scaled by the same factor. Returns the mean factor.
+    float calibrateThresholds(const std::string& setting)
+    {
+        double sum = 0.0;
+        for (size_t l = 0; l < depth_; ++l) {
+            auto& layer = net_.layerAs<neuron_layer>(hidden_[l]);
+            const float factor = er_options::calibrateRestingThreshold(layer, setting);
+            if (model_ == "gate" && setting == "auto")
+                layer.setGate(layer.gate() * factor);
+            sum += factor;
+        }
+        return static_cast<float>(sum / static_cast<double>(depth_));
+    }
     const neuron_layer& hidden(size_t l) const { return net_.layerAs<neuron_layer>(hidden_[l]); }
     bool memoryless() const { return memoryless_; }
     const std::string& model() const { return model_; }
