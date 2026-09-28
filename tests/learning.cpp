@@ -28,6 +28,7 @@ struct Plain
     Plain(size_t inputs, size_t size, const LearningRule& rule)
     {
         LayerSpec spec = LayerSpec::Dense(size, false, false);
+        spec.normalize = false;  // exact raw-sum arithmetic below
         spec.learningRule = rule;
         out = net.addLayer("out", spec);
         net.addInputs(out, inputs);
@@ -260,9 +261,11 @@ TEST(LearningRuleTest, FeedbackAlignmentTrainsAHiddenLayer)
         reseed(21);
         network net;
         LayerSpec h = LayerSpec::Dense(2, false, false);
+        h.normalize = false;  // exact raw-sum arithmetic below
         h.learningRule = LearningRule::feedbackAlignment();
         h.frozen = !hiddenLearns;
         LayerSpec o = LayerSpec::Dense(4, false, false);
+        o.normalize = false;  // exact raw-sum arithmetic below
         o.learningRule = LearningRule::feedbackAlignment();
         const auto hidden = net.addLayer("hidden", h);
         const auto out = net.addLayer("out", o);
@@ -306,8 +309,10 @@ TEST(LearningRuleTest, FeedbackAlignmentTrainsAHiddenLayer)
 TEST(LearningRuleTest, HiddenSignLayersIgnoreErrors)
 {
     network net;
-    const auto hidden = net.addLayer("hidden", LayerSpec::Dense(3, false, false));
-    const auto out = net.addLayer("out", LayerSpec::Dense(1, false, false));
+    LayerSpec rawHidden = LayerSpec::Dense(3, false, false), rawOut = LayerSpec::Dense(1, false, false);
+    rawHidden.normalize = rawOut.normalize = false;  // exact raw-sum arithmetic below
+    const auto hidden = net.addLayer("hidden", rawHidden);
+    const auto out = net.addLayer("out", rawOut);
     net.addInputs(hidden, 2);
     net.connect(hidden, out);
     net.addOutput(out);
@@ -446,6 +451,7 @@ TEST(LearningRuleTest, OneNetworkMixesEveryRule)
     network net;
     auto add = [&](const std::string& name, size_t size, const LearningRule& rule) {
         LayerSpec spec = LayerSpec::Dense(size, false, true);
+        spec.normalize = false;  // exact raw-sum arithmetic below
         spec.learningRule = rule;
         return net.addLayer(name, spec);
     };

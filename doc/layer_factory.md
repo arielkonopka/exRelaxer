@@ -26,7 +26,8 @@ struct LayerSpec
     Habituation habituationRule = {};  // how habituation suppresses repeated inputs (default: cut after 100 exact repeats)
     bool rectify = false;        // layers of neurons without E-R: ReLU, only sums above the gate pass
     float restingThreshold = baseline_threshold;  // E-R: resting threshold, eligibility boundary, half the floor after firing
-    bool normalize = false;      // Dense, Conv2D, LocallyConnected2D: weighted sum / |w|
+    bool normalize = false;      // Dense, Conv2D, LocallyConnected2D: weighted sum / |w|;
+                                 // their builders (Dense(), Conv2D(), LocallyConnected2D()) turn it on
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina

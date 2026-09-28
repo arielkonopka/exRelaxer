@@ -72,7 +72,7 @@ sequence detector has to beat.
 |----------|-------|-------|
 | `recovery_factor` | 0.9 | per-tick threshold decay while silent |
 | `baseline_threshold` | 0.2 | resting threshold, eligibility boundary |
-| `default_alpha` | 1.2 | threshold growth on firing (log rule only) |
+| `default_alpha` | 1.2 (2.0 since 2026-09-28) | threshold growth on firing (log rule only) |
 | `default_learning_gain` | 2.0 | multiplies every weight update |
 | `max_weight`, `max_output` | 10, 10 | clamps |
 | threshold rule on firing | `max(2 × baseline, threshold + 0.5 × (\|v\| − threshold))` | linear, the default since 2026-09-27; §1–§16 used `threshold + alpha × ln(\|v\| / threshold)` |
@@ -1337,8 +1337,9 @@ one E-R layer with habituation, the fewest spikes of every topology tried.
 
 ## Open questions and next steps
 
-- **Alpha 2.0** (the search's recommendation) has not been applied; alpha is
-  still 1.2. Alpha now matters only under the log growth rule.
+- **Alpha 2.0** (the search's recommendation) is the default since
+  2026-09-28. It matters only under the log growth rule, so results with
+  the default linear rule are unaffected.
 - **Per-layer `baseline_threshold` and alpha**: the best values depend on
   signal strength (strong features want ≈ 0.5, weak inputs ≤ 0.2); only
   recovery, learning gain and alpha are per neuron today, and baseline is

@@ -986,6 +986,7 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
             if (version < 15) {
                 if (spec.habituationRule.decay > 0.0f)
                     spec.habituationRule.fadeAfter = spec.habituationRule.steps;  // fading started at `steps` before format 15
+                spec.spontaneous.amplitude = legacy_spontaneous_amplitude;  // not saved before format 15
             } else {
                 spec.habituationRule.fadeAfter = readValue<std::uint32_t>(is);
                 spec.spontaneous.below = readValue<float>(is);
