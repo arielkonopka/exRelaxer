@@ -69,7 +69,9 @@ the shaped reward below, every candidate on the same episodes, the current
 weights on fixed validation episodes. The hidden layers stay the frozen
 random network. It writes `<out>/log.jsonl`, `state.npz` (resumes),
 `best.exr` and `best_theta.npy`; `--init` starts from saved weights of the
-same network. The best topology found so far is one E-R layer with
+same network. With `evolve` `all` (in `--config`) the hidden layers'
+weights evolve too, each layer's steps relative to its own weight RMS;
+`--init` then also accepts evolved readouts alone. The best topology found so far is one E-R layer with
 fading habituation (tolerance 0.05, decay 0.9 from the 2nd repeat) and no
 feedback: the defaults plus `--config '{"depth": 1, "feedback": "none"}'`.
 
