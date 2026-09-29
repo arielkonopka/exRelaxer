@@ -94,13 +94,14 @@ inline std::vector<nnt::ParamSpec> commonParams(std::vector<nnt::ParamSpec> extr
         {"spontaneous_rate", "0", "E-R: extra probability of a spontaneous firing on any silent tick"},
         {"habituation_fade_after", "2", "habituation with a decay: repeats before fading starts"},
         {"normalize", "true", "hidden paths divide each weighted sum by the length of the neuron's weights"},
+        {"readout_normalize", "false", "the class readouts divide their weighted sums by the length of their weights"},
         {"resting_threshold", "0.2", "E-R resting threshold of the paths, or auto: 0.2 times the paths' mean 1/|w| "
                                      "(recalibrated for normalised sums)"},
         {"growth", "linear", "E-R threshold growth on firing: linear (default), log (original), fixed, multiplicative"},
         {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
         {"learning", "fa", "fa: paths and readouts learn from the task errors (feedback alignment, delta rule); "
                            "readout: paths frozen, readouts learn (sign rule, error-driven)"},
-        {"lr", "0.0003", "learning rate"},
+        {"lr", "0.003", "learning rate (0.0003 before the normalised default: a normalised sum moves about 10x less per update)"},
         {"train", "1500", "training samples"},
         {"test", "300", "test samples"},
     };
@@ -174,6 +175,7 @@ public:
         for (size_t i = 0; i < paths_.size(); ++i)
             net_->addInputs(paths_[i], stim, "stim_" + names_[i]);
         LayerSpec readout = LayerSpec::Dense(1, false, false);
+        readout.normalize = p.getBool("readout_normalize");  // the builder turns it on
         if (fa)
             readout.learningRule = LearningRule::feedbackAlignment();
         for (size_t k = 0; k < classes_; ++k) {

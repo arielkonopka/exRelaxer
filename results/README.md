@@ -23,6 +23,7 @@ and `NNtesting/tools/capacity.py`.
 | `normalize/` | §19 | normalised weighted sum in the hidden layers, same grids as `rerun/` (off); `summary.md`, `raw/`, `run.sh`; recalibrated resting thresholds × learning rate: `calibration.md`, `run_calibration.sh` |
 | `rerun/` | §18 | every E-R experiment again with the current defaults and three habituation variants; `summary.md` (from `analyze.py`), `raw/`, `run.sh` |
 | `video-memory/` | §21 | `video_memory`: side task (`side`), recurrence (`side_recurrence`), recovery sensitivity (`side_recovery`), feedback-alignment hidden layer (`side_fa`), order task (`order`); `audit.json`, `summary.md` (from `NNtesting/tools/video_memory_summary.py`); commands in `NNtesting/experiments/video_memory/sweep.sh` |
+| `new-defaults/` | §24 | every experiment but Doom on the build before the new defaults and on the new one: normalised hidden layers, normalised readouts, raw sums, amplitude 0.01 vs 0.1, 10× learning rate; `summary.md` (from `analyze.py`), `raw/`, `run.sh`, `run_python.sh` |
 | `defaults/` | §23 | `er_silence` at spontaneous amplitudes 0.01 to 1.0 (linear and log growth, with and without recurrence); `run.sh` |
 | `dynamic/` | §20 | `dyn_ladder` pilot and E-R at width 256, `nl_temporal` with a frame window, `doom` imitation, `doom_rl` pilots, architectures (depth, feedback, reservoir) and longer E-R runs; evolution (`es_*`: five topologies on defend_the_center, MAP01), the search retest, and the evolved agents' weights and settings (`doom_agent/`, rebuild with `es.build`) |
 
