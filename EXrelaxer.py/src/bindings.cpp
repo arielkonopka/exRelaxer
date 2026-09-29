@@ -725,6 +725,27 @@ NB_MODULE(_core, m)
             },
             "layer"_a, "Per-neuron E-R threshold, recovery, learning gain and alpha (copies).")
         .def(
+            "reset_state",
+            [](network& net, LayerId id) {
+                // A WeightsOnly round trip through each neuron's own format, as
+                // nntest's er_memoryless model does: weights and per-neuron
+                // dynamics stay, the state goes back to rest. The layer's
+                // output buffer is zeroed too, so a layer reading this one's
+                // previous output (recurrence) sees silence.
+                neuron_layer& l = neuronLayer(net, id);
+                for (neuron& n : l.neurons()) {
+                    std::stringstream buffer;
+                    n.serialize(buffer, {});
+                    n.deserialize(buffer, DeserializeMode::WeightsOnly);
+                }
+                for (size_t i = 0; i < l.size(); ++i)
+                    l.setOutput(i, 0.0f);
+            },
+            "layer"_a,
+            "Puts every neuron of the layer back at rest (resting threshold, zero output and output buffer,\n"
+            "no habituation streak);\n"
+            "weights, bias, learning-rule state and per-neuron dynamics are kept.")
+        .def(
             "set_output", [](network& net, LayerId id, size_t index, float value) {
                 neuronLayer(net, id).setOutput(index, value);
             },

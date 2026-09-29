@@ -135,6 +135,25 @@ def test_neuron_state_and_jitter():
     assert gains.min() >= 1.0 and gains.max() <= 3.0 and gains.std() > 0
 
 
+def test_reset_state_returns_er_neurons_to_rest():
+    exr.reseed(4)
+    net = exr.Network()
+    layer = net.add_layer("h", exr.LayerSpec.dense(20, False, True, frozen=True,
+                                                   recovery_jitter=exr.Jitter.normal(0.02).around(0.95)))
+    net.add_inputs(layer, 5, "x")
+    net.add_output(layer)
+    weights = [np.asarray(net.weights(layer, i)) for i in range(20)]
+    recovery = net.neuron_state(layer)["recovery"]
+    net.run(np.ones((3, 5), np.float32) * 3.0)
+    assert np.any(net.neuron_state(layer)["threshold"] != exr.constants.baseline_threshold)
+    net.reset_state(layer)
+    state = net.neuron_state(layer)
+    assert np.allclose(state["threshold"], exr.constants.baseline_threshold)
+    assert not np.any(net.layer_output(layer))
+    assert np.array_equal(state["recovery"], recovery)
+    assert all(np.array_equal(np.asarray(net.weights(layer, i)), weights[i]) for i in range(20))
+
+
 @pytest.mark.parametrize("mode", [exr.DeserializeMode.FullState, exr.DeserializeMode.WeightsOnly])
 def test_save_and_load(tmp_path, mode):
     net = small_net()

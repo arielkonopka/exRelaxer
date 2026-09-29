@@ -32,6 +32,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [18. Rerun with linear growth and three habituation variants](#18-rerun-with-linear-growth-and-three-habituation-variants)
 - [19. Normalised weighted sum](#19-normalised-weighted-sum)
 - [20. Dynamic ladder: time-varying input and Doom](#20-dynamic-ladder-time-varying-input-and-doom)
+- [21. Video temporal memory](#21-video-temporal-memory)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -1252,6 +1253,67 @@ setup does not have. Evolving the readouts instead gives the goal's agent:
 one E-R layer with habituation, the fewest spikes of every topology tried.
 
 
+## 21. Video temporal memory
+
+**Question** (the user's): can a feed-forward E-R layer keep temporal
+information from a video stream in its own state, with no recurrence and
+no frame history, and how much explicit history is that worth? Details,
+tables and the figure: [video_memory](video_memory.md); raw results in
+[`results/video-memory/`](../results/video-memory/).
+
+**Setup.** `video_memory` (Python): a square moves left or right on a
+20 × 15 screen, the screen goes blank for 1, 2, 4, 8 or 16 frames (input
+0, the network keeps ticking), then the object reappears at the centre and
+stands still for 2 frames, which are read out. In the primary `side` task
+the object vanishes on the side it came from. An audit on 20,000 clips
+puts a classifier given the final frame at chance (0.50). Networks: input
+→ 128 frozen random hidden neurons → 2 readouts, with 4 ticks per frame
+and library-default E-R (normalised sum, no habituation, linear growth,
+recovery 0.9, resting threshold 0.2). Readouts are fitted by ridge
+regression on the mean hidden output of the 8 readout ticks. Models C0
+(ReLU), C1 (E-R reset every frame, the ablation), E0 (E-R), R1/R4 (ReLU +
+1 / 3 previous frames), E1 (E-R + 1 frame), Rg (ReLU with a window that
+reaches past the blank), D2/D2R (two E-R layers, feed-forward and
+recurrent). 20 seeds, with the same clips for every model.
+
+**Results** (side, test accuracy, gaps 1/2/4/8/16):
+
+| | 1 | 2 | 4 | 8 | 16 |
+|---|---|---|---|---|---|
+| C0, C1, R1 | 0.49–0.50 | = | = | = | = |
+| E0 | **0.544** | **0.511** | 0.495 | 0.496 | 0.495 |
+| E1 | 0.595 | 0.555 | 0.532 | 0.508 | 0.502 |
+| R4 | 0.991 | 0.974 | 0.495 | 0.495 | 0.495 |
+| Rg | 0.970 | 0.974 | 0.974 | 0.975 | 0.973 |
+| D2 / D2R | 0.558 / 0.560 | 0.538 / 0.541 | 0.50 | 0.50 | 0.50 |
+
+- **The state keeps the answer; the readout cannot get at it.** A probe
+  on E0's thresholds reads the answer with 0.79 accuracy right before the
+  reappearance, at every gap from 1 to 16 (C1: 0.50). A silent threshold
+  decays by the same factor every tick with no floor, so the pattern is
+  only rescaled. At the reappearance the thresholds are far below the sums
+  (median 0.13 at gap 1, 0.0002 at gap 16), nearly every driven neuron
+  fires (40 → 128 of 128 on the first tick), and firing resets the trace.
+- **Memory horizon** (the largest gap with the 99% lower bound over seeds
+  above 0.5): E0 2 frames, E1 4, R4 2, Rg 16, and 0 for C0, C1 and R1.
+- **Recovery sets the readable horizon** (separate sensitivity study): at
+  recovery 0.95, 0.97 and 0.99, E0's horizon is 4, 8 and 16 frames, with
+  0.67, 0.73 and 0.72 at gap 1, 0.70 at gap 16 for 0.99, and fewer spikes
+  (33 → 8 per frame).
+- **Recurrence adds nothing**: D2R − D2 is within ±0.007 at every gap,
+  and the recurrent layer is silent during the blank.
+- **The order task** (every single frame alike for both classes) is at
+  chance for every model; Rg reaches only 0.51–0.52. A 128-neuron random
+  layer does not represent direction from two frames (the audit needs
+  2048 random features to reach 0.99), so this task measures the
+  representation, not memory.
+- **Feedback alignment on the hidden layer** (separate, 10 seeds) does not
+  help. The online readouts stay at 0.50 and activity grows 4–15×, because
+  no error reaches the frames before the blank.
+
+The Sign rule timing issue (appendix 1) does not apply: the hidden layers
+are frozen, or learn by feedback alignment.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -1335,7 +1397,21 @@ one E-R layer with habituation, the fewest spikes of every topology tried.
     habituation and no feedback is the best and most frugal Doom agent on
     the arena, and on a whole level it learns to explore but not to finish.
 
+17. **E-R keeps what it saw for long; it can read it back only briefly.**
+    After a stimulus disappears, a feed-forward E-R layer's thresholds
+    keep it through 16 blank frames (a probe reads 0.79), but at the
+    default recovery a readout can use it for about 2 frames (0.54 at one
+    blank frame), less than one explicit frame of history (0.97). The
+    readable horizon follows the recovery time constant (16 frames at
+    0.99, 0.70 accuracy, 4–8 spikes per frame), and recurrence adds
+    nothing (§21).
+
 ## Open questions and next steps
+
+- **Readable E-R memory** (§21): recovery 0.97–0.99 makes E-R's state
+  readable for 8–16 blank frames at a quarter of the activity. Try a slow
+  recovery on the dynamic ladder and Doom, and a readout of the thresholds
+  themselves (the probe reads 0.79–0.92 where the outputs read 0.5–0.7).
 
 - **Alpha 2.0** (the search's recommendation) has not been applied; alpha is
   still 1.2. Alpha now matters only under the log growth rule.
