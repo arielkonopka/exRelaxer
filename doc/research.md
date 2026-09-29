@@ -1435,6 +1435,83 @@ So in these tests blindness after silence is a property of the log
 growth rule, and the spontaneous amplitude does not prevent it; the
 linear rule (the default since §16) does.
 
+## 24. Do the earlier results survive the new defaults?
+
+After §23 the user asked whether normalisation broke the earlier results,
+and to rerun most experiments (not Doom) to see how it affects them. Every
+C++ experiment and the Python ones (bar_orientation_py, snake_py,
+mnist_gabor) ran on the build just before the new defaults (commit
+99164c0) and on the new one, same seeds, with each change separated
+where the experiment has a setting for it. Results in
+[`results/new-defaults/`](../results/new-defaults/), tables in
+[`summary.md`](../results/new-defaults/summary.md).
+
+**What the merge changed without saying so.** The `Dense` builder also
+normalised the learned **readouts** of `nl_static`, `nl_temporal`,
+`dyn_ladder` and the activity experiments, although §19 had tested only
+normalised hidden layers and the code said the readout keeps its raw sum.
+These readouts now have their own setting, `readout_normalize`, off by
+default. Every experiment built only from builders (bar_orientation,
+chirp, snake, stereo, gapped_pattern, audiovisual, mnist_gabor) now
+normalises all its Dense and Conv2D layers, readouts included.
+`dyn_ladder`'s hidden layers stay raw (it has no `normalize` setting).
+
+| Result, E-R unless named | old build | normalised hidden, readout too (main after #20) | normalised hidden, raw readout, same lr | the same at 10× lr (new default) |
+|------|------|------|------|------|
+| `er_economy` accuracy | 0.995 | 0.979 | 0.856 | **0.998** |
+| `er_economy` gate / linear accuracy | 0.82 / 0.98 | 0.995 / 1.0 | 0.83 / 1.0 | 0.996 / 1.0 |
+| `er_fatigue` accuracy, all paths fatigued | 0.95 | 0.60 | 0.38 | 0.90 |
+| `er_history` accuracy after all paths were used | 0.865 | 0.435 | 0.325 | 0.838 |
+| `er_silence` accuracy after the silence | 1.0 | 0.98 | 0.90 | 1.0 |
+| `er_habituation` spikes per sample (held 50) | 2810 | 2460 | 2390 | 2570 |
+
+(Activity experiments, 20 trials, lr 0.0003 and 0.003.)
+
+- **The spontaneous amplitude changed nothing.** Raw sums at amplitude
+  0.01 and 0.1 give identical results in every activity experiment and
+  every `nl_*` grid cell, and the new build with raw builders reproduces
+  the old build exactly in every other experiment. Alpha acts only under
+  the log rule, which none of these use. So every difference below is
+  normalisation.
+- **Activity experiments: normalisation needs the larger learning rate
+  (§19), and then the old E-R results come back.** At their old rate
+  normalised hidden layers lose E-R accuracy (0.86), most of all under
+  stress (0.33–0.38 after all paths were used or fatigued). A normalised
+  readout hid part of that at the old rate (0.98) but hurts at the right
+  rate (0.91, and 0.52 after all paths were used). With raw readouts at
+  10× the rate, E-R is back at 0.998, 0.90 and 0.84. The same rate
+  collapses raw networks (0.21), so it is only right for normalised ones.
+  **The activity experiments' default rate is now 0.003** (was 0.0003).
+- **The gate's weakness in the activity experiments was a raw-sum
+  artifact.** Normalised, the fixed-threshold gate reaches 0.99–1.0 in
+  every activity experiment (0.80–0.84 raw), as §19 saw on `er_economy`.
+  So the old E-R-over-gate accuracy gaps in §13, §15 and §18 do not hold
+  with normalised sums; what stays E-R's own is its history effect
+  (§19).
+- **`nl_static`, `nl_temporal`: no systematic change**, as in §19.
+  Normalised hidden layers change E-R's best static error in both
+  directions (l1 0.077 → 0.052, l4 k=4 0.10 → 0.26), make ReLU slightly
+  better, the gate slightly worse, and halve divergence at large rates. A
+  normalised readout adds little stability for E-R and breaks the linear
+  fits (clamp on l4 k=1 0.33 → 0.83, t4 0.09 → 0.23), since the readout's
+  output can no longer grow with its weights. Temporal accuracies are
+  unchanged (E-R still solves delayed XOR).
+- **Vision, audio, snake: unchanged except `audiovisual`.** Normalised
+  readouts on frozen features: bar_orientation 0.985 → 0.986, chirp 0.997
+  → 0.996, stereo 0.976 = 0.976, mnist_gabor 0.900 → 0.901, snake 13.6 →
+  13.1 apples (sign rule; within noise, a larger rate is worse),
+  gapped_pattern 0.989 → 0.966. `audiovisual` (trace-rule readouts on
+  sight and cochlea bands) fell from 0.96 to 0.82 and failed its check; at
+  10× the rate it reaches **0.994** (sight 0.97, sound 0.98, sight
+  teaching sound 0.95 vs 0.70 before), better than it ever was raw. **Its
+  default rate is now 0.1** (was 0.01).
+
+So normalisation broke no result for good: it moved the right learning
+rate up about tenfold. The earlier results hold with the new defaults once
+the rate is raised, except that the fixed-threshold gate now does as well
+as E-R on accuracy in the activity experiments. Normalising a learned
+readout is not needed anywhere and hurts regression.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -1541,6 +1618,14 @@ linear rule (the default since §16) does.
     network answers as before at any spontaneous amplitude from 0.01 to
     1.0; under the log rule thresholds overshoot during the silence and a
     larger amplitude does not fix it.
+
+20. **Normalisation moves the learning rate, not the results** (§24).
+    With normalised hidden layers and raw readouts at about 10× the old
+    learning rate, every earlier result is back (E-R's history and
+    fatigue effects included) and audiovisual improves (0.96 → 0.99). A
+    normalised readout hurts regression, and a normalised fixed threshold
+    matches E-R's accuracy on the activity tasks. The new spontaneous
+    amplitude changed nothing measurable.
 
 ## Open questions and next steps
 

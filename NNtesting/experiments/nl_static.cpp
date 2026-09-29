@@ -67,6 +67,7 @@ nnt::Register experiment({
         {"habituation_decay", "0", "habituation: 0 cuts; a value in (0, 1] fades the input by that factor per repeat"},
         {"habituation_fade_after", "2", "habituation with a decay: repeats before fading starts"},
         {"normalize", "true", "hidden layers divide each weighted sum by the length of the neuron's weights"},
+        {"readout_normalize", "false", "the readout divides its weighted sum by the length of its weights"},
         {"resting_threshold", "0.2", "E-R resting threshold of the hidden layers, or auto: 0.2 times their mean "
                                      "1/|w| at initialization, with the gate model's gate scaled the same way"},
         {"learn_ticks", "last", "training: learn from the last tick's error (last) or from every tick at lr/ticks (all)"},
@@ -110,7 +111,7 @@ nnt::Register experiment({
             p.getDouble("spontaneous_below"), p.getDouble("spontaneous_amplitude"), p.getDouble("spontaneous_rate"));
         Mlp net(model, task.inputs, depth, width, static_cast<float>(p.getDouble("gate")),
                 er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
-                habituationRule, p.getBool("normalize"));
+                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"));
         const float restingFactor = net.calibrateThresholds(p.getString("resting_threshold"));
         const std::string learnTicks = p.getString("learn_ticks");
         if (learnTicks != "last" && learnTicks != "all")
@@ -157,7 +158,7 @@ nnt::Register experiment({
         if (pretrain > 0) {
             Mlp pre(pretrainModel, task.inputs, depth, width, static_cast<float>(p.getDouble("gate")),
                     er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
-                habituationRule, p.getBool("normalize"));
+                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"));
             pre.calibrateThresholds(p.getString("resting_threshold"));
             cur = &pre;
             trainSamples(pretrain);
@@ -293,9 +294,10 @@ nnt::Register experiment({
         t.record("er_threshold_floor_after_firing", 2.0 * baseline_threshold * restingFactor);
         t.record("er_recovery", recovery_factor);
         t.record("er_spontaneous_below_threshold", min_threshold);
-        t.record("er_spontaneous_amplitude", spontaneous_min_amplitude);
+        t.record("er_spontaneous_amplitude", p.getDouble("spontaneous_amplitude"));
         t.record("habituation", habituationRule ? 1.0 : 0.0);
         t.record("normalize", p.getBool("normalize") ? 1.0 : 0.0);
+        t.record("readout_normalize", p.getBool("readout_normalize") ? 1.0 : 0.0);
         t.record("learning_gain", default_learning_gain);
         t.record("max_output", max_output);
         t.record("max_weight", max_weight);

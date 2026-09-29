@@ -201,7 +201,7 @@ nnt::Register experiment({
         {"pairs", "1000", "unlabelled samples seen and heard, for learning sounds from sight"},
         {"test", "400", "test samples"},
         {"rule", "trace", "readout learning rule: trace (graded) or sign"},
-        {"lr", "0.01", "readout learning rate"},
+        {"lr", "0.1", "readout learning rate (0.01 before the normalised default)"},
     },
     .trials = 5,
     .expect = {{.metric = "accuracy_both", .min = 0.9},
