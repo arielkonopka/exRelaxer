@@ -434,3 +434,7 @@ build*/
 # ./build.sh installs here by default
 /install/
 _vizdoom.ini
+
+# ViZDoom writes its runtime files into the working directory
+_vizdoom/
+_vizdoom.ini
