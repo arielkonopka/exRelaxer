@@ -62,3 +62,32 @@ def test_modulators_per_neuron():
     net.step()
     net.apply_modulators_to(out, np.array([1.0, -1.0], np.float32), 0.1)
     assert net.weights(out, 0)[0] > 0 > net.weights(out, 1)[0]
+
+
+def test_reset_traces_starts_an_episode_with_empty_traces():
+    """With a trace, an update right after reset_traces sees only the current
+    input, as on a fresh network; weights and bias are kept."""
+    def net_with_trace():
+        exr.reseed(5)
+        net = exr.Network()
+        out = net.add_layer("out", exr.LayerSpec.dense(
+            1, False, False, learning_rule=exr.LearningRule.feedback_alignment(0.9).with_bias()))
+        net.add_inputs(out, 2)
+        net.add_output(out)
+        return net, out
+
+    fresh, a = net_with_trace()
+    used, b = net_with_trace()
+    for _ in range(5):
+        used.set_inputs(np.array([1.0, 0.0], np.float32))
+        used.step()
+    w, bias = used.weights(b, 0).copy(), used.bias(b).copy()
+    used.reset_traces(b)
+    assert np.array_equal(used.weights(b, 0), w) and np.array_equal(used.bias(b), bias)
+    for net, layer in ((fresh, a), (used, b)):
+        w0 = net.weights(layer, 0).copy()
+        net.set_inputs(np.array([0.0, 1.0], np.float32))
+        net.step()
+        net.apply_error(np.array([1.0], np.float32), 0.1)
+        dw = net.weights(layer, 0) - w0
+        assert dw[0] == 0.0 and dw[1] > 0.0, dw
