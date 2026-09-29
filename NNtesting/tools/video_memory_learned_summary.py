@@ -22,6 +22,7 @@ T99 = {1: 31.82, 2: 6.965, 3: 4.541, 4: 3.747, 5: 3.365, 6: 3.143, 7: 2.998, 8: 
        11: 2.718, 12: 2.681, 13: 2.650, 14: 2.624, 15: 2.602, 16: 2.583, 17: 2.567, 18: 2.552, 19: 2.539,
        20: 2.528, 24: 2.492, 29: 2.462, 39: 2.426}
 GAPS = (1, 2, 4, 8, 16)
+DEFAULT_LRS = "0.0001,0.0003,0.001,0.003,0.01,0.03"
 TRACES = ("0", "0.5", "0.8", "0.9", "0.95", "0.99")
 
 
@@ -36,6 +37,8 @@ def config(p):
         parts.append(f"hidden learns (trace {float(p['hidden_trace']):g}, lr {float(p['hidden_lr']):g})")
     if p.get("error_at", "end") != "end":
         parts.append(f"error every {p['error_at']}")
+    if p.get("lrs", DEFAULT_LRS) != DEFAULT_LRS and p.get("error_at", "end") == "end":
+        parts.append(f"learning rates {p['lrs'].replace(';', ', ')}")
     if p.get("input_gain", "sd") != "sd":
         parts.append(f"input gain {p['input_gain']}")
     return ", ".join(parts)
@@ -229,8 +232,10 @@ def figure(groups, path):
         for g in GAPS:
             ms = groups.get((cfg, g))
             means.append(np.mean([m[metric] for m in ms]) if ms and metric in ms[0] else np.nan)
-        if not np.all(np.isnan(means)):
-            ax.plot(x, means, style, color=color, lw=2, marker="o", ms=5, label=name)
+        means = np.asarray(means)
+        ok = ~np.isnan(means)
+        if ok.any():
+            ax.plot(x[ok], means[ok], style, color=color, lw=2, marker="o", ms=5, label=name)
 
     for ax, cfg, title in ((axes[0], "E0, recovery 0.9", "E0, recovery 0.9 (video_memory baseline)"),
                            (axes[1], "E0, recovery 0.99", "E0, recovery 0.99")):
@@ -253,18 +258,15 @@ def figure(groups, path):
     ax.set_xticks(range(len(TRACES)), TRACES)
     ax.set_xlabel("eligibility-trace decay per tick (dotted: ridge)", color=muted)
     ax.set_title("E0, gap 4: accuracy against the trace", loc="left", fontsize=11, color=ink)
-    # Hidden learning.
+    # Hidden learning (recovery 0.99, lr 0.003): the ridge readout after it, and the online readout.
     ax = axes[3]
-    hid = sorted({c for c, g in groups if "hidden learns" in c})
-    colors = ["#8a8984", "#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#4a3aa7", "#e87ba4", "#008300"]
-    for c, color in zip(hid, colors * 3):
-        if "lr 0.01" not in c:
-            continue
-        series(ax, c, "probe_prediction_state", c.split("recovery ")[1].replace("hidden learns ", "") + ": probe",
-               color, "--")
-        series(ax, c, "t0.8_accuracy", c.split("recovery ")[1].replace("hidden learns ", "") + ": online 0.8",
-               color)
-    ax.set_title("Hidden layer learns too (lr 0.01)", loc="left", fontsize=11, color=ink)
+    series(ax, "E0, recovery 0.99", "ridge_accuracy", "frozen hidden: ridge", ink, ":")
+    series(ax, "E0, recovery 0.99", "t0.8_accuracy", "frozen hidden: online, trace 0.8", "#8a8984")
+    for trace, color in (("0", "#9ec5f0"), ("0.9", "#1baf7a"), ("0.99", "#eb6834")):
+        c = f"E0, recovery 0.99, hidden learns (trace {trace}, lr 0.003)"
+        series(ax, c, "ridge_accuracy", f"hidden trace {trace}: ridge", color, ":")
+        series(ax, c, "t0.8_accuracy", f"hidden trace {trace}: online, trace 0.8", color)
+    ax.set_title("E0, recovery 0.99: the hidden layer learns too", loc="left", fontsize=11, color=ink)
     for i, ax in enumerate(axes):
         ax.axhline(0.5, color=muted, lw=1, ls=":")
         if i != 2:

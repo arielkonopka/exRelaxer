@@ -394,7 +394,7 @@ def run(t):
         t.record(f"{name}_right", n_right)
         if abs(n_left - n_right) > 1:
             raise RuntimeError(f"{name}: classes not balanced ({n_left} LEFT, {n_right} RIGHT)")
-    print(f"  classes (LEFT/RIGHT): " + ", ".join(
+    print("  classes (LEFT/RIGHT): " + ", ".join(
         f"{n} {int(np.sum(l == LEFT))}/{int(np.sum(l == RIGHT))}" for n, (_, _, l) in data.items()), flush=True)
     yte = data["test"][2]
     t.record("constant_accuracy", float(max(np.mean(yte == LEFT), np.mean(yte == RIGHT))))

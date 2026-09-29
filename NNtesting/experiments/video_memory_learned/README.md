@@ -14,7 +14,7 @@ separately. Results: research log §22 and
 export PYTHONPATH=$PWD/build/EXrelaxer.py/package
 NNtesting/nntest.py run video_memory_learned --trials 20 --set model=E0 --set gap=1,2,4,8,16 --out e0.jsonl
 python3 NNtesting/tools/video_memory_learned_summary.py e0.jsonl --md summary.md --png curves.png
-NNtesting/experiments/video_memory_learned/sweep.sh results/video-memory-learned   # every run behind §22
+NNtesting/experiments/video_memory_learned/sweep.sh results/video-memory-learned   # every run behind §22 (then gzip *.jsonl)
 ```
 
 `--set` splits on commas (a grid); lists inside one parameter (`traces`,
@@ -88,7 +88,7 @@ starts with an empty eligibility trace.
 
 ## Metrics
 
-Per readout (`ridge`, `t0`, `t0.5`, ... `t0.99`, and `h` for none):
+Per readout (`ridge`, `t0`, `t0.5`, ... `t0.99`):
 `_accuracy`, `_left_accuracy`, `_right_accuracy`, `_balanced_accuracy`,
 `_cm_LL/LR/RL/RR` (test confusion matrix, true/predicted), and for the
 online readouts `_train_accuracy`, `_val_accuracy`, `_lr`, `_mse_epochN`

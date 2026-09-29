@@ -15,6 +15,7 @@ of known limitations, see the [project README](../README.md).
 | [nonlinearity](nonlinearity.md) | experiments on whether E-R dynamics replace network size: static tasks, ReLU / E-R / fixed threshold / clamp, depth × width grid, minimum architectures |
 | [dynamic](dynamic.md) | the dynamic ladder: time-varying input tasks (motion, change, velocity, catch) and Doom, E-R against stateless networks with and without a frame window |
 | [video_memory](video_memory.md) | video temporal memory: an occluded moving object, feed-forward E-R against frame windows, reset ablation, state probes, recurrence and recovery |
+| [video_memory_learned](video_memory_learned.md) | learned video memory: online readouts with and without eligibility traces, balanced classes, probes of memory / readout / learning, credit-assignment diagnostics, hidden-layer learning |
 | [doom](doom.md) | the Doom experiments: shared setup, the current best E-R + habituation agent, and a log of every experiment (imitation, reward rules, search, evolution) |
 | [activity](activity.md) | experiments on E-R activity without a penalty: sparsity, path choice, fatigue, history; the fixed-threshold control `gate` |
 | [kernels](kernels.md) | weight layout, SIMD kernels, determinism, parallelism, performance, random streams |
