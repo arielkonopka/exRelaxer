@@ -23,6 +23,10 @@ findings in [§20](research.md#20-dynamic-ladder-time-varying-input-and-doom).
 | `map01` | not yet tried with every weight evolving; readout-only agents explore but never exit ([D6](#d6-evolution-on-a-whole-level-map01-2026-09-28), [D7](#d7-map01-with-three-minute-episodes-2026-09-28)) |
 | Files | `results/dynamic/doom_agent/untildeath_d1/`: `best.exr` (the whole network in the library's own format), `best_theta.npy` (its evolved weights), `config.json`, `best.json` (generation 296, validation +20.3) |
 
+Watch it play: `python3 NNtesting/experiments/doom_rl/watch.py` writes
+`replay.html`, a step-by-step replay of what it saw and did (`--live`
+shows the game window instead; [doom_rl README](../NNtesting/experiments/doom_rl/README.md)).
+
 Load the saved network with the library alone (`best.exr`); it plays
 only through `doom_rl`, which feeds it the screen and sound and reads its
 8 outputs:
@@ -390,8 +394,8 @@ generation 295.
   alive, so evolution had not selected for it.
 - The network and its activity are unchanged (157 spikes per step vs
   167); the gain is in the weights, not in more firing.
-- Kills are probably bounded by the scenario's ammunition (the ViZDoom
-  documentation gives 26 rounds; not checked in this setup), so the long
+- Kills are probably bounded by the ammunition: the agent starts with 26
+  rounds (seen in `watch.py`'s replay), so the long
   games are likely about not being hit once ammunition runs out. How the
   agent survives has not been examined.
 - One seed; the best-validation weights were picked on validation games,

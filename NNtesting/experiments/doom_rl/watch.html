@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doom Agent Replay</title>
+<style>
+:root {
+  --bg: #f4f1ea; --panel: #fbf9f4; --ink: #1e1b16; --muted: #5d564b; --line: #ddd5c6;
+  --accent: #b0461a; --accent-soft: #f2d3c2; --blue: #2f6db0; --bar: #c9bfae; --off: #e7e1d5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15130f; --panel: #1e1b16; --ink: #f3eee6; --muted: #b3aa9b; --line: #3a352d;
+    --accent: #f08a4b; --accent-soft: #4a2a18; --blue: #7fb2e8; --bar: #5a5347; --off: #2c2822;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15130f; --panel: #1e1b16; --ink: #f3eee6; --muted: #b3aa9b; --line: #3a352d;
+  --accent: #f08a4b; --accent-soft: #4a2a18; --blue: #7fb2e8; --bar: #5a5347; --off: #2c2822;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 40px; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 20px; font-size: 14px; overflow-wrap: anywhere; }
+.grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+#screen { width: 100%; aspect-ratio: 4 / 3; image-rendering: pixelated; display: block; border-radius: 6px; background: #000; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+button, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 600; min-width: 84px; }
+input[type=range] { flex: 1 1 200px; accent-color: var(--accent); }
+.time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; min-width: 150px; }
+.label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 0 0 8px; }
+.act { display: grid; grid-template-columns: 124px 1fr 56px; align-items: center; gap: 8px; font-size: 14px; padding: 2px 0; }
+.act .track { height: 12px; background: var(--off); border-radius: 6px; position: relative; overflow: hidden; }
+.act .fill { position: absolute; top: 0; bottom: 0; background: var(--bar); }
+.act .zero { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--muted); }
+.act.on { font-weight: 700; color: var(--accent); }
+.act.on .fill { background: var(--accent); }
+.act .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
+.stat { background: var(--bg); border-radius: 8px; padding: 8px; }
+.stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+#hidden { width: 100%; max-width: 320px; image-rendering: pixelated; display: block; border-radius: 6px; margin-top: 4px; }
+.side > * + * { margin-top: 16px; }
+.note { font-size: 13px; color: var(--muted); margin-top: 16px; }
+#err { color: var(--accent); }
+@media (max-width: 480px) { .stats { grid-template-columns: repeat(2, 1fr); } .act { grid-template-columns: 104px 1fr 52px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Doom agent replay</h1>
+  <p class="sub" id="sub">Loading…</p>
+  <div class="grid">
+    <div class="card">
+      <canvas id="screen" width="160" height="120" aria-label="The screen the network saw"></canvas>
+      <div class="controls">
+        <button class="primary" id="play">Play</button>
+        <button id="back" aria-label="Step back">◀</button>
+        <button id="fwd" aria-label="Step forward">▶</button>
+        <select id="speed" aria-label="Speed">
+          <option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option>
+          <option value="2">2×</option><option value="4">4×</option><option value="8">8×</option>
+        </select>
+        <select id="game" aria-label="Game"></select>
+        <input type="range" id="seek" min="0" max="0" value="0" aria-label="Position">
+        <span class="time" id="time"></span>
+      </div>
+    </div>
+    <div class="side">
+      <div class="card">
+        <p class="label">Action and readouts</p>
+        <div id="acts"></div>
+        <div class="stats">
+          <div class="stat"><b id="health">–</b><span>health</span></div>
+          <div class="stat"><b id="ammo">–</b><span>ammo</span></div>
+          <div class="stat"><b id="kills">–</b><span>kills</span></div>
+          <div class="stat"><b id="reward">–</b><span>reward</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <p class="label">Hidden E-R neurons at the decision tick · <span id="spikes"></span></p>
+        <canvas id="hidden" width="16" height="8" aria-label="Which hidden neurons fired"></canvas>
+      </div>
+    </div>
+  </div>
+  <p class="note" id="note">Space plays or pauses; the arrow keys step. The screen is exactly the 160 × 120 gray image the network saw; the chosen action is the largest readout. The network also heard the game's sound, which is not replayed here.</p>
+  <p class="note" id="err"></p>
+</main>
+<script>
+const META = /*META*/null;
+const FRAMES_B64 = "/*FRAMES*/";
+const $ = id => document.getElementById(id);
+const LABELS = {MOVE_FORWARD: "forward", MOVE_BACKWARD: "backward", TURN_LEFT: "turn left", TURN_RIGHT: "turn right",
+                MOVE_LEFT: "strafe left", MOVE_RIGHT: "strafe right", ATTACK: "shoot", USE: "use"};
+let frames = null, cur = 0, game = 0, playing = false, timer = null;
+
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function fmt(s) { const m = Math.floor(s / 60), r = Math.floor(s % 60); return m + ":" + String(r).padStart(2, "0"); }
+
+async function inflate(b64) {
+  const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const stream = new Blob([bin]).stream().pipeThrough(new DecompressionStream("deflate"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+function build() {
+  const acts = $("acts");
+  META.actions.forEach((a, i) => {
+    const row = document.createElement("div");
+    row.className = "act"; row.id = "a" + i;
+    row.innerHTML = `<span>${LABELS[a] || a}</span><span class="track"><span class="fill"></span><span class="zero"></span></span><span class="v"></span>`;
+    acts.appendChild(row);
+  });
+  META.games.forEach((g, i) => {
+    const o = document.createElement("option");
+    o.value = i;
+    o.textContent = `Game ${i + 1}: ${g.died ? "died" : "alive"} at ${fmt(g.steps * META.step_seconds)}, ${g.kills} kills`;
+    $("game").appendChild(o);
+  });
+  const cols = 16, rows = Math.ceil(META.hidden / cols);
+  $("hidden").width = cols; $("hidden").height = rows;
+  $("sub").textContent = `${META.scenario} · agent ${META.agent} (${META.weights}) · game seed ${META.seed} · ` +
+    `${META.hidden} hidden E-R neurons, ${META.ticks} ticks per step`;
+}
+
+function show() {
+  const g = META.games[game], i = g.first + cur, s = META.steps[i];
+  const W = META.width, H = META.height, ctx = $("screen").getContext("2d");
+  const img = ctx.createImageData(W, H), px = frames.subarray(i * W * H, (i + 1) * W * H);
+  for (let k = 0; k < W * H; k++) { const v = px[k]; img.data[4 * k] = img.data[4 * k + 1] = img.data[4 * k + 2] = v; img.data[4 * k + 3] = 255; }
+  ctx.putImageData(img, 0, 0);
+  const [a, y, bits, spikes, health, ammo, kills, reward] = s;
+  const m = Math.max(1e-6, ...y.map(Math.abs));
+  y.forEach((v, j) => {
+    const row = $("a" + j), fill = row.querySelector(".fill"), w = Math.abs(v) / m * 50;
+    fill.style.left = (v >= 0 ? 50 : 50 - w) + "%"; fill.style.width = w + "%";
+    row.querySelector(".v").textContent = v.toFixed(2);
+    row.classList.toggle("on", j === a);
+  });
+  $("health").textContent = health; $("ammo").textContent = ammo; $("kills").textContent = kills;
+  $("reward").textContent = (reward >= 0 ? "+" : "") + reward.toFixed(2);
+  const hb = Uint8Array.from(atob(bits), c => c.charCodeAt(0)), hc = $("hidden").getContext("2d");
+  const on = css("--accent"), off = css("--off");
+  let fired = 0;
+  for (let n = 0; n < META.hidden; n++) {
+    const f = (hb[n >> 3] >> (7 - (n & 7))) & 1; fired += f;
+    hc.fillStyle = f ? on : off; hc.fillRect(n % 16, Math.floor(n / 16), 1, 1);
+  }
+  $("spikes").textContent = `${fired} firing now, ${spikes} spikes this step`;
+  $("seek").value = cur;
+  $("time").textContent = `${fmt(cur * META.step_seconds)} / ${fmt(g.steps * META.step_seconds)} · step ${cur + 1}`;
+}
+
+function setPlaying(on) {
+  playing = on; $("play").textContent = on ? "Pause" : "Play";
+  clearInterval(timer);
+  if (on) timer = setInterval(() => {
+    if (cur >= META.games[game].steps - 1) { setPlaying(false); return; }
+    cur++; show();
+  }, META.step_seconds * 1000 / parseFloat($("speed").value));
+}
+function go(n) { cur = Math.max(0, Math.min(META.games[game].steps - 1, n)); show(); }
+function pickGame(g) { game = g; $("seek").max = META.games[g].steps - 1; go(0); }
+
+$("play").onclick = () => setPlaying(!playing);
+$("back").onclick = () => { setPlaying(false); go(cur - 1); };
+$("fwd").onclick = () => { setPlaying(false); go(cur + 1); };
+$("seek").oninput = e => go(parseInt(e.target.value, 10));
+$("speed").onchange = () => { if (playing) setPlaying(true); };
+$("game").onchange = e => { setPlaying(false); pickGame(parseInt(e.target.value, 10)); };
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+  if (e.key === " ") { e.preventDefault(); setPlaying(!playing); }
+  if (e.key === "ArrowLeft") { setPlaying(false); go(cur - 1); }
+  if (e.key === "ArrowRight") { setPlaying(false); go(cur + 1); }
+});
+
+(async () => {
+  try {
+    build();
+    frames = await inflate(FRAMES_B64);
+    pickGame(0);
+  } catch (err) {
+    $("err").textContent = "Could not load the replay: " + err;
+  }
+})();
+</script>
+</body>
+</html>
