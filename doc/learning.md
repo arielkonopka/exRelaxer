@@ -50,6 +50,9 @@ the reward, or its own share of an error.
   `P ← trace · P + y` and of each input `X ← trace · X + x`, updated on
   every `forward()`. `trace = 0` (the default) means this tick's values.
   Sign uses the inputs as they are when learning happens, like before.
+  `neuron_layer::clearTraces()` (Python `Network.reset_traces(layer)`)
+  empties them, e.g. at the start of an episode, and keeps weights, bias,
+  baselines and the feedback matrix.
 - **Baseline** `b` (Trace, Perturbation): a running average of each
   neuron's modulator, `b ← b + baseline · (m − b)`, updated on every call. A
   constant reward stops teaching; only surprises do.

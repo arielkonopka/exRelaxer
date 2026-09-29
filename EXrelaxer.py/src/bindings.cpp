@@ -725,6 +725,10 @@ NB_MODULE(_core, m)
             },
             "layer"_a, "Per-neuron E-R threshold, recovery, learning gain and alpha (copies).")
         .def(
+            "reset_traces", [](network& net, LayerId id) { neuronLayer(net, id).clearTraces(); }, "layer"_a,
+            "Zeroes the layer's learning traces (output, noise and input traces), e.g. between episodes;\n"
+            "weights, bias, baselines and the feedback matrix are kept.")
+        .def(
             "reset_state",
             [](network& net, LayerId id) {
                 // A WeightsOnly round trip through each neuron's own format, as

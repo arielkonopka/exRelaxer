@@ -83,6 +83,9 @@ public:
     // rule, or a rule other than Sign on a layer that does not learn.
     const LearningRule& learningRule() const { return rule_; }
     void setLearningRule(const LearningRule& rule);
+    // Zeroes the rule's traces (output, noise and input traces), e.g. between
+    // episodes; weights, bias, baselines and the feedback matrix are kept.
+    void clearTraces();
 
     // Learned bias of a neuron (0 when the rule has no bias).
     float bias(size_t index) const { return bias_.empty() ? 0.0f : bias_.at(index); }

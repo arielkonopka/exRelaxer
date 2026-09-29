@@ -235,6 +235,13 @@ void neuron_layer::setLearningRule(const LearningRule& rule)
         noise_state_ = ((std::uint64_t{rng::learning()()} << 32) | rng::learning()()) | 1u;  // never 0
 }
 
+void neuron_layer::clearTraces()
+{
+    std::fill(post_.begin(), post_.end(), 0.0f);
+    std::fill(noise_trace_.begin(), noise_trace_.end(), 0.0f);
+    clearInputTraces();
+}
+
 void neuron_layer::resetLearningState(const LearningRule& rule)
 {
     rule_ = rule;
