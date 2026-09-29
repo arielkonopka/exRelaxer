@@ -67,7 +67,9 @@ with raw sums and amplitude 0.01; new runs record both.
   every map): health lost −0.01 per point, death −5, kill +1, ammo
   picked up +0.02 per round, ammo fired −0.001 per round, armor +0.01 per
   point, item +0.1, key +2, door opened +0.5, level exit +10, idle
-  −0.005 per step. Full table in the
+  −0.005 per step. From D13 (2026-09-29, the user's suggestion): a new map
+  square (64 units) entered +0.05, and firing costs −0.0005 per round only
+  in steps that kill nothing. Full table in the
   [doom_rl README](../NNtesting/experiments/doom_rl/README.md#reward-rewardspy).
 - **Seeds**: every candidate or model is compared on the same episodes
   (`game.set_seed`); fixed validation episodes use seed 777777, fresh
