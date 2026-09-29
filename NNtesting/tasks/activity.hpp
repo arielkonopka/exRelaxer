@@ -90,10 +90,10 @@ inline std::vector<nnt::ParamSpec> commonParams(std::vector<nnt::ParamSpec> extr
         {"habituation_tolerance", "0", "habituation: relative change still counted as the same input (0: exact)"},
         {"habituation_decay", "0", "habituation: suppressed input scaled by decay per tick (0: cut at once)"},
         {"spontaneous_below", "1e-10", "E-R: a silent neuron fires spontaneously once its threshold is at or below this"},
-        {"spontaneous_amplitude", "0.01", "E-R: spontaneous output drawn uniformly in +- this"},
+        {"spontaneous_amplitude", "0.1", "E-R: spontaneous output drawn uniformly in +- this"},
         {"spontaneous_rate", "0", "E-R: extra probability of a spontaneous firing on any silent tick"},
         {"habituation_fade_after", "2", "habituation with a decay: repeats before fading starts"},
-        {"normalize", "false", "hidden paths divide each weighted sum by the length of the neuron's weights"},
+        {"normalize", "true", "hidden paths divide each weighted sum by the length of the neuron's weights"},
         {"resting_threshold", "0.2", "E-R resting threshold of the paths, or auto: 0.2 times the paths' mean 1/|w| "
                                      "(recalibrated for normalised sums)"},
         {"growth", "linear", "E-R threshold growth on firing: linear (default), log (original), fixed, multiplicative"},

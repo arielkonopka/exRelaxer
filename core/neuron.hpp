@@ -39,13 +39,14 @@ inline constexpr float habituation_epsilon = 0.0000000001f; // max |sum - previo
 inline constexpr int habituation_steps = 100;               // consecutive "same signal" steps before it's zeroed out
 inline constexpr float recovery_factor = 0.9f;              // default per-step multiplicative threshold decay while not firing (0 < b < 1)
 inline constexpr float min_threshold = 0.0000000001f;       // threshold floor; at/below this, spontaneous firing kicks in
-inline constexpr float spontaneous_min_amplitude = 0.01f;   // fixed +/- amplitude for spontaneous (dormant) firing
+inline constexpr float spontaneous_min_amplitude = 0.1f;    // default +/- amplitude of spontaneous (dormant) firing
+inline constexpr float legacy_spontaneous_amplitude = 0.01f; // the amplitude before 2026-09-28 (files older than format 15)
 inline constexpr float normalization_epsilon = 1e-6f;       // normalised layers: a weight vector shorter than this keeps its raw sum
 inline constexpr float firing_epsilon = 1e-6f;              // outputs at or below this magnitude count as "didn't fire" for learning (hasER == false only)
 inline constexpr float baseline_threshold = 0.2f;           // the neuron's resting E-R threshold and learning-eligibility boundary
 inline constexpr float max_weight = 10.0f;                  // learning clamps every weight to [-max_weight, max_weight]
 inline constexpr float max_output = 10.0f;                  // the weighted sum, and so the output, is clamped to [-max_output, max_output]
-inline constexpr float default_alpha = 1.2f;                // default E-R threshold growth rate of the Log rule
+inline constexpr float default_alpha = 2.0f;                // default E-R threshold growth rate of the Log rule
 inline constexpr float default_learning_gain = 2.0f;        // default per-neuron learning gain: multiplies every weight update
 
 // Layout of a serialized neuron. 1: without recovery / learning gain

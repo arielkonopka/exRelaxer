@@ -42,7 +42,9 @@ A layer computes the neuron's weighted sum, `Σ inputs[i] × weights[i]` summed
 in index order (so results are bit-reproducible, see
 [kernels](kernels.md#determinism)), and passes it to `activate()`, which
 runs these stages in order. A layer with a **normalised weighted sum**
-(`LayerSpec::normalize`, off by default) first divides the sum by the
+(`LayerSpec::normalize`; on by default for Dense, Conv2D and
+LocallyConnected2D layers built with their `LayerSpec` builders since
+2026-09-28, off in a bare `LayerSpec`) first divides the sum by the
 length of the neuron's weight vector, `Σ x·w / |w|` (before the bias of
 rules that have one), so only the weights' direction matters and the sum
 is at most the length of the inputs. The layer caches `1 / |w|` per
@@ -94,7 +96,8 @@ baseline below means this value.
      spontaneous-firing level (`min_threshold` by default) or below, or a
      random chance comes up, the neuron fires **spontaneously** with a
      random value in `[-amplitude, +amplitude]`
-     (`spontaneous_min_amplitude`, 0.01, by default), which raises the
+     (`spontaneous_min_amplitude`, 0.1 by default since 2026-09-28, 0.01
+before; files older than format 15 keep 0.01), which raises the
      threshold again through the same rule as a real firing (a spontaneous
      firing weaker than the threshold leaves it unchanged). `Spontaneous`,
      set per layer through `LayerSpec::spontaneous` or with
@@ -227,7 +230,7 @@ jitter:
 |-----------|---------|---------|
 | recovery (`recovery()` / `setRecovery`) | `recovery_factor` (0.9) | per-tick E-R threshold decay while silent; larger means slower relaxation, i.e. a longer memory of past firing |
 | learning gain (`learningGain()` / `setLearningGain`) | `default_learning_gain` (2.0) | multiplies this neuron's weight updates |
-| alpha (`alpha()` / `setAlpha`) | `default_alpha` (1.2) | E-R threshold growth on firing with the `Log` rule (ignored by the others); larger means a longer refractory period and a longer memory trace, ≥ 0 |
+| alpha (`alpha()` / `setAlpha`) | `default_alpha` (2.0; 1.2 before 2026-09-28, saved per neuron) | E-R threshold growth on firing with the `Log` rule (ignored by the others); larger means a longer refractory period and a longer memory trace, ≥ 0 |
 
 Each is drawn from a `Jitter`, a description of a random distribution:
 
@@ -256,7 +259,7 @@ jitter keeps its meaning when the default changes:
 | Parameter | Scale | `uniformRelative()` (±50%) at the defaults |
 |-----------|-------|---------------------------------------------|
 | learning gain | the value itself | 2 → 1 … 3 |
-| alpha | the value itself | 1.2 → 0.6 … 1.8 (alpha 2 → 1 … 3) |
+| alpha | the value itself | 2 → 1 … 3 |
 | recovery | its distance from 1 (the relaxation speed) | 0.9 → 0.85 … 0.95 |
 
 Recovery uses the distance from 1 because it must stay below 1: ±50% of the
@@ -373,13 +376,13 @@ Constants in `neuron.hpp` (`inline constexpr`), shared by all neurons:
 | `habituation_steps` | 100 | default `Habituation::steps`: identical steps before the input is suppressed |
 | `recovery_factor` | 0.9 | default per-tick threshold decay while not firing (per-neuron value: recovery) |
 | `min_threshold` | 1e-10 | threshold at or below which spontaneous firing starts |
-| `spontaneous_min_amplitude` | 0.01 | amplitude of spontaneous firing |
+| `spontaneous_min_amplitude` | 0.1 | default amplitude of spontaneous firing (0.01 before 2026-09-28: `legacy_spontaneous_amplitude`) |
 | `firing_epsilon` | 1e-6 | output magnitude counted as "fired" (neurons without E-R) |
 | `baseline_threshold` | 0.2 | resting E-R threshold and eligibility boundary |
 | `max_weight` | 10 | learning clamps each weight to ±this |
 | `max_output` | 10 | each weighted sum is clamped to ±this |
 | `default_learning_gain` | 2.0 | default per-neuron learning gain (multiplies every weight update) |
-| `default_alpha` | 1.2 | default E-R threshold growth rate of the `Log` rule (`neuron` constructor) |
+| `default_alpha` | 2.0 | default E-R threshold growth rate of the `Log` rule (`neuron` constructor) |
 
 ## Notes and pitfalls
 

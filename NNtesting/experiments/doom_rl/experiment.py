@@ -80,6 +80,7 @@ class Player:
         self.hop = STEP_SAMPLES // self.ticks
         self.net = net = exr.Network()
         self.sound = p["sound"]
+        self.readout = p.get("readout", "last")
         def neurons(size, frozen=True):
             spec = exr.LayerSpec.dense(size, p["habituation"], model == "er", frozen=frozen,
                                        learning_rule=exr.LearningRule.traced(p["trace"]))
@@ -92,6 +93,19 @@ class Player:
             spec.rectify = model == "relu"
             if model == "gate":
                 spec.gate = p["gate"]
+            if model == "er":
+                spec.spontaneous = exr.Spontaneous(amplitude=p.get("spontaneous_amplitude", 0.01))
+            return normalized(spec)
+
+        # Settings saved before the 2026-09-28 defaults lack these keys: they
+        # rebuild as they were evolved (raw sums, spontaneous amplitude 0.01).
+        def normalized(spec):
+            if p.get("normalize", False):
+                if not hasattr(spec, "normalize"):
+                    raise RuntimeError("normalize needs exrelaxer with LayerSpec.normalize (network format 16)")
+                spec.normalize = True
+            elif hasattr(spec, "normalize"):
+                spec.normalize = False
             return spec
 
         # Hidden stack h1 .. h<depth>: h1 reads the eye (and the ears), each
@@ -135,8 +149,9 @@ class Player:
         rule = exr.LearningRule.sign() if p["rule"] == "sign" else exr.LearningRule.traced(p["trace"])
         self.readouts = []
         for name in ACTIONS:
-            out = net.add_layer(name.lower(), exr.LayerSpec.dense(1, False, False, learning_rule=rule))
-            net.connect(self.layers[-1], out)
+            out = net.add_layer(name.lower(), normalized(exr.LayerSpec.dense(1, False, False, learning_rule=rule)))
+            for h in (self.layers if p.get("readout_from", "top") == "all" else self.layers[-1:]):
+                net.connect(h, out)
             if self.reservoir is not None:
                 net.connect(self.reservoir, out)
             net.add_output(out)
@@ -173,16 +188,22 @@ class Player:
             if buf is not None:
                 n = min(len(buf), STEP_SAMPLES)
                 audio[:n] = buf[-n:] / 32768.0
+        # readout "last" (the default): the action values are the readouts at
+        # the step's last tick; "sum": summed over the step's ticks, so a hidden
+        # layer that fires early in the step still counts (without sound it is
+        # silent by the last tick).
+        total = np.zeros(len(ACTIONS))
         for t in range(self.ticks):
             if self.sound:
                 chunk = audio[t * self.hop:(t + 1) * self.hop]
                 self.net.set_inputs("mic", np.concatenate([chunk[:, 0], chunk[:, 1]]))
             self.net.step()
+            total += np.asarray(self.net.outputs())
             if meter:
                 for layer in self.metered:
                     self.spikes += np.count_nonzero(np.abs(self.net.layer_output(layer)) > 1e-6)
                 self.ticks_seen += 1
-        self.y = y = np.asarray(self.net.outputs())
+        self.y = y = total if self.readout == "sum" else np.asarray(self.net.outputs())
         if explore > 0 and rng.random() < explore:
             return int(rng.integers(len(ACTIONS)))
         return int(np.argmax(y))
@@ -254,6 +275,11 @@ PARAMS = {
     "bands": (16, "cochlea bands per ear"),
     "pool": (4, "screen pooling: 4 gives 40 x 30"),
     "ticks": (3, "network ticks per game step (the sound is split across them)"),
+    "normalize": (True, "weighted sums divided by the weights' length (the library default since 2026-09-28)"),
+    "spontaneous_amplitude": (0.1, "E-R spontaneous firing amplitude (the library default since 2026-09-28)"),
+    "readout": ("last", "action values: last (the last tick of the step) or sum (the readouts summed over the step's ticks; "
+                        "scores lower, doc/doom.md D11)"),
+    "readout_from": ("top", "which hidden layers the readouts read: top, or all (every layer, bottom first)"),
     "rule": ("sign", "readout learning rule: sign (as in snake) or trace (traced, eligibility over recent ticks)"),
     "reward_mode": ("error", "error: learn only while the chosen readout's sign disagrees with the reward; always"),
     "baseline": (0.01, "rate of the running reward mean subtracted before learning (0: learn from the raw reward)"),

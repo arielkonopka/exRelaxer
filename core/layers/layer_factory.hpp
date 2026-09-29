@@ -38,7 +38,8 @@ struct LayerSpec
     Habituation habituationRule = {};  // how habituation suppresses repeated inputs (default: cut after 100 exact repeats)
     bool rectify = false;        // neurons without E-R: ReLU, only sums above the gate pass (see neuron::rectified)
     float restingThreshold = baseline_threshold;  // E-R: resting threshold, eligibility boundary, half the floor after firing
-    bool normalize = false;      // Dense, Conv2D, LocallyConnected2D: weighted sum / |w| (see neuron_layer::setNormalized)
+    bool normalize = false;      // Dense, Conv2D, LocallyConnected2D: weighted sum / |w| (see neuron_layer::setNormalized);
+                                 // their builders below turn it on
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina
@@ -48,12 +49,15 @@ struct LayerSpec
 
     static LayerSpec Dense(size_t size, bool hasHabituation = true, bool hasER = true)
     {
-        return {LayerType::Dense, size, hasHabituation, hasER};
+        LayerSpec s{LayerType::Dense, size, hasHabituation, hasER};
+        s.normalize = true;
+        return s;
     }
     static LayerSpec Conv2D(size_t channels, const Window2D& window, bool hasHabituation = true, bool hasER = true)
     {
         LayerSpec s{LayerType::Conv2D, channels, hasHabituation, hasER};
         s.window = window;
+        s.normalize = true;
         return s;
     }
     static LayerSpec LocallyConnected2D(size_t channels, const Window2D& window, bool hasHabituation = true,

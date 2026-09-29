@@ -1744,9 +1744,13 @@ TEST(NormalizedSumTest, DividesByWeightLengthAndFollowsChanges)
     loaded->step();
     EXPECT_FLOAT_EQ(loaded->layerAs<neuron_layer>(id).neurons()[0].output(), (w[0] + w[1]) / std::hypot(w[0], w[1]));
 
-    // Off by default; fixed-filter layers refuse it.
+    // On by default through the weighted-layer builders, off in a bare spec;
+    // fixed-filter layers refuse it.
     network plain;
-    EXPECT_FALSE(plain.layerAs<neuron_layer>(plain.addLayer("p", LayerSpec::Dense(1))).normalized());
+    EXPECT_TRUE(plain.layerAs<neuron_layer>(plain.addLayer("p", LayerSpec::Dense(1))).normalized());
+    EXPECT_TRUE(LayerSpec::Conv2D(1, Window2D::square(3)).normalize);
+    EXPECT_TRUE(LayerSpec::LocallyConnected2D(1, Window2D::square(3)).normalize);
+    EXPECT_FALSE(LayerSpec{}.normalize);
     LayerSpec retina = LayerSpec::Retina(RetinaSpec{Shape{1, 4, 4}}, false, false);
     retina.normalize = true;
     EXPECT_THROW(plain.addLayer("r", retina), std::invalid_argument);

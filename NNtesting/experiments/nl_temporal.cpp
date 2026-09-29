@@ -74,7 +74,7 @@ nnt::Register experiment({
         {"growth", "linear", "E-R threshold growth on firing: linear (default), log (original), fixed, multiplicative"},
         {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
         {"spontaneous_below", "1e-10", "E-R: a silent neuron fires spontaneously once its threshold is at or below this"},
-        {"spontaneous_amplitude", "0.01", "E-R: spontaneous output drawn uniformly in +- this"},
+        {"spontaneous_amplitude", "0.1", "E-R: spontaneous output drawn uniformly in +- this"},
         {"spontaneous_rate", "0", "E-R: extra probability of a spontaneous firing on any silent tick"},
         {"pretrain_model", "", "train first with these hidden neurons (relu, gate, clamp, er), then copy the weights into `model` (empty: no pretraining)"},
         {"pretrain", "0", "samples (steps) of pretraining with pretrain_model"},
@@ -83,7 +83,7 @@ nnt::Register experiment({
         {"habituation_tolerance", "0", "habituation: relative change still counted as a repeat (0: exact)"},
         {"habituation_decay", "0", "habituation: 0 cuts; a value in (0, 1] fades the input by that factor per repeat"},
         {"habituation_fade_after", "2", "habituation with a decay: repeats before fading starts"},
-        {"normalize", "false", "hidden layers divide each weighted sum by the length of the neuron's weights"},
+        {"normalize", "true", "hidden layers divide each weighted sum by the length of the neuron's weights"},
         {"resting_threshold", "0.2", "E-R resting threshold of the hidden layers, or auto: 0.2 times their mean "
                                      "1/|w| at initialization, with the gate model's gate scaled the same way"},
         {"learn_ticks", "last", "training: learn from the last tick's error (last) or from every tick at lr/ticks (all)"},

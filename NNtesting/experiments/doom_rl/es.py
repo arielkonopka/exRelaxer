@@ -94,6 +94,37 @@ def initial_weights(p, net_seed):
     return np.concatenate(theta), np.concatenate(rms), len(theta[0])
 
 
+def split(player, evolve, theta):
+    """theta cut into one array per evolving (layer, neuron), grouped as groups()."""
+    out, at = [], 0
+    for group in groups(player, evolve):
+        out.append([])
+        for layer, i in group:
+            n = len(player.net.weights(layer, i))
+            out[-1].append(theta[at:at + n])
+            at += n
+    return out
+
+
+def grow(p, net_seed, arrays):
+    """Adds a hidden layer on top: returns the deeper network's parameters and
+    `arrays` (theta, Adam's m and v) mapped onto it. The readouts read every
+    layer (readout_from all), and their weights from the new layer start at
+    zero, so the grown network plays exactly as before; the new layer's own
+    weights start as the network's random ones."""
+    q = dict(p, depth=p["depth"] + 1)
+    old, new = build(p, net_seed, None), build(q, net_seed, None)
+    fresh = split(new, q["evolve"], initial_weights(q, net_seed)[0])
+    out = []
+    for k, a in enumerate(arrays):
+        parts = split(old, p["evolve"], a)
+        grown = [np.concatenate([r, np.zeros(len(f) - len(r))]) for r, f in zip(parts[0], fresh[0])]
+        grown += [w for layer in parts[1:] for w in layer]
+        grown += [f if k == 0 else np.zeros_like(f) for f in fresh[-1]]
+        out.append(np.concatenate(grown))
+    return q, out
+
+
 def play(task):
     """Plays `episodes` episodes from `seed` with weights theta; returns (reward, kills, spikes per step)."""
     import experiment as e
@@ -136,18 +167,34 @@ def main():
     ap.add_argument("--generations", type=int, default=300)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--grow-to", type=int, default=0,
+                    help="add hidden layers, one at a time, up to this depth, each once the current network learns")
+    ap.add_argument("--grow-window", type=int, default=20,
+                    help="generations averaged to decide that the network learns")
+    ap.add_argument("--grow-margin", type=float, default=1.0,
+                    help="validation gain over the first window at this depth that counts as learning")
     ap.add_argument("--init", default="", help="start from these weights (a best_theta.npy of the same network)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     p = params(json.loads(args.config), args.scenario)
+    if args.grow_to:
+        if p["evolve"] != "all":
+            raise ValueError("--grow-to needs evolve all: a frozen random layer would change with the depth")
+        p["readout_from"] = "all"  # the new layer joins the readouts with zero weights
+    state_path = os.path.join(args.out, "state.npz")
+    if os.path.exists(state_path):
+        saved = np.load(state_path)
+        if "depth" in saved.files:
+            p["depth"] = int(saved["depth"])  # a grown run resumes at its depth
     with open(os.path.join(args.out, "config.json"), "w") as f:
         json.dump({"args": vars(args), "params": p}, f, indent=1)
 
-    state_path = os.path.join(args.out, "state.npz")
     theta0, scale, readouts = initial_weights(p, args.net_seed)
     if os.path.exists(state_path):
         s = np.load(state_path)
         theta, m, v, gen, best = s["theta"], s["m"], s["v"], int(s["gen"]), float(s["best"])
+        vals = list(s["vals"]) if "vals" in s.files else []
+        grown_at = int(s["grown_at"]) if "grown_at" in s.files else 0
     else:
         start = theta0.copy()
         if args.init:
@@ -159,46 +206,64 @@ def main():
             else:
                 raise ValueError(f"--init has {init.size} weights, this network {theta0.size} ({readouts} readout)")
         theta, m, v, gen, best = start, np.zeros_like(theta0), np.zeros_like(theta0), 0, -np.inf
+        vals, grown_at = [], 0
     rng = np.random.default_rng(args.seed + gen)
     sigma, lr = args.sigma * scale, args.lr * scale
 
     ctx = mp.get_context("spawn")
-    with ctx.Pool(args.workers, initializer=init_worker, initargs=(p, args.net_seed)) as pool:
-        while gen < args.generations:
-            start = time.time()
-            eps = rng.standard_normal((args.pairs, len(theta)))
-            seed = int(rng.integers(1, 1 << 30))  # every candidate plays the same episodes
-            tasks = [(theta + sigma * e, seed, args.episodes) for e in eps] + \
-                    [(theta - sigma * e, seed, args.episodes) for e in eps]
-            tasks.append((theta, 777777, args.validation))  # validation: fixed episodes, current weights
-            results = pool.map(play, tasks)
-            val, val_kills, val_spikes = results.pop()
-            rewards = np.array([r[0] for r in results])
-            ranks = centred_ranks(rewards)
-            grad = (ranks[:args.pairs] - ranks[args.pairs:]) @ eps / (2 * args.pairs * sigma)
-            # Adam, ascending.
-            gen += 1
-            m = 0.9 * m + 0.1 * grad
-            v = 0.999 * v + 0.001 * grad ** 2
-            step = lr * (m / (1 - 0.9 ** gen)) / (np.sqrt(v / (1 - 0.999 ** gen)) + 1e-8)
-            if val > best:
-                best = val
-                net = build(p, args.net_seed, theta).net
-                retry("best.exr", lambda: net.save(os.path.join(args.out, "best.exr")))
-                retry("best_theta.npy", lambda: np.save(os.path.join(args.out, "best_theta.npy"), theta))
-            theta = theta + step
-            retry("state.npz", lambda: np.savez(state_path, theta=theta, m=m, v=v, gen=gen, best=best))
-            line = {"generation": gen, "validation_reward": val, "validation_kills": val_kills,
-                    "validation_spikes_per_step": val_spikes, "population_mean": float(rewards.mean()),
-                    "population_best": float(rewards.max()),
-                    "kills_mean": float(np.mean([r[1] for r in results])), "best_validation": best,
-                    "seconds": time.time() - start}
-            def append():
-                with open(os.path.join(args.out, "log.jsonl"), "a") as f:
-                    f.write(json.dumps(line) + "\n")
-            retry("log.jsonl", append)
-            print(f"gen {gen}: validation {val:.2f} (kills {val_kills:.1f}), population {rewards.mean():.2f} "
-                  f"best {rewards.max():.2f}, {line['seconds']:.0f} s", flush=True)
+    while gen < args.generations:
+        with ctx.Pool(args.workers, initializer=init_worker, initargs=(p, args.net_seed)) as pool:
+            while gen < args.generations:
+                start = time.time()
+                eps = rng.standard_normal((args.pairs, len(theta)))
+                seed = int(rng.integers(1, 1 << 30))  # every candidate plays the same episodes
+                tasks = [(theta + sigma * e, seed, args.episodes) for e in eps] + \
+                        [(theta - sigma * e, seed, args.episodes) for e in eps]
+                tasks.append((theta, 777777, args.validation))  # validation: fixed episodes, current weights
+                results = pool.map(play, tasks)
+                val, val_kills, val_spikes = results.pop()
+                rewards = np.array([r[0] for r in results])
+                ranks = centred_ranks(rewards)
+                grad = (ranks[:args.pairs] - ranks[args.pairs:]) @ eps / (2 * args.pairs * sigma)
+                # Adam, ascending.
+                gen += 1
+                m = 0.9 * m + 0.1 * grad
+                v = 0.999 * v + 0.001 * grad ** 2
+                step = lr * (m / (1 - 0.9 ** gen)) / (np.sqrt(v / (1 - 0.999 ** gen)) + 1e-8)
+                if val > best:
+                    best = val
+                    net = build(p, args.net_seed, theta).net
+                    retry("best.exr", lambda: net.save(os.path.join(args.out, "best.exr")))
+                    retry("best_theta.npy", lambda: np.save(os.path.join(args.out, "best_theta.npy"), theta))
+                    retry("best.json", lambda: json.dump({"generation": gen, "validation": val, "depth": p["depth"]},
+                                                         open(os.path.join(args.out, "best.json"), "w")))
+                theta = theta + step
+                vals.append(val)
+                w = args.grow_window
+                since = vals[grown_at:]
+                grew = (p["depth"] < args.grow_to and len(since) >= 2 * w
+                        and np.mean(since[-w:]) - np.mean(since[:w]) >= args.grow_margin)
+                if grew:
+                    p, (theta, m, v) = grow(p, args.net_seed, (theta, m, v))
+                    _, scale, readouts = initial_weights(p, args.net_seed)
+                    sigma, lr = args.sigma * scale, args.lr * scale
+                    grown_at = len(vals)
+                retry("state.npz", lambda: np.savez(state_path, theta=theta, m=m, v=v, gen=gen, best=best,
+                                                    vals=np.array(vals), grown_at=grown_at, depth=p["depth"]))
+                line = {"generation": gen, "depth": p["depth"], "validation_reward": val, "validation_kills": val_kills,
+                        "validation_spikes_per_step": val_spikes, "population_mean": float(rewards.mean()),
+                        "population_best": float(rewards.max()),
+                        "kills_mean": float(np.mean([r[1] for r in results])), "best_validation": best,
+                        "seconds": time.time() - start}
+                def append():
+                    with open(os.path.join(args.out, "log.jsonl"), "a") as f:
+                        f.write(json.dumps(line) + "\n")
+                retry("log.jsonl", append)
+                print(f"gen {gen}: validation {val:.2f} (kills {val_kills:.1f}), population {rewards.mean():.2f} "
+                      f"best {rewards.max():.2f}, {line['seconds']:.0f} s", flush=True)
+                if grew:
+                    print(f"gen {gen}: grown to {p['depth']} hidden layers", flush=True)
+                    break  # the workers restart with the deeper network
 
 
 if __name__ == "__main__":

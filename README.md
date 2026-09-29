@@ -269,7 +269,7 @@ Global constants in [core/neuron.hpp](core/neuron.hpp) (full list in
 | `habituation_steps`         | `100`    | Identical steps before the input is suppressed (default of `Habituation::steps`) |
 | `recovery_factor`           | `0.9`    | Default per-step threshold decay while not firing |
 | `baseline_threshold`        | `0.2`    | Resting E-R threshold and learning-eligibility boundary |
-| `spontaneous_min_amplitude` | `0.01`   | Amplitude of spontaneous firing |
+| `spontaneous_min_amplitude` | `0.1`    | Default amplitude of spontaneous firing (0.01 before 2026-09-28) |
 | `max_weight`                | `10.0`   | Learning clamps each weight to ±this |
 | `max_output`                | `10.0`   | Each weighted sum is clamped to ±this |
 | `default_learning_gain`     | `2.0`    | Default per-neuron learning gain (multiplies weight updates) |
@@ -279,7 +279,7 @@ How E-R thresholds grow on firing is chosen per layer
 `thr + 0.5 × (|v| − thr)`), log (the original, `thr + alpha × ln(|v| / thr)`),
 fixed or multiplicative; after a firing the threshold is at least
 2 × `baseline_threshold`. The per-neuron growth rate `alpha` (default
-`default_alpha`, 1.2), a `neuron` constructor argument, affects only the
+`default_alpha`, 2.0), a `neuron` constructor argument, affects only the
 log rule. Each neuron also has its own recovery factor,
 learning gain and alpha, each of which can be randomized per layer,
 independently and optionally (decided at layer creation), with a chosen
@@ -298,7 +298,7 @@ from 1, so 0.9 ± 50% = 0.85…0.95).
 
 See [doc/network.md](doc/network.md#per-neuron-dynamics). The default
 learning gain is `default_learning_gain` (2.0) and the default log-rule
-`alpha` is `default_alpha` (1.2). A small learning-speed jitter sometimes helps
+`alpha` is `default_alpha` (2.0). A small learning-speed jitter sometimes helps
 learned hidden layers with E-R, but the effect is not robust to the other
 E-R constants.
 
@@ -401,6 +401,21 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files older than format 6 load as weights only.
 
 ## Changelog
+
+### 2026-09-28: new defaults
+
+- `default_alpha` 2.0 (was 1.2; log growth rule only; saved per neuron).
+- `spontaneous_min_amplitude` 0.1 (was 0.01; files older than format 15
+  load 0.01, `legacy_spontaneous_amplitude`).
+- Normalised weighted sums in every layer made by `LayerSpec::Dense`,
+  `Conv2D` or `LocallyConnected2D` (Python `LayerSpec.dense`, ...); a bare
+  `LayerSpec` stays raw; files older than format 16 load raw sums. The
+  experiments' `normalize` and `spontaneous_amplitude` parameters default
+  to the new values; pass `normalize=false` or `spontaneous_amplitude=0.01`
+  to reproduce older results (output layers are now normalised too).
+- Finding ([research log §23](doc/research.md#23-new-defaults-and-spontaneous-firing-after-silence)):
+  a reconnected network goes blind after a long silence only under the log
+  growth rule; the spontaneous amplitude does not change that.
 
 ### 2026-09-28: Doom by evolution
 

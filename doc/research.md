@@ -33,6 +33,8 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [19. Normalised weighted sum](#19-normalised-weighted-sum)
 - [20. Dynamic ladder: time-varying input and Doom](#20-dynamic-ladder-time-varying-input-and-doom)
 - [21. Video temporal memory](#21-video-temporal-memory)
+- [22. Learned video memory](#22-learned-video-memory)
+- [23. New defaults and spontaneous firing after silence](#23-new-defaults-and-spontaneous-firing-after-silence)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -73,7 +75,7 @@ sequence detector has to beat.
 |----------|-------|-------|
 | `recovery_factor` | 0.9 | per-tick threshold decay while silent |
 | `baseline_threshold` | 0.2 | resting threshold, eligibility boundary |
-| `default_alpha` | 1.2 | threshold growth on firing (log rule only) |
+| `default_alpha` | 1.2 (2.0 since 2026-09-28) | threshold growth on firing (log rule only) |
 | `default_learning_gain` | 2.0 | multiplies every weight update |
 | `max_weight`, `max_output` | 10, 10 | clamps |
 | threshold rule on firing | `max(2 × baseline, threshold + 0.5 × (\|v\| − threshold))` | linear, the default since 2026-09-27; §1–§16 used `threshold + alpha × ln(\|v\| / threshold)` |
@@ -1239,7 +1241,13 @@ long search).
 - Evolution learns to explore (twice the distance, more items and doors)
   but not to fight or finish the level; the arena weights give no lasting
   head start. Three-minute episodes (600 more generations) do not
-  change that: still no exits, and a flat validation curve. Every Doom
+  change that: still no exits, and a flat validation curve.
+- Evolving **every weight** (`evolve` `all`, the hidden E-R layers too)
+  roughly triples the 1-layer agent's reward on 30 fresh arena games
+  (+3.78 vs +1.36, 6.7 kills, survives 57% of games). With every weight
+  evolving a second layer no longer hurts (+3.18) and a third still fails
+  (−0.80), unless the network grows to it during evolution (+2.21; details
+  in [doom](doom.md), D9 and D10). Every Doom
   experiment is recorded in [doom](doom.md).
 
 **Takeaway.** E-R is not better at dynamic tasks in general. Its state is
@@ -1378,6 +1386,55 @@ learning with its own trace (`mode=hidden`) as condition D.
 The Sign rule timing issue (appendix 1) does not apply: the readouts and
 the trained hidden layers use the delta rule / feedback alignment.
 
+## 23. New defaults and spontaneous firing after silence
+
+On 2026-09-28 the user made three settings the library defaults:
+- **alpha 2.0** (`default_alpha`, was 1.2), the search's recommendation
+  (§4). Alpha acts only under the log growth rule, so networks with the
+  default linear rule are unchanged. Alpha is saved per neuron, so saved
+  networks keep theirs.
+- **Spontaneous firing amplitude 0.1** (`spontaneous_min_amplitude`, was
+  0.01). The user's reasoning: strong enough spontaneous firing should
+  keep a network from going blind after it has been cut off from its
+  input and then reconnected. Files older than format 15 load 0.01.
+- **Normalised weighted sums** (§19) in every layer built with
+  `LayerSpec::Dense`, `Conv2D` or `LocallyConnected2D`; a bare
+  `LayerSpec` stays raw, and files older than format 16 load raw sums.
+  Snake (sign-rule readouts) is unchanged: 13.4 ± 0.5 apples vs 13.8 ± 1.2
+  before (3 seeds).
+
+**Does the amplitude keep the network from going blind?** `er_silence`
+(trained E-R network, inputs zeroed for 300 or 3000 ticks, then the task
+again; 10 seeds, `results/defaults/`). Accuracy on the first 5 samples
+after the silence vs straight after training:
+
+| Growth rule | Recurrence | amplitude 0.01 | 0.1 | 1.0 |
+|-------------|------------|----------------|-----|-----|
+| linear (default) | no | 0.96 → 0.96 | 0.96 → 0.96 | 0.96 → 0.96 |
+| linear | yes | 1.00 → 1.00 | 1.00 → 1.00 | 1.00 → 1.00 |
+| log | no | 1.00 → 0.34 | 1.00 → 0.40 | 1.00 → 0.42 |
+| log | yes | 0.96 → 0.90 | 0.96 → 0.90 | 0.96 → 0.52 |
+
+(With habituation in fade mode; without habituation and with the linear
+rule the same holds at every amplitude from 0.01 to 1.0, for 300 and 3000
+ticks, raw or normalised sums.)
+- Under the **linear rule** the network never goes blind: after a long
+  silence the thresholds have relaxed to almost zero, so the first input
+  makes it over-respond (1.6–2 times the usual spikes), not go silent,
+  and its answers are unchanged. The amplitude only changes how often it
+  fires spontaneously (313 per 1000 ticks at 0.01 and 0.1, 32 at 1.0,
+  because a strong spontaneous firing raises the threshold more).
+- Under the **log rule** it does go blind: a firing far above a threshold
+  near zero raises it by `alpha × ln(|v| / thr)`, which is large, so the
+  thresholds overshoot (mean 9.8 at the end of the silence with amplitude
+  0.01) and the reconnected input cannot pass. A larger amplitude helps
+  a little without recurrence (0.34 → 0.42) and hurts with it (0.90 →
+  0.52), where the network keeps re-exciting itself.
+
+So in these tests blindness after silence is a property of the log
+growth rule, and the spontaneous amplitude does not prevent it; the
+linear rule (the default since §16) does.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -1460,7 +1517,6 @@ the trained hidden layers use the delta rule / feedback alignment.
     untrained network. Evolving the readouts works: one E-R layer with
     habituation and no feedback is the best and most frugal Doom agent on
     the arena, and on a whole level it learns to explore but not to finish.
-
 17. **E-R keeps what it saw for long; it can read it back only briefly.**
     After a stimulus disappears, a feed-forward E-R layer's thresholds
     keep it through 16 blank frames (a probe reads 0.79), but at the
@@ -1480,6 +1536,12 @@ the trained hidden layers use the delta rule / feedback alignment.
     0.71–0.77 at every gap. The limit is reading the state at the
     prediction, not keeping it (§22).
 
+19. **Blindness after silence comes from the log growth rule, not from
+    weak spontaneous firing** (§23). Under the linear rule a reconnected
+    network answers as before at any spontaneous amplitude from 0.01 to
+    1.0; under the log rule thresholds overshoot during the silence and a
+    larger amplitude does not fix it.
+
 ## Open questions and next steps
 
 - **Learned readable memory** (§22): hidden-layer learning with a long
@@ -1491,9 +1553,9 @@ the trained hidden layers use the delta rule / feedback alignment.
   readable for 8–16 blank frames at a quarter of the activity. Try a slow
   recovery on the dynamic ladder and Doom, and a readout of the thresholds
   themselves (the probe reads 0.79–0.92 where the outputs read 0.5–0.7).
-
-- **Alpha 2.0** (the search's recommendation) has not been applied; alpha is
-  still 1.2. Alpha now matters only under the log growth rule.
+- **Alpha 2.0** (the search's recommendation) is the default since
+  2026-09-28. It matters only under the log growth rule, so results with
+  the default linear rule are unaffected.
 - **Per-layer `baseline_threshold` and alpha**: the best values depend on
   signal strength (strong features want ≈ 0.5, weak inputs ≤ 0.2); only
   recovery, learning gain and alpha are per neuron today, and baseline is

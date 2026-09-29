@@ -17,10 +17,11 @@ findings in [§20](research.md#20-dynamic-ladder-time-varying-input-and-doom).
 |---|---|
 | Network | one hidden layer, 128 E-R neurons with fading habituation (tolerance 0.05, decay 0.9 per tick from the 2nd repeat), no feedback; 6 network ticks per game step |
 | Senses | screen 160 × 120 gray pooled 8 × 8 to 20 × 15; stereo sound through a two-ear cochlea |
-| Trained by | evolution of the 8 action readouts (`es.py`, [D5](#d5-evolution-of-the-readouts-topologies-on-defend_the_center-2026-09-28)); the hidden layer is the frozen random network |
-| `defend_the_center` | validation reward −4.8 → +0.95 (mean of the last 100 of 500 generations), about 5 kills per episode, 145 spikes per step |
-| `map01` | explores (twice the untrained distance, more items and doors); no exits, also with three-minute episodes ([D6](#d6-evolution-on-a-whole-level-map01-2026-09-28), [D7](#d7-map01-with-three-minute-episodes-2026-09-28)) |
-| Files | `results/dynamic/doom_agent/cmp_er_d1_none/` (arena), `.../map01_er_d1_from_dtc/` (MAP01): `best.exr`, `best_theta.npy`, `config.json` |
+| Trained by | evolution of every weight, the hidden layer's and the 8 action readouts' (`es.py`, `evolve` `all`), first on 2-minute games ([D11](#d11-sound-the-new-defaults-and-how-the-readouts-are-read-2026-09-29)), then 300 generations on games that last until death ([D12](#d12-games-that-last-until-death-2026-09-29)) |
+| Library | defaults of 2026-09-28 (normalised sums, spontaneous amplitude 0.1); action values read at the last tick |
+| `defend_the_center` | 30 fresh games with no time limit (capped at 30 minutes): reward +16.5 (untrained −5.3), 19.8 kills, survives 21 minutes on average, lives through half of the games to the cap, 157 spikes per step |
+| `map01` | not yet tried with every weight evolving; readout-only agents explore but never exit ([D6](#d6-evolution-on-a-whole-level-map01-2026-09-28), [D7](#d7-map01-with-three-minute-episodes-2026-09-28)) |
+| Files | `results/dynamic/doom_agent/untildeath_d1/`: `best_theta.npy`, `config.json` |
 
 Rebuild it in Python:
 
@@ -28,10 +29,15 @@ Rebuild it in Python:
 import json, numpy as np, sys
 sys.path.insert(0, "NNtesting/experiments/doom_rl")
 import es
-d = "results/dynamic/doom_agent/cmp_er_d1_none"
+d = "results/dynamic/doom_agent/untildeath_d1"
 p = json.load(open(d + "/config.json"))["params"]
 player = es.build(p, 0, np.load(d + "/best_theta.npy"))   # net seed 0
 ```
+
+Agents evolved before the library defaults of 2026-09-28 (D1–D10, and
+`results/dynamic/doom_agent/evolve_all_d1/`) have no `normalize` or
+`spontaneous_amplitude` in their `config.json`, so `doom_rl` rebuilds them
+with raw sums and amplitude 0.01; new runs record both.
 
 ## Setup shared by all entries
 
@@ -223,6 +229,167 @@ frozen random features allow on a whole level.
 
 Data: `results/dynamic/es_map01_er_d1_long.jsonl.gz`.
 
+### D8. Every weight evolving on `map01` (2026-09-28, interrupted)
+
+**Question.** Do the hidden layer's features limit the whole-level agent
+(D6, D7)? The user chose to evolve the hidden E-R layer too.
+
+**Setup.** As D6 with `evolve` `all` (43 520 weights instead of 1 024),
+24 antithetic pairs, σ 0.05 and step 0.02 relative to each layer's
+weight RMS, starting from D7's evolved readouts.
+
+**Status.** The project's shared folder, where it wrote, failed at
+generation 34 and the run died with it. Validation had reached −1.9
+(best 0.82). Not resumed: the arena comparison (D9, D10) came first. Data:
+`results/dynamic/es_map01_er_d1_all_interrupted.jsonl.gz`.
+
+### D9. Evolving every weight: depth 1, 2 and 3 on `defend_the_center` (2026-09-28)
+
+**Question.** The user: sound should help (monsters grunt), but the
+network may be unable to link sound and action; depth might help, and
+earlier depth hurt. Train deeper networks, all E-R with habituation and
+no feedback lines, with every weight evolving.
+
+**Setup.** `es.py` with `evolve` `all`, 12 antithetic pairs, 3 episodes
+per candidate, 10 validation episodes, σ 0.05 and step 0.02 relative to
+each layer's weight RMS, 500 generations, one seed each. 128 E-R neurons
+per layer with fading habituation, sound on. Final weights tested on 30
+fresh games (seed 4242). The runs used the defaults before 2026-09-28.
+
+**Result.**
+
+| Network | Validation, first 20 gens | Last 100 gens | Fresh games: reward | Kills | Deaths | Spikes |
+|---------|---------------------------|---------------|---------------------|-------|--------|--------|
+| **1 layer** | −5.00 | +2.95 | **+3.78** | 6.7 | 0.43 | **172** |
+| 2 layers | −4.02 | +3.02 | +3.18 | 6.1 | 0.47 | 334 |
+| 3 layers | −4.78 | −1.02 | −0.80 | 5.3 | 1.00 | 488 |
+| 1 layer, readouts only (D5), same fresh games | | | +1.36 | 4.6 | 0.50 | 145 |
+| untrained (1 layer) | | | −5.05 | 1.0 | 1.00 | 169 |
+
+**Conclusion.**
+- Evolving the hidden layer too roughly triples the 1-layer agent's
+  reward on fresh games (+3.78 vs +1.36) and adds two kills per game.
+- With every weight evolving, a second layer no longer hurts (+3.18,
+  within one seed's noise of 1 layer) but does not help either; a third
+  layer still fails (never survives a game).
+- One seed per depth; the 1- vs 2-layer difference is not established.
+
+Data: `results/dynamic/es_evolve_all_all_d{1,2,3}.jsonl.gz`; agent in
+`results/dynamic/doom_agent/evolve_all_d1/`.
+
+### D10. Growing layers during evolution (2026-09-28)
+
+**Question.** The user: add layers while the network runs, as soon as it
+starts learning.
+
+**Setup.** As D9, starting with 1 layer, `--grow-to 3`: a layer is added
+on top once the mean validation reward of the last 20 generations beats
+the first 20 at the current depth by 1.0. The readouts read every layer,
+and their weights from a new layer start at zero, so growing does not
+change play (checked: identical reward and kills before and after two
+growths on a test game).
+
+**Result.** It grew to 2 layers at generation 77 and to 3 at 133.
+Validation, mean of the last 100 generations: **+4.36**, the best of all
+runs (best single generation 8.06), 7.9 kills. On the 30 fresh games:
+reward +2.21, 6.4 kills, 0.67 deaths, 496 spikes per step (untrained 1
+layer −5.27).
+
+**Conclusion.**
+- A grown 3-layer network plays far better than one evolved at 3 layers
+  from the start (+2.21 vs −0.80 on fresh games): growing makes depth
+  trainable.
+- It does not beat the plain 1-layer network on fresh games (+2.21 vs
+  +3.78), although it led on its validation games; the gap between its
+  validation and fresh scores suggests it fitted the validation seeds'
+  situations more than the others (it had the most weights), or seed
+  noise. It fires about three times as many spikes.
+
+Data: `results/dynamic/es_evolve_all_grow3.jsonl.gz`; agent in
+`results/dynamic/doom_agent/evolve_all_grow3/` (3 layers, `readout_from`
+`all`).
+
+### D11. Sound, the new defaults and how the readouts are read (2026-09-29)
+
+**Question.** Does hearing help the D9 winner (1 layer, every weight
+evolving)? And does it keep its score with the library defaults of
+2026-09-28 (normalised sums, spontaneous amplitude 0.1)?
+
+**A flaw found first.** The action values were the readouts at the last
+of the step's 6 ticks. Without sound the screen is held for all 6 ticks,
+the E-R neurons fire early and are silent by the last tick, all readouts
+read 0, and the agent always takes action 0: every candidate plays the
+same game and evolution gets no signal. With sound the audio changes every
+tick and keeps the neurons firing. So in D1–D10 sound mainly kept the
+network active at decision time. `readout` `sum` (the readouts summed
+over the step's ticks) was added so a silent-sound agent can act.
+
+**Setup.** As D9 (1 layer, `evolve` `all`, sound on unless stated, 500
+generations, one seed each), final weights tested on the same 30 fresh
+games (seed 4242).
+
+**Result.**
+
+| Library defaults | Readout | Sound | Fresh games: reward | Kills | Survives | Spikes |
+|------------------|---------|-------|---------------------|-------|----------|--------|
+| old (raw sums, amplitude 0.01) | last | yes | **+3.78** (D9) | 6.7 | 57% | 172 |
+| new | last | yes | +3.35 | 7.7 | 30% | 165 |
+| old | sum | yes | +0.99 | 7.5 | 0% | 173 |
+| new | sum | yes | −0.85 | 5.3 | 0% | 161 |
+| new | sum | no | −0.76 | 5.3 | 0% | 63 |
+
+**Conclusion.**
+- **Summing the readouts costs about 3 reward** (and all survival) with
+  either library; reading the last tick stays the default.
+- **The new defaults cost little** (+3.35 vs +3.78, one seed each; kills
+  rise, survival falls).
+- **Hearing adds nothing** where both can act (summed readouts: −0.85
+  with sound, −0.76 without), and the deaf agent fires 60% fewer spikes.
+  Sound's value so far is as a changing input that keeps E-R active,
+  not as information about monsters.
+
+Data: `results/dynamic/es_d11_*.jsonl.gz`.
+
+### D12. Games that last until death (2026-09-29)
+
+**Question.** The agents so far played games cut off at about two minutes.
+If a game lasts until the agent dies, does it learn to stay alive longer?
+
+**Setup.** Started from the D11 winner (new defaults, last-tick readout,
+sound, 1 layer, every weight evolving). `episode_tics` 63000, so a game
+ends at death or after 30 minutes. 300 generations, 12 antithetic pairs,
+3 games per candidate, σ 0.05, lr 0.02. Tested on the same 30 fresh games
+(seed 4242) with the same 30-minute cap.
+
+**Result.** Validation rose from +2.7 (first 20 generations, 8.8 kills)
+to +13.3 (last 20, 17.5 kills); the best validation was +20.3 at
+generation 295.
+
+| Agent | Reward | Kills | Deaths per game | Survives (mean) | Spikes |
+|-------|--------|-------|-----------------|-----------------|--------|
+| untrained | −5.3 | 0.8 | 1.0 | 11 s | 166 |
+| start (D11 winner) | +2.8 | 8.8 | 1.0 | 62 s | 167 |
+| final generation | +12.6 | 17.1 | 0.7 | 16 min | 159 |
+| best validation | **+16.5** | **19.8** | 0.5 | **21 min** | 157 |
+
+**Conclusion.**
+- **Survival was learnable once the games allowed it.** The start agent
+  always died in about a minute; after 300 generations the agent lives
+  to the 30-minute cap in half of the fresh games, and kills more than
+  twice as many monsters. Two-minute games gave little reward for staying
+  alive, so evolution had not selected for it.
+- The network and its activity are unchanged (157 spikes per step vs
+  167); the gain is in the weights, not in more firing.
+- Kills are probably bounded by the scenario's ammunition (the ViZDoom
+  documentation gives 26 rounds; not checked in this setup), so the long
+  games are likely about not being hit once ammunition runs out. How the
+  agent survives has not been examined.
+- One seed; the best-validation weights were picked on validation games,
+  not on the fresh ones.
+
+Data: `results/dynamic/es_d12_untildeath.jsonl.gz`, agent and test in
+`results/dynamic/doom_agent/untildeath_d1/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
@@ -230,7 +397,10 @@ Data: `results/dynamic/es_map01_er_d1_long.jsonl.gz`.
   features or a larger evolved part.
 - **Where habituation matters.** It made no difference in the 2-layer
   network (D5); it has not been compared on the 1-layer winner.
-- **Sound.** No experiment has yet shown that hearing helps (D2).
+- **Sound.** No experiment has yet shown that hearing helps (D2, D11); in
+  the default setup it keeps the E-R layer active between frames. A test
+  with the sound replaced by unrelated audio of the same loudness would
+  separate the two.
 - **Baseline.** The fair reference for any temporal claim is a stateless
   network given past frames ([dynamic](dynamic.md)); it has not been run
   under evolution.

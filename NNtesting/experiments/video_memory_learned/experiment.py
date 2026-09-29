@@ -149,7 +149,7 @@ def online_net(width, trace, seed):
     exr.reseed(seed)
     net = exr.Network()
     rule = exr.LearningRule.feedback_alignment(trace).with_bias()
-    out = net.add_layer("out", exr.LayerSpec.dense(2, False, False, learning_rule=rule))
+    out = net.add_layer("out", vm.readout_spec(rule))
     net.add_inputs(out, width, "h")
     net.add_output(out)
     for j in range(2):
@@ -308,7 +308,7 @@ def hidden_train(p, rec, train, rng, gap):
         for i in range(p["width"]):   # start from the frozen network's weights (paired with mode=readout)
             net.set_weights(h, i, np.asarray(rec.net.weights(rec.layers[l], i), dtype=np.float32))
     orule = exr.LearningRule.feedback_alignment(0.0).with_bias()
-    out = net.add_layer("out", exr.LayerSpec.dense(2, False, False, learning_rule=orule))
+    out = net.add_layer("out", vm.readout_spec(orule))
     net.connect(layers[-1], out)
     net.add_output(out)
     for j in range(2):
