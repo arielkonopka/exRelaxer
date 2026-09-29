@@ -38,14 +38,14 @@ FRAME_SKIP = 4                              # game tics per action (35 tics a se
 STEP_SAMPLES = SAMPLE_RATE * FRAME_SKIP // 35  # 1260 per ear per step
 
 
-def make_game(p, seed):
+def make_game(p, seed, visible=False):
     game = vzd.DoomGame()
     if p["scenario"] == "map01":
         game.load_config(os.path.join(vzd.scenarios_path, "freedoom2.cfg"))
         game.set_doom_map("map01")
     else:
         game.load_config(os.path.join(vzd.scenarios_path, p["scenario"] + ".cfg"))
-    game.set_window_visible(False)
+    game.set_window_visible(visible)  # watch.py --live: the game's own window
     game.set_screen_resolution(vzd.ScreenResolution.RES_160X120)  # the smallest ViZDoom offers
     game.set_screen_format(vzd.ScreenFormat.GRAY8)
     game.set_render_hud(False)

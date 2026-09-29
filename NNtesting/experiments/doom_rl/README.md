@@ -26,6 +26,21 @@ snake, where a frozen mix with learned readouts is the best undesigned
 design; `learn_hidden=true` lets it learn too). The largest readout picks
 the action; while training a random one with probability `explore`.
 
+## Watching an agent (watch.py)
+
+```bash
+python3 NNtesting/experiments/doom_rl/watch.py                    # replay.html: the best agent, 1 game, 3 minutes
+python3 NNtesting/experiments/doom_rl/watch.py --agent <es.py output folder> --games 3 --minutes 5 --out games.html
+python3 NNtesting/experiments/doom_rl/watch.py --live --speed 0.5  # ViZDoom's own window, needs a display
+```
+
+The replay is one HTML page with no dependencies: play, pause, scrub and
+step through the exact 160 × 120 gray screen the network saw, with its
+action, its 8 readouts, which hidden E-R neurons fired at the decision
+tick, and health, ammo, kills and reward. The sound it heard is not
+replayed. About 6 KB per step, so a 3-minute game is about 13 MB.
+`--seed 4242` (the default) starts the same games as the fresh tests.
+
 ## Topology and E-R options
 
 - `depth` hidden layers of `width` neurons (h1 reads the eye and the ears,
