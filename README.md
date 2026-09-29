@@ -413,7 +413,7 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   experiments' `normalize` and `spontaneous_amplitude` parameters default
   to the new values; pass `normalize=false` or `spontaneous_amplitude=0.01`
   to reproduce older results (output layers are now normalised too).
-- Finding ([research log §21](doc/research.md#21-new-defaults-and-spontaneous-firing-after-silence)):
+- Finding ([research log §23](doc/research.md#23-new-defaults-and-spontaneous-firing-after-silence)):
   a reconnected network goes blind after a long silence only under the log
   growth rule; the spontaneous amplitude does not change that.
 

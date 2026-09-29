@@ -1,0 +1,76 @@
+{
+ "side": {
+  "final": {
+   "ridge_pixels": 0.50145,
+   "ridge_random_relu": 0.5023
+  },
+  "readout": {
+   "ridge_pixels": 0.5005,
+   "ridge_random_relu": 0.4991
+  },
+  "last_visible": {
+   "ridge_pixels": 1.0,
+   "ridge_random_relu": 1.0
+  },
+  "last_two": {
+   "ridge_pixels": 1.0,
+   "ridge_random_relu": 1.0
+  },
+  "final_frame_stats": {
+   "total_intensity": {
+    "LEFT": 7.789886678314209,
+    "RIGHT": 7.80973589053154
+   },
+   "max_pixel": {
+    "LEFT": 0.7795036553353071,
+    "RIGHT": 0.7776360070466996
+   },
+   "column_centroid": {
+    "LEFT": 9.323435181965335,
+    "RIGHT": 9.322805809294996
+   },
+   "bright_pixels": {
+    "LEFT": 6.489,
+    "RIGHT": 6.522
+   }
+  }
+ },
+ "order": {
+  "final": {
+   "ridge_pixels": 0.50175,
+   "ridge_random_relu": 0.50515
+  },
+  "readout": {
+   "ridge_pixels": 0.5017,
+   "ridge_random_relu": 0.50315
+  },
+  "last_visible": {
+   "ridge_pixels": 0.50295,
+   "ridge_random_relu": 0.5018
+  },
+  "last_two": {
+   "ridge_pixels": 0.51475,
+   "ridge_random_relu": 0.9921
+  },
+  "final_frame_stats": {
+   "total_intensity": {
+    "LEFT": 7.792404217267037,
+    "RIGHT": 7.812502450299263
+   },
+   "max_pixel": {
+    "LEFT": 0.7799639629095793,
+    "RIGHT": 0.7814119021177292
+   },
+   "column_centroid": {
+    "LEFT": 9.52034914493459,
+    "RIGHT": 9.527079586771002
+   },
+   "bright_pixels": {
+    "LEFT": 6.495,
+    "RIGHT": 6.484
+   }
+  }
+ },
+ "n_per_split": 20000,
+ "chance_band_99": 0.009107535341682732
+}

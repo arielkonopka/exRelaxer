@@ -32,7 +32,9 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [18. Rerun with linear growth and three habituation variants](#18-rerun-with-linear-growth-and-three-habituation-variants)
 - [19. Normalised weighted sum](#19-normalised-weighted-sum)
 - [20. Dynamic ladder: time-varying input and Doom](#20-dynamic-ladder-time-varying-input-and-doom)
-- [21. New defaults and spontaneous firing after silence](#21-new-defaults-and-spontaneous-firing-after-silence)
+- [21. Video temporal memory](#21-video-temporal-memory)
+- [22. Learned video memory](#22-learned-video-memory)
+- [23. New defaults and spontaneous firing after silence](#23-new-defaults-and-spontaneous-firing-after-silence)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -1259,7 +1261,132 @@ setup does not have. Evolving the readouts instead gives the goal's agent:
 one E-R layer with habituation, the fewest spikes of every topology tried.
 
 
-## 21. New defaults and spontaneous firing after silence
+## 21. Video temporal memory
+
+**Question** (the user's): can a feed-forward E-R layer keep temporal
+information from a video stream in its own state, with no recurrence and
+no frame history, and how much explicit history is that worth? Details,
+tables and the figure: [video_memory](video_memory.md); raw results in
+[`results/video-memory/`](../results/video-memory/).
+
+**Setup.** `video_memory` (Python): a square moves left or right on a
+20 × 15 screen, the screen goes blank for 1, 2, 4, 8 or 16 frames (input
+0, the network keeps ticking), then the object reappears at the centre and
+stands still for 2 frames, which are read out. In the primary `side` task
+the object vanishes on the side it came from. An audit on 20,000 clips
+puts a classifier given the final frame at chance (0.50). Networks: input
+→ 128 frozen random hidden neurons → 2 readouts, with 4 ticks per frame
+and library-default E-R (normalised sum, no habituation, linear growth,
+recovery 0.9, resting threshold 0.2). Readouts are fitted by ridge
+regression on the mean hidden output of the 8 readout ticks. Models C0
+(ReLU), C1 (E-R reset every frame, the ablation), E0 (E-R), R1/R4 (ReLU +
+1 / 3 previous frames), E1 (E-R + 1 frame), Rg (ReLU with a window that
+reaches past the blank), D2/D2R (two E-R layers, feed-forward and
+recurrent). 20 seeds, with the same clips for every model.
+
+**Results** (side, test accuracy, gaps 1/2/4/8/16):
+
+| | 1 | 2 | 4 | 8 | 16 |
+|---|---|---|---|---|---|
+| C0, C1, R1 | 0.49–0.50 | = | = | = | = |
+| E0 | **0.544** | **0.511** | 0.495 | 0.496 | 0.495 |
+| E1 | 0.595 | 0.555 | 0.532 | 0.508 | 0.502 |
+| R4 | 0.991 | 0.974 | 0.495 | 0.495 | 0.495 |
+| Rg | 0.970 | 0.974 | 0.974 | 0.975 | 0.973 |
+| D2 / D2R | 0.558 / 0.560 | 0.538 / 0.541 | 0.50 | 0.50 | 0.50 |
+
+- **The state keeps the answer; the readout cannot get at it.** A probe
+  on E0's thresholds reads the answer with 0.79 accuracy right before the
+  reappearance, at every gap from 1 to 16 (C1: 0.50). A silent threshold
+  decays by the same factor every tick with no floor, so the pattern is
+  only rescaled. At the reappearance the thresholds are far below the sums
+  (median 0.13 at gap 1, 0.0002 at gap 16), nearly every driven neuron
+  fires (40 → 128 of 128 on the first tick), and firing resets the trace.
+- **Memory horizon** (the largest gap with the 99% lower bound over seeds
+  above 0.5): E0 2 frames, E1 4, R4 2, Rg 16, and 0 for C0, C1 and R1.
+- **Recovery sets the readable horizon** (separate sensitivity study): at
+  recovery 0.95, 0.97 and 0.99, E0's horizon is 4, 8 and 16 frames, with
+  0.67, 0.73 and 0.72 at gap 1, 0.70 at gap 16 for 0.99, and fewer spikes
+  (33 → 8 per frame).
+- **Recurrence adds nothing**: D2R − D2 is within ±0.007 at every gap,
+  and the recurrent layer is silent during the blank.
+- **The order task** (every single frame alike for both classes) is at
+  chance for every model; Rg reaches only 0.51–0.52. A 128-neuron random
+  layer does not represent direction from two frames (the audit needs
+  2048 random features to reach 0.99), so this task measures the
+  representation, not memory.
+- **Feedback alignment on the hidden layer** (separate, 10 seeds) does not
+  help. The online readouts stay at 0.50 and activity grows 4–15×, because
+  no error reaches the frames before the blank.
+
+The Sign rule timing issue (appendix 1) does not apply: the hidden layers
+are frozen, or learn by feedback alignment.
+
+## 22. Learned video memory
+
+**Question** (the user's): can exRelaxer learn, online, to use the memory
+trace that its E-R state keeps (§21), and does an eligibility trace let a
+prediction error that arrives after the blank reach the activity from
+before it? Memory, readout and learning are measured separately. Details:
+[video_memory_learned](video_memory_learned.md); raw results and every
+table in [`results/video-memory-learned/`](../results/video-memory-learned/summary.md).
+
+**Setup.** §21's side task, clips, hidden networks (E0, and the non-E-R
+controls C0 and C1) and settings, unchanged (library defaults: recovery
+0.9, resting threshold 0.2, alpha 1.2, linear growth, normalised sums, no
+habituation); §21's ridge readout is reproduced exactly in every trial.
+Classes are exactly balanced in every split, gap and seed (checked before
+training). Two library readouts learn online by the delta rule
+(`apply_error`, one error per clip on the mean readout output, applied
+after the last readout tick) on each hidden output scaled by a fixed
+per-synapse gain, with no trace (immediate) or an input eligibility trace
+d = 0.5–0.99 per tick, emptied at each clip (new `Network.reset_traces`).
+20 seeds, gaps 1–16; recovery 0.95–0.99 as a separate study; hidden
+learning with its own trace (`mode=hidden`) as condition D.
+
+**Results** (test accuracy, gaps 1/4/16, mean over 20 seeds; chance 0.500):
+
+| | recovery 0.9 | recovery 0.99 |
+|---|---|---|
+| probe: state before the reappearance | 0.79 / 0.79 / 0.79 | 0.92 / 0.92 / 0.92 |
+| probe: state at the prediction | 0.57 / 0.52 / 0.50 | 0.89 / 0.87 / 0.73 |
+| ridge readout (offline) | 0.544 / 0.495 / 0.495 | 0.716 / 0.721 / 0.701 |
+| online, immediate | 0.496 / 0.500 / 0.501 | 0.523 / 0.505 / 0.505 |
+| online, trace 0.8 | 0.500 / 0.503 / 0.495 | **0.652 / 0.692 / 0.646** |
+| online, trace 0.99 | 0.504 / 0.504 / 0.499 | 0.502 / 0.504 / 0.510 |
+| hidden layer learns, hidden trace 0.99 (10 seeds) | ridge 0.71 / 0.68 / 0.70, online ≤ 0.61 | **online 0.77 / 0.71 / 0.75**, ridge 0.82 / 0.79 / 0.78 |
+
+- **At the default recovery nothing learns online.** Every trace is at
+  0.49–0.51; the signal ridge finds (0.54 at gap 1) is too weak. C0 and C1
+  are at chance for every readout and probe.
+- **At recovery 0.99 the readout learns**, 0.65–0.69 at every gap with
+  trace 0.8 (ridge 0.70–0.72), LEFT and RIGHT within 0.03.
+- **Accuracy against the trace is a peak, not a rise.** The best trace
+  matches the readout interval (0.8), and moves up to 0.9–0.95 only when
+  the blank is long enough to empty the trace. Trace 0.99 is at chance at
+  every gap, also with learning rates small enough to stay stable.
+- **Why: the trace credits the right neurons for the wrong synapses.**
+  With trace 0.99 the weight change correlates +0.5 to +0.7 with the
+  neurons' direction selectivity before the blank and +0.05 with their
+  output at the prediction; with trace 0.8 it correlates +0.76 with the
+  latter and +0.83 with ridge's weights. The readout reads only current
+  outputs, and the neurons that saw the object are not the ones that carry
+  it at the prediction.
+- **The trace is itself a memory**: a probe on it reads 0.96–0.99, even for
+  C0, which has no state; the readout never sees it in its forward pass.
+- **Without the per-synapse gain the delta rule learns nothing** (0.50;
+  E-R outputs are sparse and small, condition number ≈ 25,000). With an
+  error at every readout tick: 0.60–0.64 at recovery 0.99.
+- **Condition D works.** When the hidden layer learns with a trace of
+  0.99, the delayed error reshapes what the E-R thresholds store (probe
+  0.99 at every gap, 0.90 at the prediction at gap 16), and the online
+  readout reaches 0.71–0.77 at every gap, the best learned result. Without
+  a hidden trace, hidden learning hurts (0.52–0.60).
+
+The Sign rule timing issue (appendix 1) does not apply: the readouts and
+the trained hidden layers use the delta rule / feedback alignment.
+
+## 23. New defaults and spontaneous firing after silence
 
 On 2026-09-28 the user made three settings the library defaults:
 - **alpha 2.0** (`default_alpha`, was 1.2), the search's recommendation
@@ -1390,14 +1517,42 @@ linear rule (the default since §16) does.
     untrained network. Evolving the readouts works: one E-R layer with
     habituation and no feedback is the best and most frugal Doom agent on
     the arena, and on a whole level it learns to explore but not to finish.
-17. **Blindness after silence comes from the log growth rule, not from
-    weak spontaneous firing** (§21). Under the linear rule a reconnected
+17. **E-R keeps what it saw for long; it can read it back only briefly.**
+    After a stimulus disappears, a feed-forward E-R layer's thresholds
+    keep it through 16 blank frames (a probe reads 0.79), but at the
+    default recovery a readout can use it for about 2 frames (0.54 at one
+    blank frame), less than one explicit frame of history (0.97). The
+    readable horizon follows the recovery time constant (16 frames at
+    0.99, 0.70 accuracy, 4–8 spikes per frame), and recurrence adds
+    nothing (§21).
+
+18. **An eligibility trace helps one layer earlier than expected.** A
+    readout can learn online to use E-R memory when the state still holds
+    it at the prediction (recovery 0.99: 0.65–0.69, ridge 0.70–0.72), but
+    an eligibility trace on the readout does not extend that: it credits
+    the neurons active before the blank, whose current output does not
+    carry the answer. The same trace on the hidden layer lets the delayed
+    error reshape what E-R stores, and the online readout then reaches
+    0.71–0.77 at every gap. The limit is reading the state at the
+    prediction, not keeping it (§22).
+
+19. **Blindness after silence comes from the log growth rule, not from
+    weak spontaneous firing** (§23). Under the linear rule a reconnected
     network answers as before at any spontaneous amplitude from 0.01 to
     1.0; under the log rule thresholds overshoot during the silence and a
     larger amplitude does not fix it.
 
 ## Open questions and next steps
 
+- **Learned readable memory** (§22): hidden-layer learning with a long
+  eligibility trace is the one mechanism that made E-R memory usable
+  online. Next: the same on the order task and the dynamic ladder, the
+  threshold state as a readout input, and a local input-gain rule
+  (running variance) in place of the fixed per-synapse gain.
+- **Readable E-R memory** (§21): recovery 0.97–0.99 makes E-R's state
+  readable for 8–16 blank frames at a quarter of the activity. Try a slow
+  recovery on the dynamic ladder and Doom, and a readout of the thresholds
+  themselves (the probe reads 0.79–0.92 where the outputs read 0.5–0.7).
 - **Alpha 2.0** (the search's recommendation) is the default since
   2026-09-28. It matters only under the log growth rule, so results with
   the default linear rule are unaffected.
