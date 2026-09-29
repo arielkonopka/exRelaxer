@@ -169,6 +169,10 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--grow-to", type=int, default=0,
                     help="add hidden layers, one at a time, up to this depth, each once the current network learns")
+    ap.add_argument("--grow-rule", choices=("learning", "plateau"), default="learning",
+                    help="learning: grow once the current network starts learning (validation gain >= margin); "
+                         "plateau: grow once the starting network stops improving (gain < margin), then each "
+                         "further time the grown network beats the level the previous one had reached by margin")
     ap.add_argument("--grow-window", type=int, default=20,
                     help="generations averaged to decide that the network learns")
     ap.add_argument("--grow-margin", type=float, default=1.0,
@@ -195,6 +199,7 @@ def main():
         theta, m, v, gen, best = s["theta"], s["m"], s["v"], int(s["gen"]), float(s["best"])
         vals = list(s["vals"]) if "vals" in s.files else []
         grown_at = int(s["grown_at"]) if "grown_at" in s.files else 0
+        level = float(s["level"]) if "level" in s.files else -np.inf
     else:
         start = theta0.copy()
         if args.init:
@@ -207,6 +212,7 @@ def main():
                 raise ValueError(f"--init has {init.size} weights, this network {theta0.size} ({readouts} readout)")
         theta, m, v, gen, best = start, np.zeros_like(theta0), np.zeros_like(theta0), 0, -np.inf
         vals, grown_at = [], 0
+        level = -np.inf  # plateau rule: the level (mean validation of the last window) at the last growth
     rng = np.random.default_rng(args.seed + gen)
     sigma, lr = args.sigma * scale, args.lr * scale
 
@@ -241,15 +247,24 @@ def main():
                 vals.append(val)
                 w = args.grow_window
                 since = vals[grown_at:]
-                grew = (p["depth"] < args.grow_to and len(since) >= 2 * w
-                        and np.mean(since[-w:]) - np.mean(since[:w]) >= args.grow_margin)
+                if args.grow_rule == "learning":
+                    grew = (p["depth"] < args.grow_to and len(since) >= 2 * w
+                            and np.mean(since[-w:]) - np.mean(since[:w]) >= args.grow_margin)
+                elif level == -np.inf:  # the starting network: grow once it has plateaued
+                    grew = (p["depth"] < args.grow_to and len(since) >= 2 * w
+                            and np.mean(since[-w:]) - np.mean(since[-2 * w:-w]) < args.grow_margin)
+                else:  # a grown network: grow again once it beats the level its predecessor reached
+                    grew = (p["depth"] < args.grow_to and len(since) >= w
+                            and np.mean(since[-w:]) - level >= args.grow_margin)
                 if grew:
+                    level = float(np.mean(since[-w:]))
                     p, (theta, m, v) = grow(p, args.net_seed, (theta, m, v))
                     _, scale, readouts = initial_weights(p, args.net_seed)
                     sigma, lr = args.sigma * scale, args.lr * scale
                     grown_at = len(vals)
                 retry("state.npz", lambda: np.savez(state_path, theta=theta, m=m, v=v, gen=gen, best=best,
-                                                    vals=np.array(vals), grown_at=grown_at, depth=p["depth"]))
+                                                    vals=np.array(vals), grown_at=grown_at, depth=p["depth"],
+                                                    level=level))
                 line = {"generation": gen, "depth": p["depth"], "validation_reward": val, "validation_kills": val_kills,
                         "validation_spikes_per_step": val_spikes, "population_mean": float(rewards.mean()),
                         "population_best": float(rewards.max()),
