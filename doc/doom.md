@@ -21,9 +21,19 @@ findings in [§20](research.md#20-dynamic-ladder-time-varying-input-and-doom).
 | Library | defaults of 2026-09-28 (normalised sums, spontaneous amplitude 0.1); action values read at the last tick |
 | `defend_the_center` | 30 fresh games with no time limit (capped at 30 minutes): reward +16.5 (untrained −5.3), 19.8 kills, survives 21 minutes on average, lives through half of the games to the cap, 157 spikes per step |
 | `map01` | not yet tried with every weight evolving; readout-only agents explore but never exit ([D6](#d6-evolution-on-a-whole-level-map01-2026-09-28), [D7](#d7-map01-with-three-minute-episodes-2026-09-28)) |
-| Files | `results/dynamic/doom_agent/untildeath_d1/`: `best_theta.npy`, `config.json` |
+| Files | `results/dynamic/doom_agent/untildeath_d1/`: `best.exr` (the whole network in the library's own format), `best_theta.npy` (its evolved weights), `config.json`, `best.json` (generation 296, validation +20.3) |
 
-Rebuild it in Python:
+Load the saved network with the library alone (`best.exr`); it plays
+only through `doom_rl`, which feeds it the screen and sound and reads its
+8 outputs:
+
+```python
+import exrelaxer as exr
+net = exr.Network.load("results/dynamic/doom_agent/untildeath_d1/best.exr")
+print(net.describe())
+```
+
+Or rebuild the playing agent from its weights:
 
 ```python
 import json, numpy as np, sys
