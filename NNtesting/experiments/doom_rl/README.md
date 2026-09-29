@@ -121,6 +121,7 @@ parameter.
 | door or lift opened | +0.5, once per door (a closed sector's ceiling rises) |
 | leaving the level | +10 (the episode ends alive before the timeout) |
 | idle | −0.005 per step while moved < 32 units over the last 20 steps |
+| closer to the exit | +w_approach (0.1 in the MAP01 runs, off by default) per 64 units of new closest walking distance to the level's exit (`exitmap.py`: exit lines from the WAD, breadth-first search around walls; doors open, heights ignored) |
 | new map square entered | +0.05 per 64 × 64-unit square not yet visited this episode (from 2026-09-29; runs saved before have none) |
 
 ## Learning

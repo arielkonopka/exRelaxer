@@ -69,7 +69,9 @@ with raw sums and amplitude 0.01; new runs record both.
   point, item +0.1, key +2, door opened +0.5, level exit +10, idle
   −0.005 per step. From D13 (2026-09-29, the user's suggestion): a new map
   square (64 units) entered +0.05, and firing costs −0.0005 per round only
-  in steps that kill nothing. Full table in the
+  in steps that kill nothing. On MAP01 also +0.1 per 64 units of new
+  closest walking distance to the exit (the user's suggestion; about
+  3600 units from the start). Full table in the
   [doom_rl README](../NNtesting/experiments/doom_rl/README.md#reward-rewardspy).
 - **Seeds**: every candidate or model is compared on the same episodes
   (`game.set_seed`); fixed validation episodes use seed 777777, fresh

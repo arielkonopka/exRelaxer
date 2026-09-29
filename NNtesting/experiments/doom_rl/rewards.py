@@ -16,6 +16,8 @@ the weights are experiment parameters (see experiment.py).
                map units over the last `idle_steps` steps
     explore    +w each time the player enters a square of the map (`explore_cell`
                map units a side) it has not been in during this episode
+    approach   +w per 64 map units by which the player gets closer to the exit
+               than it has been this episode (walking distance, exitmap.py)
 """
 import math
 from collections import deque
@@ -30,8 +32,9 @@ VARIABLES = [vzd.GameVariable.HEALTH, vzd.GameVariable.ARMOR, vzd.GameVariable.K
 
 
 class Shaper:
-    def __init__(self, weights, idle_steps, idle_distance, explore_cell=64.0):
-        self.w = {"explore": 0.0, **weights}  # older callers pass no explore weight
+    def __init__(self, weights, idle_steps, idle_distance, explore_cell=64.0, exit_field=None):
+        self.w = {"explore": 0.0, "approach": 0.0, **weights}  # older callers pass neither
+        self.exit_field = exit_field  # state -> exitmap.DistanceField, or None (no approach term)
         self.idle_steps, self.idle_distance = idle_steps, idle_distance
         self.explore_cell = explore_cell
         self.totals = {}
@@ -43,11 +46,13 @@ class Shaper:
         self.opened = set()
         self.trail = deque([(self.prev["x"], self.prev["y"])], maxlen=self.idle_steps)
         self.totals = {k: 0.0 for k in ("hurt", "death", "kill", "ammo", "fire", "armor", "item", "key", "door",
-                                        "exit", "idle", "explore")}
+                                        "exit", "idle", "explore", "approach")}
         self.counts = {k: 0 for k in ("damage", "kills", "items", "keys", "doors", "ammo_picked", "exits", "deaths",
                                       "cells")}
         self.visited = {self._cell(self.prev)}
         self.since_new = 0  # steps since the player last entered a new square
+        self.field = self.exit_field(state) if self.exit_field and self.w["approach"] else None
+        self.closest = self.field(self.prev["x"], self.prev["y"]) if self.field else None
         self.distance = 0.0
 
     @staticmethod
@@ -116,6 +121,11 @@ class Shaper:
             self.since_new = 0
         else:
             self.since_new += 1
+        if self.field is not None:
+            d = self.field(now["x"], now["y"])
+            if d < self.closest:
+                r += self._add("approach", w["approach"] * (self.closest - d) / 64.0)
+                self.closest = d
         self.prev = now
         return r
 

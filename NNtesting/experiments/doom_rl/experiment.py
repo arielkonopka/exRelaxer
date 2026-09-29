@@ -218,9 +218,23 @@ class Player:
 def make_shaper(p):
     """The reward shaper for parameters p; runs saved before the explore term
     (2026-09-29) have no w_explore and get none."""
-    names = ("hurt", "death", "kill", "ammo", "fire", "armor", "item", "key", "door", "exit", "idle", "explore")
+    names = ("hurt", "death", "kill", "ammo", "fire", "armor", "item", "key", "door", "exit", "idle", "explore",
+             "approach")
     return rewards.Shaper({k: p.get("w_" + k, 0.0) for k in names}, p["idle_steps"], p["idle_distance"],
-                          p.get("explore_cell", 64.0))
+                          p.get("explore_cell", 64.0), lambda state: exit_field(p["scenario"], state))
+
+
+_exit_fields = {}
+
+
+def exit_field(scenario, state):
+    """The walking-distance field to the level's exit (built once per map), or None without an exit."""
+    if scenario not in _exit_fields:
+        import exitmap
+        wad, name = exitmap.wad_for(scenario)
+        exits = exitmap.exit_points(wad, name) if wad else []
+        _exit_fields[scenario] = exitmap.DistanceField(state.sectors, exits) if exits else None
+    return _exit_fields[scenario]
 
 
 def play(game, player, p, episodes, lr, explore, rng, meter=False):
@@ -314,6 +328,8 @@ PARAMS = {
     "w_explore": (0.05, "reward each time the player enters a map square it has not been in this episode"),
     "stall_steps": (0, "if > 0, a game also ends after this many steps without entering a new map square "
                        "(1050 = 2 minutes); for games until death on levels where standing still is safe"),
+    "w_approach": (0.0, "reward per 64 map units of new closest walking distance to the level's exit "
+                        "(MAP01; exitmap.py)"),
     "explore_cell": (64.0, "explore: side of a map square in map units (a Doom corridor is about 64-128)"),
 }
 
