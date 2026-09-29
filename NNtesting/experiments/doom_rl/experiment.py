@@ -188,9 +188,10 @@ class Player:
             if buf is not None:
                 n = min(len(buf), STEP_SAMPLES)
                 audio[:n] = buf[-n:] / 32768.0
-        # readout "sum": the action values are the readouts summed over the
-        # step's ticks, so a hidden layer that fires early in the step still
-        # counts; "last" (settings saved before 2026-09-29): the last tick only.
+        # readout "last" (the default): the action values are the readouts at
+        # the step's last tick; "sum": summed over the step's ticks, so a hidden
+        # layer that fires early in the step still counts (without sound it is
+        # silent by the last tick).
         total = np.zeros(len(ACTIONS))
         for t in range(self.ticks):
             if self.sound:
@@ -276,7 +277,8 @@ PARAMS = {
     "ticks": (3, "network ticks per game step (the sound is split across them)"),
     "normalize": (True, "weighted sums divided by the weights' length (the library default since 2026-09-28)"),
     "spontaneous_amplitude": (0.1, "E-R spontaneous firing amplitude (the library default since 2026-09-28)"),
-    "readout": ("sum", "action values: sum (the readouts summed over the step's ticks) or last (the last tick only)"),
+    "readout": ("last", "action values: last (the last tick of the step) or sum (the readouts summed over the step's ticks; "
+                        "scores lower, doc/doom.md D11)"),
     "readout_from": ("top", "which hidden layers the readouts read: top, or all (every layer, bottom first)"),
     "rule": ("sign", "readout learning rule: sign (as in snake) or trace (traced, eligibility over recent ticks)"),
     "reward_mode": ("error", "error: learn only while the chosen readout's sign disagrees with the reward; always"),

@@ -308,6 +308,47 @@ Data: `results/dynamic/es_evolve_all_grow3.jsonl.gz`; agent in
 `results/dynamic/doom_agent/evolve_all_grow3/` (3 layers, `readout_from`
 `all`).
 
+### D11. Sound, the new defaults and how the readouts are read (2026-09-29)
+
+**Question.** Does hearing help the D9 winner (1 layer, every weight
+evolving)? And does it keep its score with the library defaults of
+2026-09-28 (normalised sums, spontaneous amplitude 0.1)?
+
+**A flaw found first.** The action values were the readouts at the last
+of the step's 6 ticks. Without sound the screen is held for all 6 ticks,
+the E-R neurons fire early and are silent by the last tick, all readouts
+read 0, and the agent always takes action 0: every candidate plays the
+same game and evolution gets no signal. With sound the audio changes every
+tick and keeps the neurons firing. So in D1–D10 sound mainly kept the
+network active at decision time. `readout` `sum` (the readouts summed
+over the step's ticks) was added so a silent-sound agent can act.
+
+**Setup.** As D9 (1 layer, `evolve` `all`, sound on unless stated, 500
+generations, one seed each), final weights tested on the same 30 fresh
+games (seed 4242).
+
+**Result.**
+
+| Library defaults | Readout | Sound | Fresh games: reward | Kills | Survives | Spikes |
+|------------------|---------|-------|---------------------|-------|----------|--------|
+| old (raw sums, amplitude 0.01) | last | yes | **+3.78** (D9) | 6.7 | 57% | 172 |
+| new | last | yes | +3.35 | 7.7 | 30% | 165 |
+| old | sum | yes | +0.99 | 7.5 | 0% | 173 |
+| new | sum | yes | −0.85 | 5.3 | 0% | 161 |
+| new | sum | no | −0.76 | 5.3 | 0% | 63 |
+
+**Conclusion.**
+- **Summing the readouts costs about 3 reward** (and all survival) with
+  either library; reading the last tick stays the default.
+- **The new defaults cost little** (+3.35 vs +3.78, one seed each; kills
+  rise, survival falls).
+- **Hearing adds nothing** where both can act (summed readouts: −0.85
+  with sound, −0.76 without), and the deaf agent fires 60% fewer spikes.
+  Sound's value so far is as a changing input that keeps E-R active,
+  not as information about monsters.
+
+Data: `results/dynamic/es_d11_*.jsonl.gz`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
@@ -315,7 +356,10 @@ Data: `results/dynamic/es_evolve_all_grow3.jsonl.gz`; agent in
   features or a larger evolved part.
 - **Where habituation matters.** It made no difference in the 2-layer
   network (D5); it has not been compared on the 1-layer winner.
-- **Sound.** No experiment has yet shown that hearing helps (D2).
+- **Sound.** No experiment has yet shown that hearing helps (D2, D11); in
+  the default setup it keeps the E-R layer active between frames. A test
+  with the sound replaced by unrelated audio of the same loudness would
+  separate the two.
 - **Baseline.** The fair reference for any temporal claim is a stateless
   network given past frames ([dynamic](dynamic.md)); it has not been run
   under evolution.
