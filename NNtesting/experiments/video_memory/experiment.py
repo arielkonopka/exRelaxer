@@ -120,8 +120,7 @@ def fa_train(p, rec, train, rng):
     read out like every frozen model. Returns the online readouts' network
     and the per-clip runner for scoring it."""
     net, layers = build(p, clips.PIXELS * (rec.window + 1), trainable=True)
-    out = net.add_layer("out", exr.LayerSpec.dense(2, False, False,
-                                                   learning_rule=exr.LearningRule.feedback_alignment().with_bias()))
+    out = net.add_layer("out", readout_spec(exr.LearningRule.feedback_alignment().with_bias()))
     net.connect(layers[-1], out)
     net.add_output(out)
     for j in range(2):
@@ -252,11 +251,18 @@ def probe(train, ytr, val, yva, test, yte):
     return float(np.mean(((test @ W + b)[:, 0] > 0) == (yte == 1)))
 
 
+def readout_spec(rule):
+    """Two plain readout neurons: raw sum + bias. The Dense builder normalises
+    by default since 2026-09-28, which would rescale the fitted weights."""
+    s = exr.LayerSpec.dense(2, False, False, learning_rule=rule)
+    s.normalize = False
+    return s
+
+
 def readout_network(W, b):
     """The trained readouts as a library layer: 2 plain neurons (raw sum + bias, clamped)."""
     net = exr.Network()
-    out = net.add_layer("out", exr.LayerSpec.dense(2, False, False,
-                                                   learning_rule=exr.LearningRule.feedback_alignment().with_bias()))
+    out = net.add_layer("out", readout_spec(exr.LearningRule.feedback_alignment().with_bias()))
     net.add_inputs(out, W.shape[0], "h")
     net.add_output(out)
     for j in range(2):
@@ -276,8 +282,7 @@ def lms_readout(train_feats, ytr, lr, epochs, rng):
     """The library's own error-driven readout training (for comparison with ridge)."""
     width = train_feats[0].shape[1]
     net = exr.Network()
-    out = net.add_layer("out", exr.LayerSpec.dense(2, False, False,
-                                                   learning_rule=exr.LearningRule.feedback_alignment().with_bias()))
+    out = net.add_layer("out", readout_spec(exr.LearningRule.feedback_alignment().with_bias()))
     net.add_inputs(out, width, "h")
     net.add_output(out)
     for j in range(2):
