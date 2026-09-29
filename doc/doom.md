@@ -17,10 +17,11 @@ findings in [§20](research.md#20-dynamic-ladder-time-varying-input-and-doom).
 |---|---|
 | Network | one hidden layer, 128 E-R neurons with fading habituation (tolerance 0.05, decay 0.9 per tick from the 2nd repeat), no feedback; 6 network ticks per game step |
 | Senses | screen 160 × 120 gray pooled 8 × 8 to 20 × 15; stereo sound through a two-ear cochlea |
-| Trained by | evolution of every weight, the hidden layer's and the 8 action readouts' (`es.py`, `evolve` `all`, [D9](#d9-evolving-every-weight-depth-1-2-and-3-on-defend_the_center-2026-09-28)) |
-| `defend_the_center` | 30 fresh games: reward +3.78 (untrained −5.05), 6.7 kills, survives 57% of games, 172 spikes per step |
+| Trained by | evolution of every weight, the hidden layer's and the 8 action readouts' (`es.py`, `evolve` `all`), first on 2-minute games ([D11](#d11-sound-the-new-defaults-and-how-the-readouts-are-read-2026-09-29)), then 300 generations on games that last until death ([D12](#d12-games-that-last-until-death-2026-09-29)) |
+| Library | defaults of 2026-09-28 (normalised sums, spontaneous amplitude 0.1); action values read at the last tick |
+| `defend_the_center` | 30 fresh games with no time limit (capped at 30 minutes): reward +16.5 (untrained −5.3), 19.8 kills, survives 21 minutes on average, lives through half of the games to the cap, 157 spikes per step |
 | `map01` | not yet tried with every weight evolving; readout-only agents explore but never exit ([D6](#d6-evolution-on-a-whole-level-map01-2026-09-28), [D7](#d7-map01-with-three-minute-episodes-2026-09-28)) |
-| Files | `results/dynamic/doom_agent/evolve_all_d1/`: `final_theta.npy`, `config.json` |
+| Files | `results/dynamic/doom_agent/untildeath_d1/`: `best_theta.npy`, `config.json` |
 
 Rebuild it in Python:
 
@@ -28,15 +29,15 @@ Rebuild it in Python:
 import json, numpy as np, sys
 sys.path.insert(0, "NNtesting/experiments/doom_rl")
 import es
-d = "results/dynamic/doom_agent/evolve_all_d1"
+d = "results/dynamic/doom_agent/untildeath_d1"
 p = json.load(open(d + "/config.json"))["params"]
-player = es.build(p, 0, np.load(d + "/final_theta.npy"))   # net seed 0
+player = es.build(p, 0, np.load(d + "/best_theta.npy"))   # net seed 0
 ```
 
-These agents were evolved before the library defaults of 2026-09-28
-(raw sums, spontaneous amplitude 0.01). Their `config.json` has no
-`normalize` or `spontaneous_amplitude`, so `doom_rl` rebuilds them that
-way; new runs record both.
+Agents evolved before the library defaults of 2026-09-28 (D1–D10, and
+`results/dynamic/doom_agent/evolve_all_d1/`) have no `normalize` or
+`spontaneous_amplitude` in their `config.json`, so `doom_rl` rebuilds them
+with raw sums and amplitude 0.01; new runs record both.
 
 ## Setup shared by all entries
 
@@ -348,6 +349,46 @@ games (seed 4242).
   not as information about monsters.
 
 Data: `results/dynamic/es_d11_*.jsonl.gz`.
+
+### D12. Games that last until death (2026-09-29)
+
+**Question.** The agents so far played games cut off at about two minutes.
+If a game lasts until the agent dies, does it learn to stay alive longer?
+
+**Setup.** Started from the D11 winner (new defaults, last-tick readout,
+sound, 1 layer, every weight evolving). `episode_tics` 63000, so a game
+ends at death or after 30 minutes. 300 generations, 12 antithetic pairs,
+3 games per candidate, σ 0.05, lr 0.02. Tested on the same 30 fresh games
+(seed 4242) with the same 30-minute cap.
+
+**Result.** Validation rose from +2.7 (first 20 generations, 8.8 kills)
+to +13.3 (last 20, 17.5 kills); the best validation was +20.3 at
+generation 295.
+
+| Agent | Reward | Kills | Deaths per game | Survives (mean) | Spikes |
+|-------|--------|-------|-----------------|-----------------|--------|
+| untrained | −5.3 | 0.8 | 1.0 | 11 s | 166 |
+| start (D11 winner) | +2.8 | 8.8 | 1.0 | 62 s | 167 |
+| final generation | +12.6 | 17.1 | 0.7 | 16 min | 159 |
+| best validation | **+16.5** | **19.8** | 0.5 | **21 min** | 157 |
+
+**Conclusion.**
+- **Survival was learnable once the games allowed it.** The start agent
+  always died in about a minute; after 300 generations the agent lives
+  to the 30-minute cap in half of the fresh games, and kills more than
+  twice as many monsters. Two-minute games gave little reward for staying
+  alive, so evolution had not selected for it.
+- The network and its activity are unchanged (157 spikes per step vs
+  167); the gain is in the weights, not in more firing.
+- Kills are probably bounded by the scenario's ammunition (the ViZDoom
+  documentation gives 26 rounds; not checked in this setup), so the long
+  games are likely about not being hit once ammunition runs out. How the
+  agent survives has not been examined.
+- One seed; the best-validation weights were picked on validation games,
+  not on the fresh ones.
+
+Data: `results/dynamic/es_d12_untildeath.jsonl.gz`, agent and test in
+`results/dynamic/doom_agent/untildeath_d1/`.
 
 ## Open questions
 
