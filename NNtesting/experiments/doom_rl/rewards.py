@@ -47,6 +47,7 @@ class Shaper:
         self.counts = {k: 0 for k in ("damage", "kills", "items", "keys", "doors", "ammo_picked", "exits", "deaths",
                                       "cells")}
         self.visited = {self._cell(self.prev)}
+        self.since_new = 0  # steps since the player last entered a new square
         self.distance = 0.0
 
     @staticmethod
@@ -112,6 +113,9 @@ class Shaper:
             self.visited.add(cell)
             r += self._add("explore", w["explore"])
             self.counts["cells"] += 1
+            self.since_new = 0
+        else:
+            self.since_new += 1
         self.prev = now
         return r
 

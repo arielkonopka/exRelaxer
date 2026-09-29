@@ -98,6 +98,7 @@ def main():
             state = None if game.is_episode_finished() else game.get_state()
             r = shaper.step(state) if state is not None else shaper.end(game)
             total += r
+            stalled = state is not None and 0 < p.get("stall_steps", 0) <= shaper.since_new
             if args.live:
                 time.sleep(max(0.0, step_seconds / args.speed - (time.time() - t0)))
             else:
@@ -106,6 +107,8 @@ def main():
                               base64.b64encode(np.packbits(fired)).decode(),
                               int(player.spikes - spikes_before), int(vars_["health"]), int(vars_["ammo"]),
                               int(vars_["kills"]), round(total, 2)])
+            if stalled:
+                break  # stall_steps without a new map square: the run's own game end
         died = bool(shaper.counts["deaths"])
         n = len(steps) - first if not args.live else None
         games.append(dict(first=first, steps=n, died=died, kills=shaper.counts["kills"], reward=round(total, 2)))

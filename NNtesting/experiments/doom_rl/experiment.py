@@ -240,6 +240,7 @@ def play(game, player, p, episodes, lr, explore, rng, meter=False):
             game.make_action(buttons[a], FRAME_SKIP)
             state = None if game.is_episode_finished() else game.get_state()
             r = shaper.step(state) if state is not None else shaper.end(game)
+            stalled = state is not None and 0 < p.get("stall_steps", 0) <= shaper.since_new
             if lr > 0:
                 # Advantage: the reward against its running mean, so a steady
                 # stream of penalties (being hurt) does not teach every action alike.
@@ -247,6 +248,8 @@ def play(game, player, p, episodes, lr, explore, rng, meter=False):
                 baseline += p["baseline"] * (r - baseline)
             total += r
             steps += 1
+            if stalled:
+                break  # no new square for stall_steps steps: the game ends here, without a death
         stats["reward"].append(total)
         for k in ("kills", "damage", "deaths", "items", "keys", "doors", "ammo_picked", "exits", "cells"):
             stats[k].append(shaper.counts[k])
@@ -309,6 +312,8 @@ PARAMS = {
     "idle_steps": (20, "idle: the window of steps (20 = 2.3 s)"),
     "idle_distance": (32.0, "idle: moved less than this many map units over the window"),
     "w_explore": (0.05, "reward each time the player enters a map square it has not been in this episode"),
+    "stall_steps": (0, "if > 0, a game also ends after this many steps without entering a new map square "
+                       "(1050 = 2 minutes); for games until death on levels where standing still is safe"),
     "explore_cell": (64.0, "explore: side of a map square in map units (a Doom corridor is about 64-128)"),
 }
 
