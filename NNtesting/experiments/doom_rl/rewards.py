@@ -5,7 +5,8 @@ the weights are experiment parameters (see experiment.py).
     hurt       -w per health point lost
     death      -w (large), once
     kill       +w per monster killed
-    ammo       +w per round picked up; firing costs -w per round (very small)
+    ammo       +w per round picked up
+    fire       -w per round fired in a step that killed nothing (very small)
     armor      +w per armor point gained
     item       +w per counted item picked up (ITEMCOUNT)
     key        +w per key card or skull key picked up
@@ -13,6 +14,8 @@ the weights are experiment parameters (see experiment.py).
     exit       +w for leaving the level (the episode ends alive, before the timeout)
     idle       -w per step while the player has moved less than `idle_distance`
                map units over the last `idle_steps` steps
+    explore    +w each time the player enters a square of the map (`explore_cell`
+               map units a side) it has not been in during this episode
 """
 import math
 from collections import deque
@@ -27,9 +30,10 @@ VARIABLES = [vzd.GameVariable.HEALTH, vzd.GameVariable.ARMOR, vzd.GameVariable.K
 
 
 class Shaper:
-    def __init__(self, weights, idle_steps, idle_distance):
-        self.w = weights
+    def __init__(self, weights, idle_steps, idle_distance, explore_cell=64.0):
+        self.w = {"explore": 0.0, **weights}  # older callers pass no explore weight
         self.idle_steps, self.idle_distance = idle_steps, idle_distance
+        self.explore_cell = explore_cell
         self.totals = {}
 
     def reset(self, state):
@@ -39,8 +43,10 @@ class Shaper:
         self.opened = set()
         self.trail = deque([(self.prev["x"], self.prev["y"])], maxlen=self.idle_steps)
         self.totals = {k: 0.0 for k in ("hurt", "death", "kill", "ammo", "fire", "armor", "item", "key", "door",
-                                        "exit", "idle")}
-        self.counts = {k: 0 for k in ("damage", "kills", "items", "keys", "doors", "ammo_picked", "exits", "deaths")}
+                                        "exit", "idle", "explore")}
+        self.counts = {k: 0 for k in ("damage", "kills", "items", "keys", "doors", "ammo_picked", "exits", "deaths",
+                                      "cells")}
+        self.visited = {self._cell(self.prev)}
         self.distance = 0.0
 
     @staticmethod
@@ -52,6 +58,9 @@ class Shaper:
     @staticmethod
     def _keys(state):
         return sum(o.name in KEYS for o in state.objects)
+
+    def _cell(self, v):
+        return (math.floor(v["x"] / self.explore_cell), math.floor(v["y"] / self.explore_cell))
 
     def _add(self, name, value):
         self.totals[name] += value
@@ -66,15 +75,16 @@ class Shaper:
         if lost > 0:
             r += self._add("hurt", -w["hurt"] * lost)
             self.counts["damage"] += lost
-        if now["kills"] > self.prev["kills"]:
+        killed = now["kills"] > self.prev["kills"]
+        if killed:
             r += self._add("kill", w["kill"] * (now["kills"] - self.prev["kills"]))
             self.counts["kills"] += int(now["kills"] - self.prev["kills"])
         ammo = now["ammo"] - self.prev["ammo"]
         if ammo > 0:
             r += self._add("ammo", w["ammo"] * ammo)
             self.counts["ammo_picked"] += int(ammo)
-        elif ammo < 0:
-            r += self._add("fire", w["fire"] * ammo)
+        elif ammo < 0 and not killed:
+            r += self._add("fire", w["fire"] * ammo)  # a miss; a shot that kills costs nothing
         if now["armor"] > self.prev["armor"]:
             r += self._add("armor", w["armor"] * (now["armor"] - self.prev["armor"]))
         if now["items"] > self.prev["items"]:
@@ -97,6 +107,11 @@ class Shaper:
             x0, y0 = self.trail[0]
             if math.hypot(now["x"] - x0, now["y"] - y0) < self.idle_distance:
                 r += self._add("idle", -w["idle"])
+        cell = self._cell(now)
+        if cell not in self.visited:
+            self.visited.add(cell)
+            r += self._add("explore", w["explore"])
+            self.counts["cells"] += 1
         self.prev = now
         return r
 

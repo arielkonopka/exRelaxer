@@ -215,13 +215,19 @@ class Player:
             self.net.apply_reward_to(self.readouts[action], reward, lr)
 
 
+def make_shaper(p):
+    """The reward shaper for parameters p; runs saved before the explore term
+    (2026-09-29) have no w_explore and get none."""
+    names = ("hurt", "death", "kill", "ammo", "fire", "armor", "item", "key", "door", "exit", "idle", "explore")
+    return rewards.Shaper({k: p.get("w_" + k, 0.0) for k in names}, p["idle_steps"], p["idle_distance"],
+                          p.get("explore_cell", 64.0))
+
+
 def play(game, player, p, episodes, lr, explore, rng, meter=False):
-    shaper = rewards.Shaper({k: p["w_" + k] for k in ("hurt", "death", "kill", "ammo", "fire", "armor", "item",
-                                                      "key", "door", "exit", "idle")},
-                            p["idle_steps"], p["idle_distance"])
+    shaper = make_shaper(p)
     buttons = np.eye(len(ACTIONS), dtype=int).tolist()
     stats = {k: [] for k in ("reward", "kills", "damage", "deaths", "items", "keys", "doors", "ammo_picked", "exits",
-                             "distance", "steps")}
+                             "cells", "distance", "steps")}
     parts = {}
     baseline = 0.0
     for _ in range(episodes):
@@ -242,7 +248,7 @@ def play(game, player, p, episodes, lr, explore, rng, meter=False):
             total += r
             steps += 1
         stats["reward"].append(total)
-        for k in ("kills", "damage", "deaths", "items", "keys", "doors", "ammo_picked", "exits"):
+        for k in ("kills", "damage", "deaths", "items", "keys", "doors", "ammo_picked", "exits", "cells"):
             stats[k].append(shaper.counts[k])
         stats["distance"].append(shaper.distance)
         stats["steps"].append(steps)
@@ -292,7 +298,8 @@ PARAMS = {
     "w_death": (5.0, "penalty for dying"),
     "w_kill": (1.0, "reward per kill"),
     "w_ammo": (0.02, "reward per round of ammo picked up"),
-    "w_fire": (0.001, "penalty per round fired (spent)"),
+    "w_fire": (0.0005, "penalty per round fired in a step that killed nothing (was 0.001 on every round "
+                       "before 2026-09-29)"),
     "w_armor": (0.01, "reward per armor point gained"),
     "w_item": (0.1, "reward per counted item picked up"),
     "w_key": (2.0, "reward per key"),
@@ -301,6 +308,8 @@ PARAMS = {
     "w_idle": (0.005, "penalty per step while idle"),
     "idle_steps": (20, "idle: the window of steps (20 = 2.3 s)"),
     "idle_distance": (32.0, "idle: moved less than this many map units over the window"),
+    "w_explore": (0.05, "reward each time the player enters a map square it has not been in this episode"),
+    "explore_cell": (64.0, "explore: side of a map square in map units (a Doom corridor is about 64-128)"),
 }
 
 

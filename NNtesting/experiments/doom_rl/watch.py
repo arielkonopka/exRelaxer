@@ -64,7 +64,6 @@ def main():
     import vizdoom as vzd
     import es
     import experiment as e
-    import rewards
 
     p, net_seed, theta, theta_path = load_agent(args.agent, args.theta)
     if args.minutes > 0:
@@ -72,9 +71,7 @@ def main():
     import exrelaxer as exr
     exr.set_threads(1)
     game = e.make_game(p, args.seed, visible=args.live)
-    shaper = rewards.Shaper({k: p["w_" + k] for k in ("hurt", "death", "kill", "ammo", "fire", "armor", "item",
-                                                      "key", "door", "exit", "idle")},
-                            p["idle_steps"], p["idle_distance"])
+    shaper = e.make_shaper(p)
     buttons = np.eye(len(e.ACTIONS), dtype=int).tolist()
     rng = np.random.default_rng(0)
     ammo = [getattr(vzd.GameVariable, f"AMMO{i}") for i in range(10)]
