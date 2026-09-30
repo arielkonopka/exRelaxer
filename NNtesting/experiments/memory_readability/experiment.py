@@ -23,13 +23,19 @@ Readouts, all at the query tick, from the same episodes (same seed):
     C  output+state   both
     E  eligibility    the Sign rule's eligibility (threshold / rest - 1, 0 at or below rest)
     S  state_before   the thresholds at the end of the blank, before the query
+    H  habituation    the habituation streaks after the query tick
+    D  output_tap     everything a downstream neuron reads when a State layer
+                      is added: outputs, thresholds above rest and streaks
 
 Each is fitted two ways: ridge regression (the best linear readout, fitted
 offline; penalty on a validation split) and an online readout layer trained
 by the library's own error rule (apply_error, feedback alignment on an
 output layer = the delta rule, with a bias) over standardised features.
-The state readouts (B, C, E, S) are an experimental probe: in the
-library, downstream neurons only ever read outputs.
+B, C, H and D are read from the network's own outputs through a State
+layer on the hidden layer (LayerSpec.state, doc/model.md#state-as-output):
+the thresholds as threshold - rest and the habituation streaks as
+min(streak / onset, 1), so a downstream neuron could read exactly these. E
+and S come from the probe. Without habituation (the default) H is all 0.
 
     stored    = ridge on S or B (the information is in the state)
     readable  = ridge on A (a downstream linear neuron could read it)
@@ -45,21 +51,26 @@ import exrelaxer as exr
 from exrelaxer import harness as nnt
 
 LAMBDAS = (1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0)
-READOUTS = ("output", "state", "output_state", "eligibility", "state_before")
+READOUTS = ("output", "state", "output_state", "eligibility", "state_before", "habituation", "output_tap")
 
 
 def build(p):
     er = p["model"] in ("er", "reset")
-    spec = exr.LayerSpec.dense(p["width"], False, er, frozen=True)
+    spec = exr.LayerSpec.dense(p["width"], bool(p["habituation"]), er, frozen=True)
     spec.normalize = False
+    if p["habituation"]:
+        spec.habituation_rule = exr.Habituation(steps=p["hab_steps"], tolerance=p["hab_tolerance"])
     if er and p["recovery"] != exr.constants.recovery_factor:
         spec.recovery_jitter = exr.Jitter.uniform(1e-7).around(p["recovery"])
     if not er:
         spec.rectify = True
     net = exr.Network()
     h = net.add_layer("h", spec)
+    tap = net.add_layer("h_state", exr.LayerSpec.state())
     net.add_inputs(h, 3, "x")
+    net.connect(h, tap)
     net.add_output(h)
+    net.add_output(tap)  # outputs(): h, then (threshold - rest, streak) per neuron
     return net, h
 
 
@@ -143,11 +154,14 @@ def episodes(net, h, p, n, rng):
         net.set_inputs("x", q)
         net.step()
         s = net.state_probe(h)
-        out = np.asarray(s["output"], np.float64)
-        thr = np.asarray(s["threshold"], np.float64)
+        seen = np.asarray(net.outputs(), np.float64)
+        w = p["width"]
+        out, thr, hab = seen[:w], seen[w::2], seen[w + 1::2]
         feats["output"].append(out)
         feats["state"].append(thr)
         feats["output_state"].append(np.concatenate([out, thr]))
+        feats["habituation"].append(hab)
+        feats["output_tap"].append(seen)
         feats["eligibility"].append(np.asarray(s["eligibility"], np.float64))
         feats["state_before"].append(before)
     return labels, {k: np.array(v) for k, v in feats.items()}, float(np.mean(fired_event))
@@ -162,6 +176,9 @@ def episodes(net, h, p, n, rng):
         "blank": (4, "blank ticks between the event and the query"),
         "width": (64, "hidden neurons"),
         "recovery": (0.9, "E-R recovery (threshold decay per silent tick)"),
+        "habituation": (0, "1: the hidden neurons have habituation"),
+        "hab_steps": (100, "habituation: streak length before the input is cut"),
+        "hab_tolerance": (0.0, "habituation: relative tolerance of \"the same signal\""),
         "noise": (0.05, "Gaussian input noise (sd) on every input, every tick"),
         "train": (400, "training episodes"),
         "val": (200, "validation episodes (ridge penalty)"),
@@ -188,8 +205,9 @@ def run(t):
     t.record("chance", max(np.mean(yte), 1 - np.mean(yte)))  # 0.5 by construction
     t.record("fired_at_event", fired)
     t.record("query_output_active", np.mean(np.abs(fte["output"]) > exr.constants.firing_epsilon))
+    t.record("query_habituated", np.mean(fte["habituation"] >= 1.0))
     # How different the two classes' states are (mean over neurons of |mean LEFT - mean RIGHT| / pooled sd).
-    for key in ("output", "state"):
+    for key in ("output", "state", "habituation"):
         a, b = fte[key][yte == 1], fte[key][yte == 0]
         sd = np.sqrt(0.5 * (a.var(0) + b.var(0))) + 1e-3  # floor: noiseless states have sd 0
         t.record(f"separation_{key}", np.mean(np.abs(a.mean(0) - b.mean(0)) / sd))

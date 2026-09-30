@@ -91,7 +91,23 @@ def targets(label):
 class FullRecorder(vm.Recorder):
     """video_memory's Recorder, keeping every tick of the clip (the eligibility
     trace needs the activity before the blank) and the state at the end of the
-    readout interval."""
+    readout interval.
+
+    readout_inputs=output_state: a State layer on the top hidden layer
+    (LayerSpec.state, doc/model.md#state-as-output) is added as the last
+    output, and the readouts read the top layer's outputs followed by its
+    (threshold - rest, habituation streak) per neuron: 3 * width inputs."""
+
+    def __init__(self, p, gap):
+        super().__init__(p, gap)
+        self.features = self.width
+        if p["readout_inputs"] == "output_state":
+            tap = self.net.add_layer("top_state", exr.LayerSpec.state())
+            self.net.connect(self.layers[-1], tap)
+            self.net.add_output(tap)
+            self.features = 3 * self.width
+        elif p["readout_inputs"] != "output":
+            raise ValueError("readout_inputs must be output or output_state")
 
     def clip(self, frames, info):
         x = vm.windowed(frames, self.window).astype(np.float32)
@@ -106,7 +122,7 @@ class FullRecorder(vm.Recorder):
             thr_before = self.thresholds()
         blank = np.concatenate(blank) if blank else np.zeros((0, vis.shape[1]), np.float32)
         read = self.run_frames(x[v + g:])
-        top = slice(-self.width, None)
+        top = slice(-self.features, None)
         rec = dict(
             ticks=np.concatenate([vis, blank, read])[:, top].astype(np.float32),
             lead=(v + g) * t,
@@ -116,10 +132,11 @@ class FullRecorder(vm.Recorder):
             spikes_visible=np.count_nonzero(np.abs(vis) > EPS) / v,
         )
         if self.er:
-            rec["thr_before"] = thr_before[top]
-            rec["thr_pre"] = thr_pre[top]
-            rec["thr_end"] = self.thresholds()[top]
-            rec["prediction_state"] = np.concatenate([rec["thr_end"], read[:, top].mean(0)])
+            last = slice(-self.width, None)  # the top layer's thresholds
+            rec["thr_before"] = thr_before[last]
+            rec["thr_pre"] = thr_pre[last]
+            rec["thr_end"] = self.thresholds()[last]
+            rec["prediction_state"] = np.concatenate([rec["thr_end"], read[:, last].mean(0)])
         else:
             rec["prediction_state"] = read[:, top].mean(0)
         return rec
@@ -275,7 +292,9 @@ def credit(t, prefix, W0, W, recs, labels, trace, ridge_w, dump, error_at):
     elig = np.array([eligible(r, trace, error_at) for r in recs])
     sel["eligibility"] = selectivity(elig, labels)
     for name, s in sel.items():
-        t.record(f"{prefix}_corr_dw_{name}", corr(dw, s))
+        # readout_inputs=output_state: the per-neuron selectivities cover the
+        # outputs only, the first third of the weights
+        t.record(f"{prefix}_corr_dw_{name}", corr(dw[:len(s)], s))
         if prefix == "t0":   # once per trial: how many neurons carry the direction, and when
             t.record(f"neurons_selective_{name}", int(np.sum(np.abs(s) > 0.5)))
     t.record(f"{prefix}_corr_dw_ridge", corr(dw, ridge_w))
@@ -370,6 +389,8 @@ def hidden_train(p, rec, train, rng, gap):
         "hidden_trace": (0.0, "mode=hidden: the hidden layer's input-trace decay per tick"),
         "hidden_lr": (0.01, "mode=hidden: learning rate"),
         "hidden_epochs": (10, "mode=hidden: epochs of the joint training"),
+        "readout_inputs": ("output", "output, or output_state: the readouts also read the top layer's thresholds "
+                                     "and habituation streaks through a State layer"),
         "credit": (True, "record credit-assignment diagnostics"),
         "dump": ("", "if set, a directory for per-neuron diagnostics (npz)"),
     },
@@ -416,7 +437,7 @@ def run(t):
     # standard deviation over the training readout ticks (a fixed gain per
     # synapse, from the training clips only), or 1. The ridge readout and the
     # probes standardise their features anyway and do not change.
-    width = rec.width
+    width = rec.features
     gain = np.ones(width, np.float32)
     if p["input_gain"] == "sd":
         sd = np.concatenate([r["readout"] for r in splits["train"][0]]).std(0)

@@ -8,6 +8,7 @@
 #include "pool2d.hpp"
 #include "resize2d.hpp"
 #include "retina.hpp"
+#include "state_tap.hpp"
 #include <stdexcept>
 #include <string>
 
@@ -46,6 +47,9 @@ layer_factory::layer_factory()
     });
     registerType(LayerType::Disparity, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
         return std::make_unique<disparity>(spec.disparity);
+    });
+    registerType(LayerType::State, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
+        return std::make_unique<state_tap>(spec.hasER, spec.hasHabituation);
     });
 }
 

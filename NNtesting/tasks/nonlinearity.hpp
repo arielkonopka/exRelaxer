@@ -229,7 +229,7 @@ public:
     Mlp(const std::string& model, size_t inputs, size_t depth, size_t width, float gate,
         const ThresholdGrowth& growth = {}, const Spontaneous& spontaneous = {},
         std::optional<Habituation> habituation = std::nullopt, bool normalize = false,
-        bool normalizeReadout = false)
+        bool normalizeReadout = false, bool stateReadout = false)
         : model_(model == "linear" ? "clamp" : model == "er_memoryless" ? "er" : model),
           memoryless_(model == "er_memoryless"), inputs_(inputs), depth_(depth), width_(width)
     {
@@ -261,12 +261,22 @@ public:
         for (size_t l = 1; l < depth; ++l)
             net_.connect(hidden_[l - 1], hidden_[l]);
         net_.connect(hidden_.back(), out_);
+        // stateReadout: the readout also reads the last hidden layer's state
+        // through a State layer (its thresholds above rest with E-R, its
+        // habituation streaks with habituation; doc/model.md#state-as-output).
+        const bool tapThreshold = stateReadout && model_ == "er", tapHabituation = stateReadout && habituation;
+        if (tapThreshold || tapHabituation) {
+            const auto tap = net_.addLayer("h_state", LayerSpec::State(tapThreshold, tapHabituation));
+            net_.connect(hidden_.back(), tap);
+            net_.connect(tap, out_);
+            readoutInputs_ = width * (1 + static_cast<size_t>(tapThreshold) + static_cast<size_t>(tapHabituation));
+        }
         net_.addOutput(out_);
         // One initialization for every model: the library's uniform [-1, 1]
         // draw, scaled to variance 1 / fan-in.
         for (size_t l = 0; l <= depth; ++l) {
             auto& d = net_.layerAs<dense>(l < depth ? hidden_[l] : out_);
-            const size_t fanIn = l == 0 ? inputs : width;
+            const size_t fanIn = l == 0 ? inputs : l < depth ? width : readoutInputs_;
             const float scale = std::sqrt(3.0f / static_cast<float>(fanIn));
             for (size_t i = 0; i < d.size(); ++i) {
                 std::vector<float> w = d.weights(i);
@@ -281,9 +291,12 @@ public:
     size_t width() const { return width_; }
     size_t hiddenNeurons() const { return depth_ * width_; }
     // Trainable: every weight and bias, output layer included.
-    size_t parameters() const { return inputs_ * width_ + width_ + (depth_ - 1) * (width_ * width_ + width_) + width_ + 1; }
+    size_t parameters() const
+    {
+        return inputs_ * width_ + width_ + (depth_ - 1) * (width_ * width_ + width_) + readoutInputs_ + 1;
+    }
     // Weighted inputs computed per tick by a dense implementation.
-    size_t denseSynops() const { return inputs_ * width_ + (depth_ - 1) * width_ * width_ + width_; }
+    size_t denseSynops() const { return inputs_ * width_ + (depth_ - 1) * width_ * width_ + readoutInputs_; }
     // Ticks for an input to reach the output, plus `settle`.
     size_t hold(size_t settle) const { return depth_ + 1 + settle; }
     network& net() { return net_; }
@@ -413,6 +426,7 @@ private:
     std::string model_;
     bool memoryless_ = false;
     size_t inputs_, depth_, width_;
+    size_t readoutInputs_ = width_;  // the readout's fan-in: the last hidden layer, plus its State layer
     network net_;
     std::vector<network::LayerId> hidden_;
     network::LayerId out_ = 0;

@@ -22,7 +22,8 @@ enum class LayerType : std::uint8_t {
     Cochlea = 5,
     History = 6,
     Resize2D = 7,
-    Disparity = 8
+    Disparity = 8,
+    State = 9
 };
 
 // Layout of a layer's output: channels x height x width, channel-major
