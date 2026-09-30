@@ -20,11 +20,13 @@ namespace exr {
 //   net.addLayer("spectrogram", LayerSpec::History(32));
 //   net.addLayer("fit", LayerSpec::Resize2D(32, 32));
 //   net.addLayer("depth", LayerSpec::Disparity({.minDisparity = 0, .maxDisparity = 8}));
+//   net.addLayer("h_state", LayerSpec::State());  // then net.connect(h, h_state)
 struct LayerSpec
 {
     LayerType type = LayerType::Dense;
     size_t size = 0;             // Dense: neurons at construction; Conv2D, LocallyConnected2D: output channels;
                                  // History: ticks remembered
+                                 // State: the fields, a bit mask (1 output, 2 threshold, 4 habituation)
     bool hasHabituation = true;
     bool hasER = true;
     bool frozen = false;         // network::applyReward skips frozen layers (see network::freeze)
@@ -95,6 +97,13 @@ struct LayerSpec
         LayerSpec s{LayerType::Resize2D, 0, false, false};
         s.resize = {height, width, interpolation};
         return s;
+    }
+    // Experimental: a neuron layer's output, threshold and habituation
+    // streak per neuron, three values by default (see state_tap.hpp and
+    // doc/state_output.md).
+    static LayerSpec State(bool output = true, bool threshold = true, bool habituation = true)
+    {
+        return {LayerType::State, (output ? 1u : 0u) | (threshold ? 2u : 0u) | (habituation ? 4u : 0u), false, false};
     }
     static LayerSpec Disparity(const DisparitySpec& disparity)
     {

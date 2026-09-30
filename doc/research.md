@@ -1649,6 +1649,108 @@ Data: [`results/delayed-credit/`](../results/delayed-credit/),
 [`results/memory-readability/`](../results/memory-readability/); commands
 in each experiment's `sweep.sh`.
 
+## 26. State as output
+
+The user asked (2026-09-30) whether the threshold and the habituation
+counter should also be outputs, and to evaluate it on every test except
+Doom; then that the output has three values, documented separately. The
+State layer ([state output](state_output.md)) does this without touching
+the neuron: per neuron of one source layer it outputs the output, the
+threshold above rest θ − ρ and the habituation streak min(c / onset, 1),
+and any layer can read it. Hypothesis (from §25): the threshold holds an
+event long after the outputs have stopped showing it, so readers that
+see it can use that memory; the streak says when the input last changed.
+
+Each benchmark was run with and without the State layer, from the same
+seeds, with its readout or learner unchanged (tables in
+[`results/state-output/summary.md`](../results/state-output/summary.md)).
+
+**memory_readability** (20 seeds, noise 0.05). Outputs + State against
+outputs, balanced accuracy:
+
+| readout | recovery 0.9, blank 8 | 16 | 32 | 64 | recovery 0.99, blank 32 | 64 | 128 |
+|---|---|---|---|---|---|---|---|
+| ridge, outputs | 0.94 | 0.89 | 0.80 | 0.69 | 0.99 | 0.96 | 0.95 |
+| ridge, outputs + State | 1.00 | 0.96 | 0.93 | 0.77 | 1.00 | 1.00 | 0.99 |
+| online, outputs | 0.85 | 0.74 | 0.67 | 0.59 | 0.83 | 0.87 | 0.78 |
+| online, outputs + State | 0.96 | 0.92 | 0.87 | 0.71 | 0.91 | 0.95 | 0.95 |
+| habituation streak alone (either readout) | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 |
+
+The streak is at chance at every blank ≥ 1: it records that the input
+changed at the query, which is the same for both classes.
+
+**video_memory_learned** (10 seeds, E0, readouts on the top layer):
+
+| readout | recovery 0.9, gap 1 | 4 | 16 | recovery 0.99, gap 1 | 4 | 16 |
+|---|---|---|---|---|---|---|
+| ridge, outputs | 0.55 | 0.49 | 0.49 | 0.72 | 0.72 | 0.71 |
+| ridge, outputs + State | 0.67 | 0.59 | 0.50 | 0.90 | 0.88 | 0.75 |
+| online immediate, outputs | 0.49 | 0.50 | 0.50 | 0.52 | 0.51 | 0.50 |
+| online immediate, outputs + State | 0.54 | 0.53 | 0.50 | **0.87** | **0.83** | **0.67** |
+| online trace 0.99, outputs + State | 0.51 | 0.50 | 0.50 | 0.68 | 0.66 | 0.49 |
+
+At recovery 0.99 the plain online delta rule, which was at chance on the
+outputs in §22, reaches 0.83–0.87 with no eligibility trace and no hidden
+learning: the reader now sees at the prediction what the probe saw.
+
+**delayed_credit** (10 seeds). Each input also drives a frozen E-R relay
+neuron, and the learner reads the inputs plus the relays' thresholds
+(State, thresholds only). With the Sign rule at lr 0.001 (at 0.01 its
+large steps push irrelevant weights onto the ±10 clamp):
+
+| learner reads | d = 0 | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|---|
+| inputs (§25) | 1.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| + relay thresholds, recovery 0.9 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0 | 0.0 | 0.0 |
+| + relay thresholds, recovery 0.99 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 |
+
+The horizon is where the cue relay's threshold falls back to rest:
+0.6 · rᵈ > 0.2 gives *d* < 10 at r = 0.9 and *d* < 109 at 0.99, and the
+table breaks exactly between 8 and 16 at 0.9. The Sign rule credits
+sign(θ − ρ), positive only for relays that fired recently, so the credit
+reaches the right synapse however late the reward. The trace rule gains
+too: the learned response gap between the rewarded and punished cue at
+*d* = 32 is 0.1 without and 16.2 with the relays (recovery 0.99); its
+strict success is noisier (both halves of its weights saturate).
+
+**nl_temporal and dyn_ladder** (10 seeds, readout trained end to end by
+feedback alignment; learning rate 0.001 / 0.003 / 0.01 picked on
+validation):
+
+| task | outputs | outputs + State |
+|---|---|---|
+| t1 x(t) XOR x(t−1) | 0.95 ± 0.09 | 0.98 ± 0.02 |
+| t1 with habituation (cut after 2 repeats) | 0.50 ± 0.00 | **1.00 ± 0.00** |
+| t2 x(t) AND NOT x(t−3) | 0.74 | 0.74 |
+| t3 parity of 3 | 0.75 ± 0.12 | 0.55 ± 0.08 |
+| t4 sin(x(t)·x(t−2)), R² | < 0 | < 0 |
+| dyn_ladder change | 0.91 ± 0.05 | 0.96 ± 0.02 (spikes 75 → 56) |
+| dyn_ladder catch | 0.22 ± 0.03 | 0.25 ± 0.04 |
+| dyn_ladder vel, R² | −0.04 ± 0.07 | 0.07 ± 0.03 |
+| dyn_ladder dir | 0.57 ± 0.04 | 0.53 ± 0.01 |
+
+With habituation the held input is cut from the outputs (the output-only
+readout falls to chance) but the thresholds keep the last step, and the
+readout reading them solves t1 in every seed. A ReLU control with
+habituation, whose State layer can carry only the streak, stays at 0.50:
+it is the threshold, not the streak, that carries the step. Parity and
+motion direction get worse with the extra inputs at the same learning
+rates.
+
+- **The threshold is a useful output; the streak is not, on these
+  tasks.** Wherever the outputs have lost an event (a blank, a delay, a
+  suppressed input), reading θ − ρ recovers most of what the probe finds,
+  and learning rules without memory of their own (the online delta rule,
+  the Sign rule) can use it directly.
+- **It turns E-R's threshold into an eligibility-like input**: the Sign
+  rule's delayed-credit horizon goes from 0 to the relay's recovery time
+  (8 ticks at 0.9, 64+ at 0.99), without changing the rule.
+- **Not free**: 2 extra inputs per neuron; parity-3 and motion direction
+  lose 4–20 points at the same learning rates.
+
+Data: [`results/state-output/`](../results/state-output/); commands in
+`NNtesting/tools/state_output_sweep.sh`.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -1772,8 +1874,23 @@ in each experiment's `sweep.sh`.
     synapse only through a trace, for about 4 ticks. The Sign rule's
     horizon is 0 whatever the recovery.
 
+22. **Reading the threshold makes E-R memory usable** (§26). A State
+    layer that outputs the threshold above rest (with the output and the
+    habituation streak) lets downstream readers use what the outputs lost:
+    the online delta rule reads a blanked video direction at 0.83–0.87
+    (0.51 on outputs), the Sign rule credits a reward 64 ticks late
+    (horizon 0 on inputs), and a habituated network solves delayed XOR
+    (1.00 against 0.50). The habituation streak adds nothing on these
+    tasks, and the extra inputs cost a few points where the outputs
+    already suffice.
+
 ## Open questions and next steps
 
+- **State output in hidden layers and Doom** (§26): the State layer was
+  tested only in front of readouts and one learning neuron. Next: a hidden
+  layer reading another layer's State layer, the learning-rate retuning
+  that parity and direction may need, and then (per the protocol) a Doom
+  run with the readouts reading the State layer.
 - **Credit beyond 4 ticks** (§25): the trace rule's horizon is set by the
   λ²ᵈ decay against distractor drift. Hypotheses to test in
   `delayed_credit` before any new rule: a reward baseline, a smaller

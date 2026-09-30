@@ -107,13 +107,15 @@ public:
 | `LayerType::History` | `history(spec.size)` |
 | `LayerType::Resize2D` | `resize2d(spec.resize)` |
 | `LayerType::Disparity` | `disparity(spec.disparity)` |
+| `LayerType::State` | `state_tap(output, threshold, habituation)` from the bits of `spec.size` (1, 2, 4) |
 
 `LayerSpec` has a builder per type that fills the fields it uses:
 `LayerSpec::Dense(size)`, `Conv2D(channels, window)`,
 `LocallyConnected2D(channels, window)`, `Pool2D(window, mode)`,
 `Retina(retinaSpec)`, `Cochlea(cochleaSpec)`, `History(length)` (see
 [audio](audio.md)), `Resize2D(height, width, interpolation)` and
-`Disparity(disparitySpec)` (see [multimodal](multimodal.md)). Fields a type does not use are ignored. `size` is the
+`Disparity(disparitySpec)` (see [multimodal](multimodal.md)) and
+`State(output, threshold, habituation)` (see [state output](state_output.md)). Fields a type does not use are ignored. `size` is the
 neuron count for Dense, the output channels for Conv2D and
 LocallyConnected2D, and the ticks remembered for History.
 

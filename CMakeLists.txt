@@ -70,6 +70,8 @@ add_library(exrelaxer_core STATIC
     core/layers/cochlea.hpp
     core/layers/history.cpp
     core/layers/history.hpp
+    core/layers/state_tap.cpp
+    core/layers/state_tap.hpp
     core/layers/resize2d.cpp
     core/layers/resize2d.hpp
     core/layers/disparity.cpp
@@ -171,6 +173,7 @@ add_executable(exrelaxer_tests
     tests/snake.cpp
     tests/temporal.cpp
     tests/traces.cpp
+    tests/state_tap.cpp
 )
 
 target_link_libraries(exrelaxer_tests PRIVATE

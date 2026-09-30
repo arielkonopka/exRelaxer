@@ -76,6 +76,8 @@ nnt::Register experiment({
         {"depth", "1", "hidden layers"},
         {"width", "32", "neurons per hidden layer"},
         {"lr", "0.003", "learning rate"},
+        {"state_readout", "false", "the readout also reads the last hidden layer's E-R thresholds through a State "
+                                   "layer (doc/model.md)"},
         {"settle", "1", "extra ticks per step after the input reaches the output"},
         {"train", "20000", "maximum training steps"},
         {"eval_every", "2000", "training steps between validation checks"},
@@ -102,7 +104,8 @@ nnt::Register experiment({
         const size_t depth = static_cast<size_t>(p.getInt("depth")), width = static_cast<size_t>(p.getInt("width"));
         const float lr = static_cast<float>(p.getDouble("lr"));
         Mlp net(model, inputs, depth, width, static_cast<float>(p.getDouble("gate")),
-                er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")));
+                er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), {}, std::nullopt,
+                false, false, p.getBool("state_readout"));
         const size_t hold = net.hold(static_cast<size_t>(p.getInt("settle")));
         const size_t warmup = isCatch ? 0 : std::max<size_t>(static_cast<size_t>(p.getInt("warmup")), window + 1);
 

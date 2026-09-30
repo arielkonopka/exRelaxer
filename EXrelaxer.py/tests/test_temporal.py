@@ -76,3 +76,26 @@ def test_same_seed_same_result_and_thread_count_does_not_matter():
 
 def test_build_info_names_the_kernel_variant():
     assert "simd" in exr.build_info()
+
+
+def test_state_layer_outputs_output_threshold_above_rest_and_habituation():
+    exr.reseed(3)
+    net = exr.Network()
+    spec = exr.LayerSpec.dense(5, True, True)
+    spec.habituation_rule = exr.Habituation(steps=4)
+    h = net.add_layer("h", spec)
+    tap = net.add_layer("h_state", exr.LayerSpec.state())
+    net.add_inputs(h, 3, "x")
+    net.connect(h, tap)
+    net.add_output(tap)
+    x = np.array([1.0, -0.5, 0.25], np.float32)
+    for _ in range(8):  # the same input: streaks run past the onset
+        net.set_inputs("x", x)
+        net.step()
+        s = net.state_probe(h)
+        out = np.asarray(net.outputs())
+        assert out.shape == (15,)  # three values per neuron
+        np.testing.assert_array_equal(out[0::3], s["output"])
+        np.testing.assert_array_equal(out[1::3], s["threshold"] - s["resting_threshold"])
+        np.testing.assert_array_equal(out[2::3], np.minimum(s["habituation_streak"] / 4.0, 1.0).astype(np.float32))
+    assert np.all(out[2::3] == 1.0)

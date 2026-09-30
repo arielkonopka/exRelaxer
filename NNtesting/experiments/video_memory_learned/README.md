@@ -116,3 +116,11 @@ activity before the readout interval), `_dw_share_top_visible` (the share of
 |Δw| on the 10% most selective neurons before the blank), and
 `neurons_selective_*` (neurons with |d′| > 0.5). `dump=DIR` saves the
 per-neuron arrays.
+
+## State layer
+
+`readout_inputs=output_state`: the readouts read the top hidden layer's
+outputs and its thresholds and habituation streaks through a State layer
+([doc/state_output.md](../../../doc/state_output.md)), 3 × width inputs.
+The per-neuron credit diagnostics then cover the output weights only.
+Results: research log §26.

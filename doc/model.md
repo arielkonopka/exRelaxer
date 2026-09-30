@@ -302,7 +302,8 @@ How far this reaches in practice is measured by the
 ## Inspecting the state
 
 Read-only probes, for experiments; nothing reads them back into the
-network, and the default outputs do not include them:
+network (unless a State layer is added, below), and the default outputs do
+not include them:
 
 | C++ | Python | Value |
 |---|---|---|
@@ -314,6 +315,15 @@ network, and the default outputs do not include them:
 | `neuron::habituationStreak()`, `previousInput()` | `["habituation_streak"]`, `["previous_input"]` | c(*t*), p(*t*) |
 | `dense::lastInputs(i)` | `last_inputs(l, i)` | x(*t*) as summed |
 | `dense::inputTrace(i)` | `input_trace(l, i)` | X(*t*) |
+
+## State as output
+
+Experimental, opt-in: a State layer (`LayerSpec::State()`, Python
+`LayerSpec.state()`) outputs three values per neuron of one source layer:
+its output y(*t*), its threshold above rest θ(*t*) − ρ and its habituation
+streak min(c(*t*) / onset, 1), so downstream layers can read the state. It
+runs after its source (forward readers see *t*, feedback readers *t*−1).
+Definition, usage and evaluation: [state output](state_output.md).
 
 ## Determinism
 
@@ -333,4 +343,5 @@ other than those the update order creates; backpropagation, through layers
 or through time; a refractory period separate from the E-R threshold; a
 threshold that relaxes towards ρ (it relaxes towards 0); reward storage or
 reward prediction inside the library; any coupling between neurons other
-than through weighted sums of outputs.
+than through weighted sums of outputs (and of State layer values, when one
+is added: [state output](state_output.md)).
