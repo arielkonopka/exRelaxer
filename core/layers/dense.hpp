@@ -58,6 +58,11 @@ public:
     // Size must equal inputCount(index); throws std::invalid_argument otherwise.
     void setWeights(size_t index, const std::vector<float>& weights);
     size_t inputCount(size_t index) const;
+    // Read-only probes of what learning will use for neuron `index`, in pool
+    // order: the inputs its group summed in the last forward() (time t), and
+    // the input trace X after that forward() (empty for the Sign rule).
+    std::vector<float> lastInputs(size_t index) const;
+    std::vector<float> inputTrace(size_t index) const;
 
     // --- Wiring inspection ----------------------------------------------
     struct NeuronRange
@@ -90,7 +95,8 @@ private:
         std::vector<std::reference_wrapper<const layer>> sources;  // layers whose outputs are in the pool
         NeuronRange neurons;                // a group's neurons are always contiguous
         kernels::weight_matrix weights;     // one row per neuron, one column per pool entry
-        std::vector<float> values;          // the pool gathered into contiguous floats
+        std::vector<float> values;          // the pool gathered into contiguous floats by the last forward()
+        std::vector<float> signs;           // Sign rule: signs of `values` during learning
         std::vector<float> scratch;         // per-row sums / deltas (padded to whole blocks)
         std::vector<std::uint8_t> active;   // per-row eligibility during learning
         std::vector<float> keep;            // per-row shrink factor during learning

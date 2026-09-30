@@ -201,7 +201,7 @@ def test_apply_reward_to_one_layer():
 
 def test_build_info_and_threads():
     info = exr.build_info()
-    assert set(info) == {"compiler", "build", "native", "openmp"}
+    assert set(info) == {"compiler", "build", "simd", "native", "openmp"}
     count = exr.threads()
     exr.set_threads(1)
     assert exr.threads() == 1 or not info["openmp"]

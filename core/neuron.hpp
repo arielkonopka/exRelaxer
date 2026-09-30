@@ -223,6 +223,20 @@ public:
     bool hasHabituation() const { return has_habituation_; }
     bool hasER() const { return has_er_; }
     float threshold() const { return threshold_; }
+    // --- Read-only state probes (experiments; nothing reads these back) --
+    // The Sign rule's eligibility after the last tick: threshold / resting - 1
+    // while the threshold is above rest (E-R), 1 while the output is non-zero
+    // (without E-R), else 0. learningDelta() is rate * gain * reward * this.
+    float eligibility() const
+    {
+        if (!eligible())
+            return 0.0f;
+        return has_er_ ? threshold_ / resting_ - 1.0f : 1.0f;
+    }
+    // Habituation: length of the current "same signal" streak, and the raw
+    // (clamped, pre-habituation) sum of the last tick it compares against.
+    int habituationStreak() const { return habituation_counter_; }
+    float previousInput() const { return previous_input_; }
     // Without E-R: a fixed firing threshold. An effective sum with
     // |sum| <= gate gives output 0, a larger one passes unchanged. 0 (the
     // default) keeps the neuron linear. Ignored with E-R, whose threshold

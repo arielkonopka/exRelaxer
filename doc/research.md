@@ -1512,6 +1512,143 @@ the rate is raised, except that the fixed-threshold gate now does as well
 as E-R on accuracy in the activity experiments. Normalising a learned
 readout is not needed anywhere and hurts regression.
 
+## 25. Temporal semantics, state readability and delayed credit
+
+The user asked (2026-09-30) to make the timing of one tick explicit and
+tested, to separate what E-R stores from what downstream neurons can read,
+and to measure how far the current rules can carry a delayed reward, in
+controlled benchmarks rather than in Doom. The model and the tick are now
+defined in [model](model.md); the rules for new experiments in
+[protocol](protocol.md).
+
+**Timing.** `tests/temporal.cpp` checks, value by value, which input
+belongs to *t* and which to *t*−1 for feed-forward, feedback,
+self-recurrent and multi-feedback wiring, and for learning after a delayed
+reward and with traces. One real bug remained from the audit (appendix 1,
+Q1): the **Sign rule re-read its inputs at learning time**, so a group
+reading a later layer or itself learned from y(*t*) while its sum used
+y(*t*−1). It now learns from the snapshot its forward pass summed. Nothing
+else changed: feed-forward results are bit-identical (the regression
+tests and the quick nntest suites pass unchanged; one kernel test that
+compared against the old learning-time read was updated), and the
+trace-based rules already used forward-time values. `tests/traces.cpp` pins the trace
+formula; one measured surprise: in float, a trace with λ close to 1 never
+reaches exactly 0 after a long silence but stops a few denormal steps
+above it (7e-44 for λ = 0.99). Harmless, but documented.
+
+**State probes.** `Network.state_probe(layer)` returns each neuron's
+output, threshold, resting threshold, Sign eligibility, output trace and
+habituation state after a step; `last_inputs` and `input_trace` show what
+a neuron summed and what its trace holds. Read-only: nothing feeds back
+into the network.
+
+### Memory readability (`memory_readability`)
+
+LEFT or RIGHT on one input for one tick, a blank of *b* ticks, then a
+query input identical for both classes; 64 E-R neurons with frozen random
+weights; exactly balanced classes; 20 seeds. Readouts at the query:
+ridge (best linear, offline) and an online library readout (delta rule,
+`apply_error`), on the outputs, the thresholds, or both. Balanced accuracy
+(chance 0.50); tables in
+[`results/memory-readability/summary.md`](../results/memory-readability/summary.md).
+
+| blank *b* (ticks) | 0 | 4 | 16 | 32 | 64 | 128 |
+|---|---|---|---|---|---|---|
+| **recovery 0.9, no noise** | | | | | | |
+| stored (ridge, thresholds) | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| readable (ridge, outputs) | 1.00 | 1.00 | 0.88 | 0.65 | 0.50 | 0.50 |
+| usable (online, outputs) | 1.00 | 1.00 | 0.88 | 0.65 | 0.50 | 0.50 |
+| **recovery 0.9, input noise 0.05** | | | | | | |
+| stored | 1.00 | 1.00 | 0.95 | 0.89 | 0.73 | 0.57 |
+| readable | 1.00 | 0.99 | 0.89 | 0.80 | 0.69 | 0.57 |
+| usable | 0.95 | 0.92 | 0.74 | 0.67 | 0.59 | 0.52 |
+| **recovery 0.99, input noise 0.05** | | | | | | |
+| stored | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.98 |
+| readable | 1.00 | 1.00 | 0.99 | 0.99 | 0.96 | 0.95 |
+| usable | 0.91 | 0.89 | 0.89 | 0.83 | 0.87 | 0.78 |
+
+The controls hold: with the state reset after the event, and with
+stateless ReLU neurons, every readout is at 0.49–0.51 at every blank.
+
+- **Stored ≠ readable.** Without noise the thresholds keep the event
+  forever: every threshold decays by the same factor, so the pattern only
+  shrinks. The outputs lose it once every threshold has fallen below the
+  query's drive: at recovery 0.9 all 64 neurons answer the query alike
+  from *b* = 64 (active fraction 1.00) and the outputs are at chance while
+  the thresholds still read 1.00. This is §21's finding in its smallest
+  form.
+- **Noise erases storage too.** With input noise, low thresholds let the
+  noise fire neurons, which rewrites the state: stored information falls
+  to 0.73 at *b* = 64 for recovery 0.9. Slow recovery (0.99) keeps both
+  storage and readability near 1.0 up to 128 ticks.
+- **Readable ≠ usable.** The online readout on the same outputs is 0.05 to
+  0.2 below ridge wherever there is noise, with a large spread across seeds
+  (sd up to 0.15). Without noise it matches ridge exactly. The gap is the
+  online learning (rate and scaling, cause 6 in the protocol), not memory.
+- Adding the thresholds to the outputs (C) gives the stored accuracy with
+  ridge and helps the online readout at long blanks (0.79 vs 0.67 at
+  *b* = 32, recovery 0.9); thresholds are a probe, not something
+  downstream neurons can read.
+
+### Delayed credit (`delayed_credit`)
+
+One neuron reads 4 cue and 4 distractor inputs. A cue at *t*₀ (cue 0 →
+reward +1, cue 1 → −1, cues 2–3 → ±1 at random), then *d* ticks in which
+each distractor is ±1 with probability 0.25, then one reward after step
+*t*₀+*d*. State and traces reset per episode; 400 episodes, lr 0.01, 10
+seeds. Success: the rewarded cue's weight ends above all 6 irrelevant
+weights and the punished one's below all of them. Tables (with the SNR of
+the selectivity) in
+[`results/delayed-credit/summary.md`](../results/delayed-credit/summary.md).
+
+| rule, neuron | success at d = 0 | 1 | 2 | 4 | 8 | 16 | 32 | 64 | horizon |
+|---|---|---|---|---|---|---|---|---|---|
+| Sign, E-R (recovery 0.9, 0.97, 0.99) | 1.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0 |
+| Sign, linear | 1.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0 |
+| Trace λ 0, E-R | 1.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0 |
+| Trace λ 0.5, E-R | 1.0 | 1.0 | 0.5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 1 |
+| Trace λ 0.8, E-R | 1.0 | 1.0 | 1.0 | 0.7 | 0.1 | 0.0 | 0.0 | 0.0 | 2 |
+| Trace λ 0.9, E-R | 1.0 | 1.0 | 1.0 | 0.9 | 0.6 | 0.1 | 0.0 | 0.0 | 4 |
+| Trace λ 0.95, E-R | 1.0 | 1.0 | 1.0 | 0.9 | 0.6 | 0.4 | 0.1 | 0.0 | 4 |
+| Trace λ 0.99, E-R | 1.0 | 1.0 | 1.0 | 0.8 | 0.6 | 1.0 | 0.6 | 0.8 | 4 |
+| Trace λ 0.9, linear | 1.0 | 1.0 | 1.0 | 0.8 | 0.7 | 0.1 | 0.0 | 0.0 | 4 |
+
+(E-R rows at recovery 0.9; horizon: the largest delay up to which every
+delay succeeds in ≥ 8 of 10 seeds.)
+
+- **The Sign rule has no temporal credit assignment at all.** At any
+  *d* ≥ 1 the cue weights do not move (Δw = 0.00 exactly) and only the
+  distractors, active at the reward tick, change. E-R recovery does not
+  help: a slower recovery keeps the neuron eligible longer (10, 36, 109
+  ticks), but the input factor is sign(x) at the reward tick, so it only
+  gives more wrong credit (|Δw| of distractors 0.40 → 0.99 at *d* = 64).
+- **Trace rules reach a few ticks.** The update on the cue synapse scales
+  as λ²ᵈ (both traces decay), while the distractors' changes do not
+  shrink with *d*; the practical horizon at 400 episodes is 1 tick at
+  λ = 0.5, 2 at 0.8 and 4 at 0.9–0.99. λ = 0.99 keeps partial success out
+  to 64 ticks (SNR ≈ 2) because its output trace also sums the distractor
+  responses, which enlarges every update alike.
+- **E-R does not change the trace rule's horizon.** Rows at recovery 0.9,
+  0.97 and 0.99 agree to the second decimal, and a linear neuron does the
+  same. The trace, not the threshold, carries the credit.
+- **More training does not extend it.** At 1600 episodes the relevant
+  weights hit the ±10 clamp for *d* ≤ 4 while the distractor weights keep
+  drifting, so success drops (λ 0.9: 1.0 → 0.8 at *d* = 1); the limit is
+  the signal-to-noise of the accumulated updates, not the number of
+  episodes.
+
+**What this means for Doom.** Doom runs that learn online with the Sign
+rule (`doom_rl` with `rule=sign`) credit only what is active when the
+reward arrives: a reward for a kill goes to the frame of the kill, not to
+the aim a few frames earlier. The evolved (ES) agents do not use a
+learning rule and are not affected. Any Doom learning that needs longer credit should start from the
+trace rule with λ ≥ 0.9, and first be shown in `delayed_credit` with the
+delays Doom needs.
+
+Data: [`results/delayed-credit/`](../results/delayed-credit/),
+[`results/memory-readability/`](../results/memory-readability/); commands
+in each experiment's `sweep.sh`.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -1627,8 +1764,21 @@ readout is not needed anywhere and hurts regression.
     matches E-R's accuracy on the activity tasks. The new spontaneous
     amplitude changed nothing measurable.
 
+21. **Stored, readable and creditable are three different horizons**
+    (§25). With the Sign-rule timing fixed, the controlled benchmarks
+    separate them: E-R thresholds store an event for 128+ ticks without
+    noise; the outputs let a downstream readout see it for ~16 ticks at
+    recovery 0.9 (100+ at 0.99); and a delayed reward reaches the right
+    synapse only through a trace, for about 4 ticks. The Sign rule's
+    horizon is 0 whatever the recovery.
+
 ## Open questions and next steps
 
+- **Credit beyond 4 ticks** (§25): the trace rule's horizon is set by the
+  λ²ᵈ decay against distractor drift. Hypotheses to test in
+  `delayed_credit` before any new rule: a reward baseline, a smaller
+  learning rate with more episodes, and separate λ for the input and
+  output traces.
 - **Learned readable memory** (§22): hidden-layer learning with a long
   eligibility trace is the one mechanism that made E-R memory usable
   online. Next: the same on the order task and the dynamic ladder, the

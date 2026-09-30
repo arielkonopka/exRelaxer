@@ -76,6 +76,8 @@ Under a constant input the threshold climbs towards the input's magnitude but th
 > **Finding: the default Sign rule learns from values the neuron never saw**
 >
 > [RAN] Sign-rule learning re-gathers each group's pool *at learning time* (`dense.cpp:201`), after the whole sweep. For a group that reads a layer running later in the order (feedback) or its own layer, those values are from tick *t*, while the forward pass used *t−1*. In a probe, feedback neuron f fired +1 on input +1, received reward +1, and its weight *fell* from 1.000 to 0.610 because the source had meanwhile turned −1. The trace-based rules (Trace, FA, Perturbation, Oja, BCM) use the inputs recorded during forward and are not affected. The recent suites (§13–§17) are feed-forward and do not hit this; older recurrent sign-rule experiments with learned feedback groups would have.
+>
+> **Fixed 2026-09-30:** the Sign rule now uses the snapshot its group summed in the forward pass ([model](model.md#learning-reads-the-forward-snapshot)); the probe above is `TemporalTest.SignRuleLearnsFromTheInputsTheForwardPassSummed`.
 
 ## Q2. Topology invariants
 

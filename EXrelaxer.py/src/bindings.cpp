@@ -136,6 +136,16 @@ NB_MODULE(_core, m)
             d["compiler"] = "unknown";
 #endif
             d["build"] = EXRELAXER_BUILD_TYPE;
+            // The weighted-sum kernels (core/kernels.cpp). Every variant gives
+            // bit-identical results to the scalar reference; recorded so a
+            // result file says which one produced it.
+#if defined(__GNUC__) && defined(__AVX__)
+            d["simd"] = "vector extensions, 8 floats (AVX)";
+#elif defined(__GNUC__)
+            d["simd"] = "vector extensions, 2 x 4 floats (SSE2)";
+#else
+            d["simd"] = "portable scalar loop";
+#endif
             d["native"] = static_cast<bool>(EXRELAXER_NATIVE_BUILD);
 #ifdef _OPENMP
             d["openmp"] = true;
@@ -144,7 +154,7 @@ NB_MODULE(_core, m)
 #endif
             return d;
         },
-        "How the extension was compiled: compiler, build type, native, openmp.");
+        "How the extension was compiled: compiler, build type, simd, native, openmp.");
 
     // --- Constants (core/neuron.hpp) ---------------------------------------
     nb::module_ constants = m.def_submodule("constants", "Tunable constants shared by every neuron (read only).");
@@ -724,6 +734,47 @@ NB_MODULE(_core, m)
                 return d;
             },
             "layer"_a, "Per-neuron E-R threshold, recovery, learning gain and alpha (copies).")
+        .def(
+            "state_probe",
+            [](network& net, LayerId id) {
+                // Read-only: nothing here feeds back into the network.
+                const neuron_layer& l = neuronLayer(net, id);
+                const auto neurons = l.neurons();
+                std::vector<float> output, threshold, resting, eligibility, trace, streak, previous;
+                for (size_t i = 0; i < neurons.size(); ++i) {
+                    const neuron& n = neurons[i];
+                    output.push_back(n.output());
+                    threshold.push_back(n.threshold());
+                    resting.push_back(n.restingThreshold());
+                    eligibility.push_back(n.eligibility());
+                    trace.push_back(l.outputTrace(i));
+                    streak.push_back(static_cast<float>(n.habituationStreak()));
+                    previous.push_back(n.previousInput());
+                }
+                nb::dict d;
+                d["output"] = toNumpy(std::move(output));
+                d["threshold"] = toNumpy(std::move(threshold));
+                d["resting_threshold"] = toNumpy(std::move(resting));
+                d["eligibility"] = toNumpy(std::move(eligibility));
+                d["output_trace"] = toNumpy(std::move(trace));
+                d["habituation_streak"] = toNumpy(std::move(streak));
+                d["previous_input"] = toNumpy(std::move(previous));
+                return d;
+            },
+            "layer"_a,
+            "Experimental read-only probe of each neuron's state after the last step (copies): output,\n"
+            "E-R threshold, resting (baseline) threshold, Sign-rule eligibility, output trace P (0 for Sign),\n"
+            "habituation streak and the previous raw sum habituation compares against. See doc/model.md.")
+        .def(
+            "last_inputs", [](network& net, LayerId id, size_t index) {
+                return toNumpy(layerAs<dense>(net, id, "Dense").lastInputs(index));
+            },
+            "layer"_a, "neuron"_a, "The inputs a Dense neuron summed in the last step (time t), in weight order.")
+        .def(
+            "input_trace", [](network& net, LayerId id, size_t index) {
+                return toNumpy(layerAs<dense>(net, id, "Dense").inputTrace(index));
+            },
+            "layer"_a, "neuron"_a, "A Dense neuron's input trace X after the last step (empty for Sign).")
         .def(
             "reset_traces", [](network& net, LayerId id) { neuronLayer(net, id).clearTraces(); }, "layer"_a,
             "Zeroes the layer's learning traces (output, noise and input traces), e.g. between episodes;\n"

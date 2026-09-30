@@ -116,8 +116,8 @@ TEST(KernelsTest, DenseMatchesPerNeuronReferenceBitForBit)
                 const float expected = reference[i].step(inputs, weights[i]);
                 ASSERT_TRUE(sameBits(layer.output()[i], expected)) << "tick " << t << " neuron " << i;
             }
-            // Learning reads the pool as it is after the step.
-            std::copy(layer.output().begin(), layer.output().end(), inputs.begin() + static_cast<std::ptrdiff_t>(size));
+            // Learning reads the pool the step summed (time t): the self
+            // inputs stay the pre-step outputs (see doc/model.md).
             const float reward = (t % 3 == 0) ? 1.0f : -0.5f;
             layer.applyReward(reward, 0.01f);
             for (size_t i = 0; i < size; ++i)

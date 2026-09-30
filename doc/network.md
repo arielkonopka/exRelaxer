@@ -107,7 +107,9 @@ A typical tick: set inputs → `step()` → read `outputs()` → `applyReward(..
 ## Update order
 
 `step()` runs layers in an order that defines the timing: a layer reads its
-sources' values as they are when it runs.
+sources' values as they are when it runs. The full table of which value a
+neuron reads at *t* (and what learning reads) is in
+[model](model.md#which-value-a-neuron-reads).
 
 **Default:** topological order of the forward (`connect`) edges; among
 layers that are ready at the same time, the one created first runs first.

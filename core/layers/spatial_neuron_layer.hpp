@@ -38,6 +38,10 @@ protected:
     // forward() and applyReward(). Every neuron then sees the inputs from
     // before the layer ran, also when it reads itself.
     void gatherInputs() { inputs_.gather(tensor_); }
+    // Sign rule: learning reads the snapshot the last forward() took (the
+    // inputs at time t), not the sources' current outputs. Sized to the
+    // current input shape; entries added since that forward() count as 0.
+    void keepInputSnapshot() { tensor_.resize(inputs_.channels() * inputs_.height() * inputs_.width(), 0.0f); }
     // The window of `position` over the snapshot; `out` has windowSize() entries.
     void windowAt(size_t position, std::span<float> out) const;
     // Input traces (rules other than Sign): forward() calls traceSnapshot()

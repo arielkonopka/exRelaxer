@@ -63,7 +63,7 @@ void locally_connected2d::updateWeights()
     if (!wired())
         return;
     if (learnsFromSigns())
-        gatherInputs();
+        keepInputSnapshot();
     const size_t P = positions(), K = windowSize(), C = outputChannels();
     const bool scaled = scaledUpdates();
     parallelChunks(P, kernels::threadsFor(P * K * C), [&](size_t p0, size_t p1) {

@@ -32,6 +32,10 @@ spontaneous-firing random generator, seeded from a shared stream (see
 
 ## One tick: `activate()`
 
+The equations and the timing (which value belongs to *t*, which to *t*−1)
+are defined once in [model](model.md#one-neuron); this section explains the
+API and the options.
+
 ```cpp
 float activate(float weightedSum);   // returns the output
 float output() const;

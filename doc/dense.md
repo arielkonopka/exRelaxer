@@ -93,7 +93,8 @@ same layer sees the updated outputs of earlier groups.
 
 ## applyReward()
 
-For each group: gather its current pool, take the sign of every input, ask
+For each group: take the sign of every input the group summed in its last
+`forward()` (time *t*; since 2026-09-30, see [model](model.md#learning-reads-the-forward-snapshot)), ask
 every neuron whether it is eligible and for its step
 ([neuron](neuron.md#learning)), then update all rows of eligible neurons
 with the SIMD kernel. That is the default `Sign` rule; the other
@@ -101,8 +102,9 @@ with the SIMD kernel. That is the default `Sign` rule; the other
 signs (kept during `forward()`), and `applyModulators` / `applyFeedback`
 (from [neuron_layer](layer.md#neuron_layer)) give each neuron its own
 modulator. Rows of ineligible neurons stay exactly as they are.
-Call it right after `forward()` so the inputs are the ones the neurons
-stepped on.
+Every rule learns from the inputs of the last `forward()`, so changing
+the sensors or stepping other layers in between does not change what a
+neuron learns from. Exact timing: [model](model.md#one-tick).
 
 ## Parallelism
 
