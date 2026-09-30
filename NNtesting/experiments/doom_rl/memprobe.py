@@ -3,7 +3,8 @@
 
 Plays games with an agent saved by es.py and records, at every step, each
 hidden layer's output (mean over the step's ticks), the screen the network
-saw (pooled to 5 x 4), the action it took, and whether it was hit or made a
+saw (pooled to 5 x 4), each layer's E-R thresholds after the step (the
+state a neuron's history leaves, whether or not it fires), the action it took, and whether it was hit or made a
 kill. Then, for each lag k, a ridge readout is fitted on some games and
 tested on the others:
 
@@ -66,7 +67,7 @@ def record(p, net_seed, theta, games, seed, minutes):
                     acc[i] += np.asarray(net.layer_output(h)).ravel()
         player.net = Summing()
         game.new_episode()
-        rec = dict(states=[[] for _ in layers], screen=[], eye=[], action=[], hurt=[], kill=[])
+        rec = dict(states=[[] for _ in layers], thr=[[] for _ in layers], screen=[], eye=[], action=[], hurt=[], kill=[])
         health = game.get_game_variable(vzd.GameVariable.HEALTH)
         kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)
         while not game.is_episode_finished():
@@ -74,8 +75,9 @@ def record(p, net_seed, theta, games, seed, minutes):
             for a_ in acc:
                 a_[:] = 0.0
             a = player.act(state, rng, 0.0)
-            for i in range(len(layers)):
+            for i, h in enumerate(layers):
                 rec["states"][i].append(acc[i] / player.ticks)
+                rec["thr"][i].append(np.asarray(net.neuron_state(h)["threshold"]))
             s = state.screen_buffer.astype(np.float32) / 255.0
             rec["screen"].append(s.reshape(4, 30, 5, 32).mean(axis=(1, 3)).ravel())
             f = player.pool  # the network's own input
@@ -87,7 +89,7 @@ def record(p, net_seed, theta, games, seed, minutes):
             rec["hurt"].append(float(h < health))
             rec["kill"].append(float(k > kills))
             health, kills = h, k
-        out.append({k: (np.array(v) if k != "states" else [np.array(x) for x in v]) for k, v in rec.items()})
+        out.append({k: (np.array(v) if k not in ("states", "thr") else [np.array(x) for x in v]) for k, v in rec.items()})
         print(f"game {g + 1}: {len(out[-1]['action'])} steps", flush=True)
     game.close()
     return out
@@ -135,6 +137,10 @@ def main():
     depth = len(games[0]["states"])
     sources = {f"layer {i + 1}": (lambda i: lambda g: g["states"][i])(i) for i in range(depth)}
     sources["all layers"] = lambda g: np.concatenate(g["states"], axis=1)
+    for i in range(depth):
+        sources[f"thresholds {i + 1}"] = (lambda i: lambda g: g["thr"][i])(i)
+    sources["all thresholds"] = lambda g: np.concatenate(g["thr"], axis=1)
+    sources["all outputs and thresholds"] = lambda g: np.concatenate(g["states"] + g["thr"], axis=1)
     lags = [int(x) for x in args.lags.split(",")]
     res = dict(agent=args.agent, theta=args.theta, depth=depth, games=args.games, seed=args.seed,
                steps=int(sum(len(g["action"]) for g in games)),

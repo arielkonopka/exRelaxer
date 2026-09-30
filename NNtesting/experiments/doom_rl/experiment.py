@@ -148,10 +148,22 @@ class Player:
                 net.add_feedback(self.reservoir, self.reservoir, p["reservoir_recurrent"])
         rule = exr.LearningRule.sign() if p["rule"] == "sign" else exr.LearningRule.traced(p["trace"])
         self.readouts = []
+        # readout_thresholds: the readouts also read every hidden neuron's E-R
+        # threshold (the state its history leaves), set as inputs before each
+        # tick; for each layer its outputs then its thresholds, so a grown
+        # layer's weights still come last.
+        self.thresholds = [] if not p.get("readout_thresholds", False) else \
+            (self.layers if p.get("readout_from", "top") == "all" else self.layers[-1:])
         for name in ACTIONS:
             out = net.add_layer(name.lower(), normalized(exr.LayerSpec.dense(1, False, False, learning_rule=rule)))
             for h in (self.layers if p.get("readout_from", "top") == "all" else self.layers[-1:]):
                 net.connect(h, out)
+                if h in self.thresholds:
+                    source = f"thr_{net.layer_name(h)}"
+                    if not self.readouts:
+                        net.add_inputs(out, net.layer_size(h), source)
+                    else:
+                        net.connect_inputs(source, out)
             if self.reservoir is not None:
                 net.connect(self.reservoir, out)
             net.add_output(out)
@@ -197,6 +209,8 @@ class Player:
             if self.sound:
                 chunk = audio[t * self.hop:(t + 1) * self.hop]
                 self.net.set_inputs("mic", np.concatenate([chunk[:, 0], chunk[:, 1]]))
+            for h in self.thresholds:
+                self.net.set_inputs(f"thr_{self.net.layer_name(h)}", self.net.neuron_state(h)["threshold"])
             self.net.step()
             total += np.asarray(self.net.outputs())
             if meter:
@@ -303,6 +317,8 @@ PARAMS = {
     "readout": ("last", "action values: last (the last tick of the step) or sum (the readouts summed over the step's ticks; "
                         "scores lower, doc/doom.md D11)"),
     "readout_from": ("top", "which hidden layers the readouts read: top, or all (every layer, bottom first)"),
+    "readout_thresholds": (False, "the readouts also read each hidden neuron's E-R threshold (its history), "
+                                  "not only its output"),
     "rule": ("sign", "readout learning rule: sign (as in snake) or trace (traced, eligibility over recent ticks)"),
     "reward_mode": ("error", "error: learn only while the chosen readout's sign disagrees with the reward; always"),
     "baseline": (0.01, "rate of the running reward mean subtracted before learning (0: learn from the raw reward)"),

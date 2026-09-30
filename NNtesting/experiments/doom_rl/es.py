@@ -125,6 +125,27 @@ def grow(p, net_seed, arrays):
     return q, out
 
 
+def add_thresholds(p, net_seed, theta):
+    """Weights of the same network without threshold readouts (readout_thresholds
+    false) mapped onto `p`'s: each readout's weights from a layer's thresholds
+    start at zero, so the agent plays exactly as before."""
+    q = dict(p, readout_thresholds=False)
+    if theta.size != initial_weights(q, net_seed)[0].size:
+        return np.zeros(0)  # not this network's weights
+    old, new = build(q, net_seed, None), build(p, net_seed, None)
+    parts = split(old, q["evolve"], theta)
+    out = []
+    for r in parts[0]:
+        at, w = 0, []
+        for h in (new.layers if p.get("readout_from", "top") == "all" else new.layers[-1:]):
+            n = new.net.layer_size(h)
+            w += [r[at:at + n], np.zeros(n if h in new.thresholds else 0)]
+            at += n
+        out.append(np.concatenate(w + [r[at:]]))
+    out += [w for layer in parts[1:] for w in layer]
+    return np.concatenate(out)
+
+
 def play(task):
     """Plays `episodes` episodes from `seed` with weights theta; returns (reward, kills, spikes per step)."""
     import experiment as e
@@ -206,6 +227,8 @@ def main():
             init = np.load(args.init)
             if init.size == theta0.size:
                 start = init.astype(np.float64)
+            elif p.get("readout_thresholds") and add_thresholds(p, args.net_seed, init).size == theta0.size:
+                start = add_thresholds(p, args.net_seed, init)  # the same agent, now reading thresholds too
             elif init.size == readouts:  # evolved readouts only: the rest starts as the network's own
                 start[:readouts] = init
             else:
