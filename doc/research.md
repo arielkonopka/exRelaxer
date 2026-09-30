@@ -1719,7 +1719,7 @@ validation):
 
 | task | outputs | outputs + State |
 |---|---|---|
-| t1 x(t) XOR x(t−1) | 0.95 ± 0.09 | 0.98 ± 0.02 |
+| t1 x(t) XOR x(t−1) | 0.95 ± 0.09 (0.99 ± 0.02 at lr 0.03) | 0.98 ± 0.02 (1.00 ± 0.01 at lr 0.03) |
 | t1 with habituation (cut after 2 repeats) | 0.50 ± 0.00 | **1.00 ± 0.00** |
 | t2 x(t) AND NOT x(t−3) | 0.74 | 0.74 |
 | t3 parity of 3 | 0.75 ± 0.12 | 0.55 ± 0.08 |
@@ -1736,6 +1736,18 @@ habituation, whose State layer can carry only the streak, stays at 0.50:
 it is the threshold, not the streak, that carries the step. Parity and
 motion direction get worse with the extra inputs at the same learning
 rates.
+
+*Learning rate check (added after the merge).* Rates 0.03 and 0.1 were
+added to the grid for both tables above. They win only on t1 without
+habituation, where the outputs alone then reach 0.99, so the t1 gain in
+the first row is a learning-rate effect, not the State layer's. Every
+other choice stays as it was: parity, t2 and all four dyn_ladder tasks
+still pick 0.001–0.01, and t4 is not learned at any rate (at 0.1 its best
+validation point diverges on test). In the other benchmarks
+the rate was not the cause either: the video readouts pick their rate on
+validation (with the State layer mostly 0.0003, the small end), and the
+Sign rule in `delayed_credit` needs a *smaller* rate (0.001), since its
+step is scaled by an eligibility θ/ρ − 1 of up to ~50.
 
 - **The threshold is a useful output; the streak is not, on these
   tasks.** Wherever the outputs have lost an event (a blank, a delay, a

@@ -100,7 +100,7 @@ layer, from the same seeds (research log
 | `delayed_credit`, Sign rule, delay 1–64 | one learning neuron | success 0 | success 1.0 (to d = 8 at recovery 0.9, to 64 at 0.99) | the relay threshold is still above rest when the reward comes |
 | `delayed_credit`, Trace λ 0.9, delay 32 | one learning neuron | response gap 0.1 | 16.2 | |
 | `nl_temporal` t1, x(t) XOR x(t−1), with habituation | end-to-end (FA) | 0.50 | 1.00 | habituation cuts the outputs, the thresholds keep the last step |
-| `nl_temporal` t1, no habituation | end-to-end | 0.95 ± 0.09 | 0.98 ± 0.02 | |
+| `nl_temporal` t1, no habituation | end-to-end | 0.95 ± 0.09 | 0.98 ± 0.02 | none: at lr 0.03 both reach 0.99–1.00 |
 | `dyn_ladder` change | end-to-end | 0.91 | 0.96, 25% fewer spikes | |
 | `dyn_ladder` catch / vel | end-to-end | 0.22 / R² −0.04 | 0.25 / R² 0.07 | small |
 | `nl_temporal` t3 (parity of 3) | end-to-end | 0.75 | 0.55 | **worse**: more inputs, same learning rate grid |
