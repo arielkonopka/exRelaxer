@@ -1763,6 +1763,127 @@ step is scaled by an eligibility θ/ρ − 1 of up to ~50.
 Data: [`results/state-output/`](../results/state-output/); commands in
 `NNtesting/tools/state_output_sweep.sh`.
 
+## 27. State component ablation
+
+Which parts of a neuron's state carry an occluded object's direction, and
+does the online readout use them? Six configurations read different
+columns of one State layer ([doc/state_output.md](state_output.md)) on
+video_memory's `side` task: A output, B threshold − rest, C habituation
+streak, D = A + B, E = B + C, F = all three. Per trial (seed) everything
+else is shared: the clips (LEFT and RIGHT exactly 50% of every split), the
+frozen hidden layer (128 E-R neurons, normalised sums, resting threshold
+0.2, habituation with the library defaults), the recorded state (the
+hidden layer runs once per clip and every configuration reads the same
+numbers), the readout (zero init, the library's delta rule via
+`apply_error`, once per clip on the mean over the 8 readout ticks, 10
+epochs, the same clip order, input gain 1/sd per column), and the
+learning rate. Nothing in the neuron was changed; the State layer only
+copies values. Gaps 0–64 blank frames, recovery 0.9 and 0.99, seeds 0–9
+paired across configurations. Experiment and design:
+`NNtesting/experiments/state_ablation/`.
+
+*Tuning.* The output-only configuration is at chance at every rate, so it
+cannot serve as the tuning baseline. The learning rate was tuned once on
+the mean validation balanced accuracy over all six configurations (seeds
+1000–1002, gap 4, both recoveries, validation clips only; test clips and
+seeds 0–9 untouched) and the winner, 0.0003, is used everywhere
+(1e-4 0.622, 3e-4 0.629, 1e-3 0.595, 3e-3 0.545, 1e-2 0.513).
+
+**Online readout, balanced accuracy (mean over 10 seeds; chance 0.50),
+recovery 0.99:**
+
+| config | gap 0 | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|---|
+| A output | 0.54 | 0.53 | 0.51 | 0.51 | 0.49 | 0.50 | 0.50 | 0.50 |
+| B threshold | 0.89 | 0.88 | 0.86 | 0.83 | 0.76 | 0.68 | 0.69 | 0.58 |
+| C habituation | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 |
+| D output + threshold | 0.88 | 0.87 | 0.86 | 0.83 | 0.76 | 0.67 | 0.68 | 0.58 |
+| E threshold + habituation | 0.86 | 0.85 | 0.84 | 0.79 | 0.72 | 0.65 | 0.66 | 0.57 |
+| F all three | 0.86 | 0.85 | 0.84 | 0.79 | 0.72 | 0.65 | 0.66 | 0.57 |
+
+At recovery 0.9 only the threshold configurations leave chance, and
+barely: B 0.54, 0.56, 0.56, 0.53 at gaps 0–4, 0.50–0.51 from gap 8; D and
+E within a point of B; A and C at 0.50.
+
+**Paired differences (same seed), recovery 0.99**, mean with 95% t
+interval: B − A +0.35, +0.35, +0.35, +0.32, +0.27, +0.18, +0.18, +0.08,
+10/10 seeds at every gap, every interval above 0. D − B is 0.00 (−0.01,
+significant, at gap 0). E − B is −0.03 to −0.05, significant at 6 of 8
+gaps; F − D −0.02 to −0.04, significant at gaps 4–32. At recovery 0.9
+B − A is +0.04 to +0.07 at gaps 0–2 and +0.03 at gap 4 (all significant)
+and 0 from gap 8.
+
+**The same columns, best linear readout (ridge, offline)**, recovery 0.99:
+A 0.71, 0.72, 0.72, 0.72, 0.72, 0.71, 0.61, 0.50; B = E 0.88, 0.87, 0.87,
+0.84, 0.76, 0.69, 0.70, 0.60; D = F 0.91, 0.90, 0.89, 0.88, 0.83, 0.75,
+0.72, 0.59. At 0.9: A 0.61, 0.55, then ≤ 0.51; B 0.63, 0.66, 0.66, 0.60,
+0.52, 0.50; D 0.67 at gap 0.
+
+**The state itself, independent of any readout** (test clips; ridge probe
+on one component; *before* = end of the blank, *final* = last readout
+tick, immediately before the prediction):
+
+| component, moment | recovery | gap 0 | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|---|---|
+| threshold, before | 0.9 | 0.79 | 0.79 | 0.79 | 0.79 | 0.79 | 0.79 | 0.79 | 0.79 |
+| threshold, final | 0.9 | 0.55 | 0.56 | 0.55 | 0.52 | 0.50 | 0.50 | 0.50 | 0.50 |
+| threshold, before | 0.99 | 0.92 | 0.92 | 0.92 | 0.92 | 0.92 | 0.92 | 0.92 | 0.92 |
+| threshold, final | 0.99 | 0.87 | 0.86 | 0.85 | 0.81 | 0.73 | 0.66 | 0.68 | 0.59 |
+| output, final | both | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 |
+| habituation, both | both | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 | 0.50 |
+
+- The threshold's pattern survives any blank: during a blank every sum is
+  exactly 0, the threshold relaxes multiplicatively, and the pattern is
+  only rescaled. What limits the readout is the reappearance: the centre
+  square drives the same neurons for both classes and overwrites the
+  pattern, faster at 0.9 (0.79 → 0.55) than at 0.99 (0.92 → 0.87 at gap
+  0). The longer the gap, the smaller the stored pattern relative to the
+  reappearance's contribution.
+- The information is a distributed pattern, not a population shift: mean
+  threshold for LEFT and RIGHT differs by ≤ 0.002, the per-neuron median
+  |d| is 0.11–0.16 and at most 6 of 128 neurons have |d| > 0.5.
+- Outputs are 0 during the blank; they carry the direction only at gap 0
+  at the end of the motion (probe 0.73 / 0.58). At the final tick a single
+  tick's outputs are at chance, but their mean over the 8 readout ticks
+  reaches 0.72 (ridge A at 0.99): the first reappearance ticks respond
+  slightly differently depending on the thresholds.
+- The habituation streak is identical for every clip at a given gap
+  (|d| = 0, probe 0.50): it records how long the input has been constant,
+  and the blank and the reappearance have the same timing for both
+  classes. At the end of the blank it grows with the gap (0.03, 0.03, 0.07,
+  0.15, 0.31, 0.63, 1, 1) and it is reset by the reappearance (0.03).
+
+**Interpretation, against the cases in the task specification:**
+
+- *Threshold contains information and the readout uses it* (Case 2/3):
+  yes at recovery 0.99, where the online readout reaches what ridge
+  reaches on the same columns (B 0.83 vs 0.84 at gap 4). At 0.9 the
+  threshold stores the direction (0.79 at the end of the blank) but not in
+  a form readable at the prediction (0.55); the online readout gets the
+  little that is left.
+- *Information present, not used* (Case 1): the outputs (ridge 0.72,
+  online 0.51 at 0.99) and the extra information in D (ridge D 0.88 > B
+  0.84 at gap 4, online D = B). The delta rule on the mean output cannot
+  pick up the small, tick-dependent differences a ridge fit finds.
+- *Output plus threshold adds nothing over threshold for the online
+  readout* (Case 4): D − B ≈ 0 at every gap and recovery.
+- *Habituation* (Cases 5 and 6): does not hold. The streak carries no
+  class information in this task, so it cannot help, and adding it costs
+  the online readout 3–5 points (E − B, F − D). The likely cause is the
+  readout-side gain: a column that is the same for both classes but varies
+  over ticks gets gain 1/sd and adds a large class-independent drive; the
+  ridge readout, which regularises it away, is unaffected (E = B, F = D).
+  This does not say habituation is useless in general: the task has no
+  repetition structure that differs between the classes.
+- Raw differences were not taken as evidence: the threshold's population
+  means are the same for both classes, and the claim rests on held-out
+  probes and paired readout differences.
+
+Data: [`results/state-ablation/`](../results/state-ablation/) (JSONL with
+seeds, parameters, git commit and environment; `summary.md` has every
+table with sd, min–max, confusion matrices and all intervals); commands in
+`NNtesting/experiments/state_ablation/sweep.sh`.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -1895,6 +2016,15 @@ Data: [`results/state-output/`](../results/state-output/); commands in
     (1.00 against 0.50). The habituation streak adds nothing on these
     tasks, and the extra inputs cost a few points where the outputs
     already suffice.
+
+23. **Of the three state values, the threshold carries the memory** (§27).
+    In a paired ablation on the occluded-direction task, the online
+    readout on the threshold alone reaches 0.83 at gap 4 (recovery 0.99)
+    against 0.51 on outputs, +0.32 in every seed; outputs next to it add
+    information only for an offline readout; the habituation streak
+    carries none here and costs the online readout 3–5 points. At
+    recovery 0.9 the threshold stores the direction (probe 0.79) but the
+    reappearance overwrites it before the prediction (0.55).
 
 ## Open questions and next steps
 

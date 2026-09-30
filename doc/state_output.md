@@ -118,6 +118,15 @@ which is the same for both classes), and in `nl_temporal` a ReLU network
 with habituation, whose State layer carries only the streaks (no E-R, no
 threshold), stays at chance on t1 (0.50) where E-R reaches 1.00 through the threshold.
 
+**Which value carries it** ([§27](research.md#27-state-component-ablation),
+[`results/state-ablation/`](../results/state-ablation/)): a paired
+ablation over the six combinations of the three values, on the occluded
+video direction, finds the threshold alone reaches what all three reach
+(online readout 0.83 at gap 4, recovery 0.99, against 0.51 on outputs);
+the outputs next to it add information only for an offline readout, and
+the habituation streak carries no class information there and costs the
+online readout 3–5 points.
+
 ## Limits
 
 - The habituation value carries *when* the input last changed, not *what*
