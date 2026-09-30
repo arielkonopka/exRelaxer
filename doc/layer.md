@@ -24,7 +24,7 @@ neurons (e.g. pooling) derive from `layer` directly. Everything is in
 ```cpp
 enum class LayerType : uint8_t {
     Dense = 0, Conv2D = 1, Pool2D = 2, LocallyConnected2D = 3, Retina = 4,
-    Cochlea = 5, History = 6, Resize2D = 7, Disparity = 8
+    Cochlea = 5, History = 6, Resize2D = 7, Disparity = 8, State = 9
 };
 ```
 
@@ -32,7 +32,9 @@ Identifies the concrete class. It is stored in `LayerSpec`, used by the
 factory to pick a creator, and written into saved networks, so **existing
 values must never be renumbered**. The spatial types are described in
 [spatial](spatial.md), Cochlea and History in [audio](audio.md), Resize2D
-and Disparity in [multimodal](multimodal.md).
+and Disparity in [multimodal](multimodal.md), State (experimental: a
+neuron layer's output, threshold and habituation streak per neuron) in
+[state output](state_output.md).
 
 ## Shape
 

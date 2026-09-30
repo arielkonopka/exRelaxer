@@ -49,7 +49,7 @@ layer_factory::layer_factory()
         return std::make_unique<disparity>(spec.disparity);
     });
     registerType(LayerType::State, [](const LayerSpec& spec) -> std::unique_ptr<layer> {
-        return std::make_unique<state_tap>(spec.hasER, spec.hasHabituation);
+        return std::make_unique<state_tap>((spec.size & 1) != 0, (spec.size & 2) != 0, (spec.size & 4) != 0);
     });
 }
 

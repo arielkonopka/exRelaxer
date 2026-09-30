@@ -40,3 +40,12 @@ NNtesting/nntest.py run delayed_credit --trials 10 --set rule=trace --set trace=
 NNtesting/experiments/delayed_credit/sweep.sh results/delayed-credit     # every run behind §25
 python3 NNtesting/tools/temporal_summary.py results/delayed-credit
 ```
+
+## State layer
+
+`state=tap`: every input also drives its own frozen E-R relay neuron
+(weight 1, recovery `relay_recovery`), and the learner reads the inputs and
+the relays' thresholds above rest through a State layer
+([doc/state_output.md](../../../doc/state_output.md)). The metrics with the
+suffix `_state` are those of the relay-threshold weights. Results: research
+log §26.

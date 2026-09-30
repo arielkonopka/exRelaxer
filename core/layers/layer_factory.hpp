@@ -26,7 +26,7 @@ struct LayerSpec
     LayerType type = LayerType::Dense;
     size_t size = 0;             // Dense: neurons at construction; Conv2D, LocallyConnected2D: output channels;
                                  // History: ticks remembered
-    // State: hasER = emit thresholds, hasHabituation = emit habituation streaks
+                                 // State: the fields, a bit mask (1 output, 2 threshold, 4 habituation)
     bool hasHabituation = true;
     bool hasER = true;
     bool frozen = false;         // network::applyReward skips frozen layers (see network::freeze)
@@ -98,11 +98,12 @@ struct LayerSpec
         s.resize = {height, width, interpolation};
         return s;
     }
-    // Experimental: a neuron layer's thresholds and/or habituation streaks
-    // as outputs (see state_tap.hpp).
-    static LayerSpec State(bool threshold = true, bool habituation = true)
+    // Experimental: a neuron layer's output, threshold and habituation
+    // streak per neuron, three values by default (see state_tap.hpp and
+    // doc/state_output.md).
+    static LayerSpec State(bool output = true, bool threshold = true, bool habituation = true)
     {
-        return {LayerType::State, 0, habituation, threshold};
+        return {LayerType::State, (output ? 1u : 0u) | (threshold ? 2u : 0u) | (habituation ? 4u : 0u), false, false};
     }
     static LayerSpec Disparity(const DisparitySpec& disparity)
     {

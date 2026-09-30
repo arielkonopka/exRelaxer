@@ -1,12 +1,14 @@
-// A neuron layer's internal state as an ordinary output that other layers
-// (and readouts) can read: per neuron of its source, its E-R threshold
-// and/or how far its habituation streak has run. Experimental: it exists to
-// test whether downstream neurons can use the state the source's outputs
-// do not show (doc/model.md#state-as-output). The source neurons are not
-// changed; without a tap nothing differs.
+// A neuron layer's output together with its internal state, as an ordinary
+// output that other layers (and readouts) can read: per neuron of its
+// source, three values: its output, its E-R threshold and how far its
+// habituation streak has run (doc/state_output.md). Experimental: it exists
+// to test whether downstream neurons can use the state the source's outputs
+// do not show. The source neurons are not changed; without a State layer
+// nothing differs.
 //
 // Output, flat, per source neuron i (fields in this order, only those
-// enabled):
+// enabled; all three by default):
+//   output       the neuron's output this tick, as the source's own output;
 //   threshold    the neuron's threshold after this tick minus its resting
 //                threshold (0 without E-R): 0 at rest, positive after a
 //                firing (up to max_output - rest), negative while it relaxes
@@ -33,13 +35,17 @@ class neuron_layer;
 class state_tap final : public layer
 {
 public:
-    // Throws std::invalid_argument when neither field is enabled.
-    state_tap(bool threshold, bool habituation);
+    // Throws std::invalid_argument when no field is enabled.
+    state_tap(bool output, bool threshold, bool habituation);
 
     LayerType type() const override { return LayerType::State; }
+    bool readsOutput() const { return output_field_; }
     bool readsThreshold() const { return threshold_; }
     bool readsHabituation() const { return habituation_; }
-    size_t fields() const { return static_cast<size_t>(threshold_) + static_cast<size_t>(habituation_); }
+    size_t fields() const
+    {
+        return static_cast<size_t>(output_field_) + static_cast<size_t>(threshold_) + static_cast<size_t>(habituation_);
+    }
 
     // One source, a layer made of neurons. Throws std::logic_error for a
     // second source or a layer without neurons.
@@ -57,7 +63,7 @@ protected:
 private:
     void resizeOutput();
 
-    bool threshold_, habituation_;
+    bool output_field_, threshold_, habituation_;
     const neuron_layer* source_ = nullptr;
 };
 

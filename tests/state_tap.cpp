@@ -1,5 +1,5 @@
-// The State layer (state_tap): a neuron layer's thresholds and habituation
-// streaks as outputs (doc/model.md, "State as output").
+// The State layer (state_tap): per neuron of a neuron layer, its output,
+// threshold and habituation streak as outputs (doc/state_output.md).
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <sstream>
@@ -33,7 +33,7 @@ struct Tapped
 {
     network net;
     network::LayerId h, tap;
-    explicit Tapped(bool threshold = true, bool habituation = true, bool withTap = true)
+    explicit Tapped(bool output = true, bool threshold = true, bool habituation = true, bool withTap = true)
     {
         reseed(5);
         LayerSpec spec = LayerSpec::Dense(6, true, true);
@@ -42,7 +42,7 @@ struct Tapped
         net.addInputs(h, 4);
         net.addOutput(h);
         if (withTap) {
-            tap = net.addLayer("tap", LayerSpec::State(threshold, habituation));
+            tap = net.addLayer("tap", LayerSpec::State(output, threshold, habituation));
             net.connect(h, tap);
         }
     }
@@ -55,27 +55,29 @@ TEST(StateTapTest, OutputsTheSourceStateOfThisTickPerNeuron)
     Tapped t;
     const auto& h = t.net.layerAs<dense>(t.h);
     const auto& tap = t.net.getLayer(t.tap);
-    ASSERT_EQ(tap.size(), 12u);
+    ASSERT_EQ(tap.size(), 18u);  // three values per neuron
     for (size_t tick = 0; tick < 40; ++tick) {
         // Every fourth tick repeats the previous input, so streaks build up.
         t.net.setInputs(drive(t.net, tick < 20 ? tick : 20));
         t.net.step();
         for (size_t i = 0; i < 6; ++i) {
             const neuron& n = h.neurons()[i];
-            EXPECT_EQ(tap.output()[2 * i], n.threshold() - n.restingThreshold()) << tick << " " << i;
-            EXPECT_EQ(tap.output()[2 * i + 1], std::min(n.habituationStreak() / 3.0f, 1.0f)) << tick << " " << i;
+            EXPECT_EQ(tap.output()[3 * i], h.output()[i]) << tick << " " << i;
+            EXPECT_EQ(tap.output()[3 * i + 1], n.threshold() - n.restingThreshold()) << tick << " " << i;
+            EXPECT_EQ(tap.output()[3 * i + 2], std::min(n.habituationStreak() / 3.0f, 1.0f)) << tick << " " << i;
         }
     }
     // The held input (ticks 20..39) has run every streak past the onset.
     for (size_t i = 0; i < 6; ++i)
-        EXPECT_EQ(tap.output()[2 * i + 1], 1.0f);
+        EXPECT_EQ(tap.output()[3 * i + 2], 1.0f);
 }
 
 TEST(StateTapTest, SingleFieldsAndNeuronsWithoutTheMechanism)
 {
-    Tapped only_threshold(true, false), only_habituation(false, true);
+    Tapped only_threshold(false, true, false), only_habituation(false, false, true), state(false, true, true);
     EXPECT_EQ(only_threshold.net.getLayer(only_threshold.tap).size(), 6u);
     EXPECT_EQ(only_habituation.net.getLayer(only_habituation.tap).size(), 6u);
+    EXPECT_EQ(state.net.getLayer(state.tap).size(), 12u);
 
     network net;
     const auto h = net.addLayer("h", linear(3));
@@ -84,13 +86,17 @@ TEST(StateTapTest, SingleFieldsAndNeuronsWithoutTheMechanism)
     net.connect(h, tap);
     net.setInputs({1.0f, -1.0f});
     net.step();
-    for (float v : net.getLayer(tap).output())
-        EXPECT_EQ(v, 0.0f);  // no E-R, no habituation: nothing to show
+    const auto values = net.getLayer(tap).output();
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_EQ(values[3 * i], net.getLayer(h).output()[i]);
+        EXPECT_EQ(values[3 * i + 1], 0.0f);  // no E-R, no habituation: nothing to show
+        EXPECT_EQ(values[3 * i + 2], 0.0f);
+    }
 }
 
 TEST(StateTapTest, AddingATapChangesNothingElse)
 {
-    Tapped with, without(true, true, false);
+    Tapped with, without(true, true, true, false);
     for (size_t tick = 0; tick < 50; ++tick) {
         with.net.setInputs(drive(with.net, tick));
         without.net.setInputs(drive(without.net, tick));
@@ -110,7 +116,7 @@ TEST(StateTapTest, ReadersSeeTheStateOfTickTAndFeedbackSeesTMinusOne)
     LayerSpec er = LayerSpec::Dense(1, false, true);
     er.normalize = false;
     const auto h = net.addLayer("h", er);
-    const auto tap = net.addLayer("tap", LayerSpec::State(true, false));
+    const auto tap = net.addLayer("tap", LayerSpec::State(false, true, false));
     const auto r = net.addLayer("r", linear(1));
     net.addInputs(h, 1);
     net.connect(h, tap);
@@ -135,7 +141,7 @@ TEST(StateTapTest, ReadersSeeTheStateOfTickTAndFeedbackSeesTMinusOne)
 
 TEST(StateTapTest, Errors)
 {
-    EXPECT_THROW(state_tap(false, false), std::invalid_argument);
+    EXPECT_THROW(state_tap(false, false, false), std::invalid_argument);
     network net;
     const auto a = net.addLayer("a", linear(2));
     const auto b = net.addLayer("b", linear(2));

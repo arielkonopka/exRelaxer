@@ -489,9 +489,10 @@ NB_MODULE(_core, m)
             "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter)
         .def_static("history", &LayerSpec::History, "length"_a,
                     "The last `length` ticks of its sources side by side along the width, newest last.")
-        .def_static("state", &LayerSpec::State, "threshold"_a = true, "habituation"_a = true,
-                    "Experimental: its source's E-R thresholds above rest (threshold - resting) and/or habituation streaks (min(streak / onset, 1)) "
-                    "as outputs, per neuron in that order; connect exactly one layer of neurons to it.")
+        .def_static("state", &LayerSpec::State, "output"_a = true, "threshold"_a = true, "habituation"_a = true,
+                    "Experimental: per neuron of its source, its output, its E-R threshold above rest "
+                    "(threshold - resting) and its habituation streak (min(streak / onset, 1)), in that order "
+                    "(only the fields enabled); connect exactly one layer of neurons to it. See doc/state_output.md.")
         .def_static("resize2d", &LayerSpec::Resize2D, "height"_a, "width"_a,
                     "interpolation"_a = Interpolation::Bilinear,
                     "Every channel of its sources resampled to height x width.")

@@ -66,7 +66,7 @@ def build(p):
         spec.rectify = True
     net = exr.Network()
     h = net.add_layer("h", spec)
-    tap = net.add_layer("h_state", exr.LayerSpec.state())
+    tap = net.add_layer("h_state", exr.LayerSpec.state(output=False))  # the outputs are h's own
     net.add_inputs(h, 3, "x")
     net.connect(h, tap)
     net.add_output(h)

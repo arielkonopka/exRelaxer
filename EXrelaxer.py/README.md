@@ -114,7 +114,7 @@ describe the behaviour.
 | `weights(id, neuron)`, `set_weights` (Dense); `kernel(id, channel)`, `set_kernel`, `load_filters(id, bank)` (Conv2D); `retina_points(id)`; `cochlea_bands(id)`, `cochlea_power(id)`; `set_output(id, i, v)` | layer access |
 | `edges`, `output_layers`, `update_order`, `inputs`, `input_values(name)`, `input_sources`, `input_count`, `layer_count`, `describe()` | the same |
 | `save(path)`, `Network.load(path, mode)`, `to_bytes()`, `Network.from_bytes(data, mode)` | `save`, `load` |
-| `LayerSpec.dense / conv2d / locally_connected2d / pool2d / retina / cochlea / history / resize2d / disparity(..., frozen=, recovery_jitter=, learning_jitter=, alpha_jitter=, learning_rule=)` | `LayerSpec` builders |
+| `LayerSpec.dense / conv2d / locally_connected2d / pool2d / retina / cochlea / history / resize2d / disparity / state(..., frozen=, recovery_jitter=, learning_jitter=, alpha_jitter=, learning_rule=)` | `LayerSpec` builders |
 | `LayerSpec` fields: `has_er`, `has_habituation`, `frozen`, `learning_rule`, `rectify`, `gate`, `habituation_rule`, `threshold_growth`, `spontaneous`, `resting_threshold`, `normalize`, ... | the same |
 | `Shape`, `Window2D`, `RetinaSpec` (`Sampling`), `CochleaSpec` (`FrequencyScale`, `Compression`), `ResizeSpec` (`Interpolation`), `DisparitySpec` (`DisparityMeasure`), `PoolMode`, `Jitter` (`uniform`, `normal`, `*_relative`, `.around`, `.within`) | the same |
 | `LearningRule` (`sign`, `traced`, `feedback_alignment`, `perturbation`, `oja`, `bcm`, `.with_bias`, `.with_decay`), `Habituation(steps, tolerance, decay, fade_after)`, `Spontaneous(below, amplitude, rate)`, `ThresholdGrowth(rule, amount)` (`ThresholdGrowth.Rule.LINEAR`, `LOG`, `FIXED`, `MULTIPLICATIVE`) | the same |

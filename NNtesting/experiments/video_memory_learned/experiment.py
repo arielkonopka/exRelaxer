@@ -102,7 +102,7 @@ class FullRecorder(vm.Recorder):
         super().__init__(p, gap)
         self.features = self.width
         if p["readout_inputs"] == "output_state":
-            tap = self.net.add_layer("top_state", exr.LayerSpec.state())
+            tap = self.net.add_layer("top_state", exr.LayerSpec.state(output=False))  # outputs: the layer's own
             self.net.connect(self.layers[-1], tap)
             self.net.add_output(tap)
             self.features = 3 * self.width

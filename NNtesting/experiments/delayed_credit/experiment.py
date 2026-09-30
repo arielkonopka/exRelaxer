@@ -73,7 +73,7 @@ def build(p):
     if p["relay_recovery"] != exr.constants.recovery_factor:
         rspec.recovery_jitter = exr.Jitter.uniform(1e-7).around(p["relay_recovery"])
     relay = net.add_layer("relay", rspec)
-    tap = net.add_layer("relay_state", exr.LayerSpec.state(threshold=True, habituation=False))
+    tap = net.add_layer("relay_state", exr.LayerSpec.state(output=False, threshold=True, habituation=False))
     n = net.add_layer("n", spec)
     net.add_inputs(relay, size, "x")
     net.connect(relay, tap)

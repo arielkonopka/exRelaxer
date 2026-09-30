@@ -39,3 +39,11 @@ NNtesting/nntest.py run memory_readability --trials 20 --set model=er,reset,relu
 NNtesting/experiments/memory_readability/sweep.sh results/memory-readability   # every run behind §25
 python3 NNtesting/tools/temporal_summary.py results/memory-readability
 ```
+
+## State layer
+
+The thresholds (B, C, D) and habituation streaks (H, D) are read from a
+State layer on the hidden layer, as a downstream neuron would read them
+([doc/state_output.md](../../../doc/state_output.md)); `habituation=1`
+gives the hidden neurons habituation (`hab_steps`, `hab_tolerance`).
+Results: research log §26.

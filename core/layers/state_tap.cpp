@@ -5,10 +5,11 @@
 
 namespace exr {
 
-state_tap::state_tap(bool threshold, bool habituation) : threshold_(threshold), habituation_(habituation)
+state_tap::state_tap(bool output, bool threshold, bool habituation)
+    : output_field_(output), threshold_(threshold), habituation_(habituation)
 {
-    if (!threshold && !habituation)
-        throw std::invalid_argument("state tap: enable the threshold, the habituation streak or both");
+    if (!output && !threshold && !habituation)
+        throw std::invalid_argument("state tap: enable at least one of output, threshold and habituation");
 }
 
 void state_tap::join(layer& source)
@@ -42,9 +43,13 @@ void state_tap::forward()
     if (source_ == nullptr)
         return;
     const auto neurons = source_->neurons();
+    const auto outputs = source_->output();
     const float onset = static_cast<float>(source_->habituationRule().onset());
     float* out = output_.data();
-    for (const neuron& n : neurons) {
+    for (size_t i = 0; i < neurons.size(); ++i) {
+        const neuron& n = neurons[i];
+        if (output_field_)
+            *out++ = outputs[i];
         if (threshold_)
             *out++ = n.hasER() ? n.threshold() - n.restingThreshold() : 0.0f;
         if (habituation_)

@@ -266,7 +266,7 @@ public:
         // habituation streaks with habituation; doc/model.md#state-as-output).
         const bool tapThreshold = stateReadout && model_ == "er", tapHabituation = stateReadout && habituation;
         if (tapThreshold || tapHabituation) {
-            const auto tap = net_.addLayer("h_state", LayerSpec::State(tapThreshold, tapHabituation));
+            const auto tap = net_.addLayer("h_state", LayerSpec::State(false, tapThreshold, tapHabituation));  // the outputs come from the layer itself
             net_.connect(hidden_.back(), tap);
             net_.connect(tap, out_);
             readoutInputs_ = width * (1 + static_cast<size_t>(tapThreshold) + static_cast<size_t>(tapHabituation));
