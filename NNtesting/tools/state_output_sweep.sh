@@ -34,8 +34,8 @@ done
   # t3 with n=3 (n=2 is t1); habituation cuts after 2 repeats.
   cpp nl_temporal --trials 10 --set task=t1,t2,t3,t4 --set n=3 --set model=er --set habituation=false,true \
       --set habituation_steps=2 --set habituation_tolerance=0.1 --set state_readout=false,true \
-      --set lr=0.001,0.003,0.01 --out "$out/nl_temporal.jsonl"
+      --set lr=0.001,0.003,0.01,0.03,0.1 --out "$out/nl_temporal.jsonl"
   cpp dyn_ladder --trials 10 --set task=dir,change,vel,catch --set model=er --set state_readout=false,true \
-      --set lr=0.001,0.003,0.01 --out "$out/dyn_ladder.jsonl"
+      --set lr=0.001,0.003,0.01,0.03,0.1 --out "$out/dyn_ladder.jsonl"
 } > "$out/cpp.log" 2>&1 &
 wait

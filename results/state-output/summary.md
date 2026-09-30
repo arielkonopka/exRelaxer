@@ -118,8 +118,8 @@ Score: test accuracy (t1-t3), 1 - NMSE (t4).
 
 | task | habituation | readout reads | lr | test score | spikes |
 |---|---|---|---|---|---|
-| t1 | false | outputs | 0.01 | 0.952 ± 0.093 | 40.7 ± 0.9 |
-| t1 | false | outputs + State | 0.01 | 0.982 ± 0.021 | 40.5 ± 0.7 |
+| t1 | false | outputs | 0.03 | 0.994 ± 0.016 | 39.9 ± 0.6 |
+| t1 | false | outputs + State | 0.03 | 0.997 ± 0.008 | 38.6 ± 1.3 |
 | t1 | true | outputs | 0.001 | 0.496 ± 0.000 | 9.9 ± 0.7 |
 | t1 | true | outputs + State | 0.001 | 1.000 ± 0.000 | 16.1 ± 0.0 |
 | t2 | false | outputs | 0.01 | 0.743 ± 0.000 | 36.2 ± 0.9 |
@@ -127,13 +127,13 @@ Score: test accuracy (t1-t3), 1 - NMSE (t4).
 | t2 | true | outputs | 0.001 | 0.748 ± 0.000 | 11.8 ± 0.6 |
 | t2 | true | outputs + State | 0.01 | 0.615 ± 0.056 | 9.9 ± 0.5 |
 | t3 | false | outputs | 0.001 | 0.745 ± 0.122 | 34.2 ± 2.4 |
-| t3 | false | outputs + State | 0.01 | 0.550 ± 0.080 | 39.4 ± 2.1 |
+| t3 | false | outputs + State | 0.03 | 0.514 ± 0.072 | 38.2 ± 1.0 |
 | t3 | true | outputs | 0.001 | 0.495 ± 0.000 | 12.9 ± 0.8 |
 | t3 | true | outputs + State | 0.01 | 0.495 ± 0.000 | 13.9 ± 1.4 |
-| t4 | false | outputs | 0.01 | -0.180 ± 0.011 | 21.8 ± 0.0 |
-| t4 | false | outputs + State | 0.01 | -0.222 ± 0.014 | 21.7 ± 0.0 |
-| t4 | true | outputs | 0.001 | -0.001 ± 0.000 | 15.3 ± 0.0 |
-| t4 | true | outputs + State | 0.001 | -0.001 ± 0.001 | 15.3 ± 0.0 |
+| t4 | false | outputs | 0.1 | -1092.267 ± 0.362 | 39.2 ± 1.1 |
+| t4 | false | outputs + State | 0.1 | -1092.477 ± 0.339 | 39.3 ± 0.7 |
+| t4 | true | outputs | 0.03 | -0.000 ± 0.000 | 15.2 ± 0.0 |
+| t4 | true | outputs + State | 0.1 | -1087.594 ± 6.787 | 9.8 ± 3.4 |
 
 Score: accuracy (dir, change), R² (vel), catch rate (catch).
 
