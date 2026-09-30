@@ -295,6 +295,18 @@ size_t dense::inputCount(size_t index) const
     return g == no_group ? 0 : groups_[g].weights.cols();
 }
 
+std::vector<float> dense::lastInputs(size_t index) const
+{
+    const size_t g = group_of_.at(index);
+    return g == no_group ? std::vector<float>{} : groups_[g].values;
+}
+
+std::vector<float> dense::inputTrace(size_t index) const
+{
+    const size_t g = group_of_.at(index);
+    return g == no_group || !tracesInputs() ? std::vector<float>{} : groups_[g].trace;
+}
+
 dense::NeuronRange dense::groupNeurons(size_t group) const
 {
     return groups_.at(group).neurons;

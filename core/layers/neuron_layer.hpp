@@ -87,6 +87,10 @@ public:
     // episodes; weights, bias, baselines and the feedback matrix are kept.
     void clearTraces();
 
+    // Output trace P of a neuron after the last forward() (see learning.hpp;
+    // 0 for the Sign rule, which keeps no traces). Read-only probe.
+    float outputTrace(size_t index) const { return post_.empty() ? 0.0f : post_.at(index); }
+
     // Learned bias of a neuron (0 when the rule has no bias).
     float bias(size_t index) const { return bias_.empty() ? 0.0f : bias_.at(index); }
     // Throws std::logic_error when the rule has no bias.

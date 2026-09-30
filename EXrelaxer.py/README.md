@@ -110,6 +110,7 @@ describe the behaviour.
 | `apply_reward_to(layer, reward, lr)` | one layer learns (unless frozen): a reward per readout |
 | `apply_modulators_to(layer, modulators, lr)`, `apply_error(errors, lr)`, `bias(id)`, `set_bias` | a reward per neuron; an error per output; learned biases |
 | `layer_output(id)` (C×H×W), `layer_shape`, `layer_size`, `layer_type`, `layer_spec`, `layer_name`, `find_layer`, `neuron_state(id)` (threshold, recovery, learning gain, alpha per neuron) | inspection |
+| `state_probe(id)` (output, threshold, resting threshold, Sign eligibility, output trace, habituation streak and previous sum per neuron), `last_inputs(id, i)` (what a Dense neuron summed in the last step), `input_trace(id, i)` | read-only state probes for experiments ([model](../doc/model.md#inspecting-the-state)) |
 | `weights(id, neuron)`, `set_weights` (Dense); `kernel(id, channel)`, `set_kernel`, `load_filters(id, bank)` (Conv2D); `retina_points(id)`; `cochlea_bands(id)`, `cochlea_power(id)`; `set_output(id, i, v)` | layer access |
 | `edges`, `output_layers`, `update_order`, `inputs`, `input_values(name)`, `input_sources`, `input_count`, `layer_count`, `describe()` | the same |
 | `save(path)`, `Network.load(path, mode)`, `to_bytes()`, `Network.from_bytes(data, mode)` | `save`, `load` |

@@ -295,6 +295,7 @@ def capture_environment(directory):
         "compiler": f"{info['compiler']}, python {platform.python_version()}",
         "build": info["build"],
         "native": info["native"],
+        "simd": info.get("simd", "unknown"),
         "openmp": info["openmp"],
         "threads": _core.threads(),
         "git": commit,

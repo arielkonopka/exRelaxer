@@ -58,6 +58,11 @@ public:
     // Size must equal inputCount(index); throws std::invalid_argument otherwise.
     void setWeights(size_t index, const std::vector<float>& weights);
     size_t inputCount(size_t index) const;
+    // Read-only probes of what learning will use for neuron `index`, in pool
+    // order: the inputs its group summed in the last forward() (time t), and
+    // the input trace X after that forward() (empty for the Sign rule).
+    std::vector<float> lastInputs(size_t index) const;
+    std::vector<float> inputTrace(size_t index) const;
 
     // --- Wiring inspection ----------------------------------------------
     struct NeuronRange
