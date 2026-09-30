@@ -10,6 +10,8 @@ Each experiment is one entry in the [log](#log), newest last, numbered
 `D1`, `D2`, ... so that other pages can cite them. The dynamic ladder that
 led here is in [dynamic](dynamic.md); the research log summarises the
 findings in [§20](research.md#20-dynamic-ladder-time-varying-input-and-doom).
+Doom validates mechanisms end to end; they are debugged first in
+controlled benchmarks ([protocol](protocol.md#1-controlled-first-doom-last)).
 
 ## Current best agent
 
