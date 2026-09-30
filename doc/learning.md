@@ -26,6 +26,9 @@ net.set_learning_rule(readout, exr.LearningRule.traced(0.5))
 
 ## The update
 
+Formal definitions (traces, eligibility, when a learning call reads what)
+are in [model](model.md#learning-update).
+
 Every rule changes the weights of each neuron `i` that learns in one call as
 
 ```
@@ -39,7 +42,7 @@ the reward, or its own share of an error.
 
 | Rule | `LearningRule::` | delta | pre | Who learns |
 |------|------------------|-------|-----|-----------|
-| Sign (default) | `sign()` | `rate · gain · m · eligibility` | `sign(x)` now | E-R-eligible neurons |
+| Sign (default) | `sign()` | `rate · gain · m · eligibility` | `sign(x)` of the last forward (t) | E-R-eligible neurons |
 | Trace | `traced(trace, baseline)` | `rate · gain · (m − b) · \|P\|` | `X` | neurons with a non-zero step |
 | Feedback alignment | `feedbackAlignment(trace)` | `rate · gain · m` | `X` | active, not clamped outward |
 | Perturbation | `perturbation(noise, trace, baseline)` | `rate · gain · (m − b) · Z / noise` | `X` | neurons with a non-zero step |
@@ -139,7 +142,7 @@ errors and `applyReward` on the layers that learn from rewards.
 ## Layer types
 
 - `dense`: each group's neurons learn against the group's inputs (their
-  signs now, or the group's input trace). The trace is kept per group, in
+  signs as its last `forward()` saw them, or the group's input trace). The trace is kept per group, in
   pool order.
 - `conv2d`: shared kernels learn the mean of their channel's updates:
   `w = w · mean(keep) + mean(delta · pre)` over the neurons that learn.

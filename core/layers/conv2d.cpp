@@ -138,7 +138,7 @@ void conv2d::updateWeights()
         return;
 
     if (learnsFromSigns())
-        gatherInputs();
+        keepInputSnapshot();
     // Sum over positions of delta * pre, per kernel weight (pre: the signs
     // of the inputs, or their trace). Each tile
     // of positions is laid out transposed (a row per window input, a column

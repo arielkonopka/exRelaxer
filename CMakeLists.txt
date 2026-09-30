@@ -169,6 +169,8 @@ add_executable(exrelaxer_tests
     tests/learning.cpp
     tests/multimodal.cpp
     tests/snake.cpp
+    tests/temporal.cpp
+    tests/traces.cpp
 )
 
 target_link_libraries(exrelaxer_tests PRIVATE

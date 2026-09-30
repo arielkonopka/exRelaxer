@@ -46,7 +46,7 @@ Caller -> network : applyReward(reward, rate)
 loop each layer that is not frozen
   network -> L : applyReward(reward, rate)
   loop each group
-    L -> G : gather(), then sign of each input
+    L -> G : sign of each input the last forward() gathered (time t)
     L -> neuron : eligible()? learningDelta(reward, rate)
     L -> W : learn(signs, deltas, eligible)
     note right

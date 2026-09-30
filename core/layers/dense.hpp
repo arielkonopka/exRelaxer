@@ -95,7 +95,8 @@ private:
         std::vector<std::reference_wrapper<const layer>> sources;  // layers whose outputs are in the pool
         NeuronRange neurons;                // a group's neurons are always contiguous
         kernels::weight_matrix weights;     // one row per neuron, one column per pool entry
-        std::vector<float> values;          // the pool gathered into contiguous floats
+        std::vector<float> values;          // the pool gathered into contiguous floats by the last forward()
+        std::vector<float> signs;           // Sign rule: signs of `values` during learning
         std::vector<float> scratch;         // per-row sums / deltas (padded to whole blocks)
         std::vector<std::uint8_t> active;   // per-row eligibility during learning
         std::vector<float> keep;            // per-row shrink factor during learning

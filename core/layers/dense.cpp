@@ -200,10 +200,14 @@ void dense::updateWeights()
             continue;
         std::span<const float> pre;
         if (learnsFromSigns()) {
-            // The inputs as they are now; only their signs matter.
-            group.gather();
-            kernels::signs(group.values, group.values);
-            pre = group.values;
+            // The signs of the inputs this group's last forward() summed (time
+            // t), not of the values its sources hold now: a source that runs
+            // later in the update order, or this layer itself, has moved on
+            // to t since then. Inputs added since that forward() count as 0.
+            group.values.resize(group.weights.cols(), 0.0f);
+            group.signs.resize(group.values.size());
+            kernels::signs(group.values, group.signs);
+            pre = group.signs;
         } else {
             if (group.trace.size() != group.weights.cols())
                 group.trace.resize(group.weights.cols(), 0.0f);  // grew since the last forward()
