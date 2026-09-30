@@ -72,20 +72,24 @@ def credit(rows, out):
 
     # Weight changes for a few conditions.
     out.append("### delayed_credit: weight changes (mean ± sd over seeds)\n")
-    out.append("| rule | neuron | recovery | λ | delay | Δw rewarded cue | Δw punished cue | |Δw| irrelevant cues | "
+    out.append("| rule | neuron | recovery | λ | episodes | delay | Δw rewarded cue | Δw punished cue | |Δw| irrelevant cues | "
                "|Δw| distractors | reward corr. (relevant cues) |")
-    out.append("|---|---|---|---|---|---|---|---|---|---|")
-    pick = [("trace", "er", 0.9, 0.9), ("trace", "er", 0.9, 0.5), ("trace", "er", 0.9, 0.99), ("trace", "linear", "-", 0.9),
-            ("sign", "er", 0.9, "-"), ("sign", "er", 0.99, "-"), ("sign", "linear", "-", "-")]
+    out.append("|---|---|---|---|---|---|---|---|---|---|---|")
+    # nntest records parameters as text
+    pick = [("trace", "er", "0.9", "0.9"), ("trace", "er", "0.9", "0.5"), ("trace", "er", "0.9", "0.99"),
+            ("trace", "linear", "-", "0.9"), ("sign", "er", "0.9", "-"), ("sign", "er", "0.99", "-"),
+            ("sign", "linear", "-", "-")]
     for rule, neuron, rec, lam in pick:
-        for d in delays:
-            m = [r["metrics"] for key, rs in groups.items() for r in rs
-                 if key[1:5] == (rule, neuron, rec, lam) and key[5] == 400 and int(r["params"]["delay"]) == d]
-            if not m or d not in (0, 1, 4, 16, 64):
-                continue
-            out.append(f"| {rule} | {neuron} | {rec} | {lam} | {d} | {ms([x['dw_relevant_pos'] for x in m])} | "
-                       f"{ms([x['dw_relevant_neg'] for x in m])} | {ms([x['dw_irrelevant_cue_abs'] for x in m])} | "
-                       f"{ms([x['dw_distractor_abs'] for x in m])} | {ms([x['reward_corr_relevant'] for x in m])} |")
+        for eps in ("400", "1600"):
+            for d in delays:
+                m = [r["metrics"] for key, rs in groups.items() for r in rs
+                     if key[1:5] == (rule, neuron, rec, lam) and key[5] == eps and int(r["params"]["delay"]) == d]
+                if not m or d not in (0, 1, 4, 16, 64):
+                    continue
+                out.append(f"| {rule} | {neuron} | {rec} | {lam} | {eps} | {d} | "
+                           f"{ms([x['dw_relevant_pos'] for x in m])} | {ms([x['dw_relevant_neg'] for x in m])} | "
+                           f"{ms([x['dw_irrelevant_cue_abs'] for x in m])} | {ms([x['dw_distractor_abs'] for x in m])} | "
+                           f"{ms([x['reward_corr_relevant'] for x in m])} |")
     out.append("")
 
 

@@ -276,8 +276,10 @@ itself learned from sign(y(*t*)) while its sum had used y(*t*−1), and a
 change of sensors between step and reward was learned as well
 ([appendix 1](appendix1.md), Q1). The fix changes results only in those
 two cases; feed-forward Sign networks driven as set inputs → step →
-reward are bit-identical (the regression tests and the C++ nntest quick
-suite pass unchanged). Inputs added to a group after its last forward pass
+reward are bit-identical (the regression tests and the nntest quick
+suites pass unchanged; `KernelsTest.DenseMatchesPerNeuronReferenceBitForBit`,
+whose reference re-read a self-connected layer after the step, now reads
+the pre-step values). Inputs added to a group after its last forward pass
 count as 0 in the next learning call.
 
 ### Delayed reward

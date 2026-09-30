@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The runs behind results/delayed-credit (research log §25). nntest --out
-# appends: start from an empty directory.
+# appends: start from an empty directory. The files in results/ are these, gzipped.
 set -euo pipefail
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 out=${1:-results/delayed-credit}
