@@ -7,6 +7,8 @@
 #   ./build.sh                    build, test, install into ./install
 #   ./build.sh --python           ... and the Python package (needs nanobind, pytest)
 #   ./build.sh --vizdoom          ... and ViZDoom from PyPI, for the doom_rl experiments
+#   ./build.sh --goe              ... and Gardens of Eris from its repository, for goe_rl
+#   ./build.sh --all              everything: --python --vizdoom --goe
 #   ./build.sh --help             all options
 #
 # After it:
@@ -23,6 +25,9 @@ build_type=Release
 jobs=""
 python=OFF
 vizdoom=0
+goe=0
+goe_dir="$root/third_party/Gardens-of-Eris"
+goe_repo="${GOE_REPO:-https://github.com/arielkonopka/Gardens-of-Eris.git}"
 native=OFF
 run_tests=1
 install=1
@@ -44,6 +49,13 @@ Usage: ./build.sh [options] [-- extra cmake configure arguments]
                    the Python interpreter, for the doom_rl experiments; implies
                    --python. Use a virtual environment: Debian's system Python
                    refuses pip installs
+  --goe            clone Gardens of Eris (GOE_REPO, default its GitHub
+                   repository) into ./third_party/Gardens-of-Eris, or update
+                   that clone, and pip-install its Python package goe (which
+                   builds the game; needs liballegro5-dev, libopenal-dev,
+                   libsndfile1-dev), for the goe_rl experiments; implies --python
+  --goe-dir DIR    the Gardens of Eris checkout to use or clone into
+  --all            everything: --python --vizdoom --goe
   --no-tests       build only, do not run the tests
   --no-install     do not install
   --clean          delete the build tree first
@@ -66,6 +78,9 @@ while [[ $# -gt 0 ]]; do
         --native) native=ON; shift ;;
         --python) python=ON; shift ;;
         --vizdoom) vizdoom=1; python=ON; shift ;;
+        --goe) goe=1; python=ON; shift ;;
+        --goe-dir) goe_dir="$(absolute "$2")"; shift 2 ;;
+        --all) vizdoom=1; goe=1; python=ON; shift ;;
         --no-tests) run_tests=0; shift ;;
         --no-install) install=0; shift ;;
         --clean) clean=1; shift ;;
@@ -114,6 +129,29 @@ if [[ $vizdoom == 1 ]]; then
     fi
 fi
 
+if [[ $goe == 1 ]]; then
+    if [[ -d "$goe_dir/.git" ]]; then
+        step "Updating Gardens of Eris in $goe_dir"
+        git -C "$goe_dir" pull --ff-only || echo "  warning: could not update $goe_dir; building it as it is" >&2
+    else
+        step "Cloning Gardens of Eris from $goe_repo into $goe_dir"
+        mkdir -p "$(dirname "$goe_dir")"
+        git clone --depth 1 "$goe_repo" "$goe_dir"
+    fi
+    missing=()
+    for lib in allegro-5 openal sndfile; do
+        pkg-config --exists "$lib" 2>/dev/null || missing+=("$lib")
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "  warning: pkg-config does not find ${missing[*]}; the game may not build" >&2
+        echo "           (sudo apt-get install liballegro5-dev libopenal-dev libsndfile1-dev)" >&2
+    fi
+    step "Installing the goe package (builds the game) with $py"
+    "$py" -m pip install --upgrade nanobind pytest numpy
+    "$py" -m pip install "$goe_dir/agent/python"
+    "$py" -c "import goe; print('  goe from', goe.__file__)"
+fi
+
 step "Configuring ($build_type) in $build_dir"
 cmake "${configure[@]}" "${extra[@]}"
 
@@ -139,6 +177,11 @@ if [[ $vizdoom == 1 ]]; then
     echo "  Doom:              NNtesting/nntest.py run doom_rl  (doc/doom.md)"
     echo "  watch the agent:   PYTHONPATH=$build_dir/EXrelaxer.py/package $py NNtesting/experiments/doom_rl/watch.py"
     echo "                     (writes replay.mp4, .srt and .html; --live shows the game window instead)"
+fi
+if [[ $goe == 1 ]]; then
+    echo "  Gardens of Eris:   NNtesting/nntest.py run goe_rl  (doc/goe.md; checkout in $goe_dir)"
+    echo "  evolve a model:    PYTHONPATH=$build_dir/EXrelaxer.py/package $py NNtesting/experiments/goe_rl/es.py \\"
+    echo "                     --out results/goe-es/er_reservoir --config NNtesting/experiments/goe_rl/models/er_reservoir.json"
 fi
 if [[ $install == 1 ]]; then
     echo "  library package:   $prefix  (find_package(exrelaxer) with -DCMAKE_PREFIX_PATH=$prefix;"

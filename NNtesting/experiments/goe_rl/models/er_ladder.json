@@ -1,0 +1,20 @@
+{
+ "description": "three E-R layers, the top one reading every layer below (skip); h2 and h3 come back to h1 through rungs of 32 relu neurons with habituation (no E-R); the frozen reservoir of er_reservoir",
+ "radius": "auto",
+ "seen_channel": true,
+ "model": "er",
+ "habituation": true,
+ "depth": 3,
+ "width": 128,
+ "skip": true,
+ "feedback_first": 32,
+ "feedback_first_from": "all",
+ "feedback_first_model": "relu",
+ "feedback_first_habituation": true,
+ "reservoir": 256,
+ "reservoir_recurrent": 128,
+ "reservoir_evolve": false,
+ "recurrent_scale": 0.5,
+ "readout_from": "top",
+ "evolve": "all"
+}

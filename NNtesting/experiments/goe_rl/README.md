@@ -1,16 +1,20 @@
 # goe_rl
 
 [Gardens of Eris](https://github.com/arielkonopka/Gardens-of-Eris) played by an
-E-R network, as doom_rl plays Doom. The game is a grid maze that keeps growing
+E-R network, as doom_rl plays Doom. Every experiment, the designed networks
+and how to run them are in [doc/goe.md](../../../doc/goe.md). The game is a grid maze that keeps growing
 around the player; its headless build and the Python package `goe` live in
 the game's repository (`agent/`, `agent/python`).
 
 ```bash
+./build.sh --goe                                                      # all in one: clones the game, installs goe (use a venv)
+# or by hand:
 git clone https://github.com/arielkonopka/Gardens-of-Eris
 sudo apt-get install liballegro5-dev libopenal-dev libsndfile1-dev   # the game's libraries
 python3 -m pip install ./Gardens-of-Eris/agent/python                  # the goe package (builds the game)
 NNtesting/nntest.py run goe_rl --set model=er,relu                    # untrained network vs a random player
 python3 NNtesting/experiments/goe_rl/es.py --out results/goe-es/er_d1 --workers 4 --generations 300
+python3 NNtesting/experiments/goe_rl/es.py --out results/goe-es/er_reservoir --config NNtesting/experiments/goe_rl/models/er_reservoir.json
 ```
 
 ## Senses and network
@@ -22,6 +26,12 @@ body: energy / max energy, ammo, spare avatars -> "body" (3) -------------------
       14 readouts: MOVE, SHOOT, INTERACT x {up, down, left, right}, NEXT_GUN, USE (largest one is played)
 ```
 
+The grid's radius `radius` is `auto` by default: the player's sight grows
+with its steps (2 + ln(steps) / 2 cells), so the grid covers the furthest
+sight of an episode from the start (6 for 2 minutes, 7 for 30), and cells
+beyond the current sight read zero. `seen_channel` adds a ninth channel
+marking the cells in sight.
+
 The channels say what each cell holds, from the game's element features: wall
 (walls, brick clusters), free (can be stepped on now), enemy (killable, not
 the player), collectible, danger (missiles, bombs, landmines), door (doors
@@ -32,6 +42,16 @@ One game step is one move (8 game ticks, 50 ticks a second); the network runs
 `ticks` (3) ticks on each step's view, which is held. `readout` last (the
 default) plays the readouts of the step's last tick, `sum` their sum over
 the step.
+
+## Designed networks
+
+Besides the plain stack, the network can have a frozen echo-state
+`reservoir` reading h1, `skip` (the top layer reads every layer below), a
+feedback ladder (`feedback_first`: rung layers r<k> of their own neuron
+model, relu with habituation by default, bring h<k> back to h1) and
+`readout_from` `all`. `models/` holds three designed networks:
+`er_reservoir`, `er_reservoir_grow` (layers grow on top while it learns,
+`grow_to`) and `er_ladder`; see [doc/goe.md](../../../doc/goe.md#designed-networks).
 
 ## Reward
 
@@ -50,4 +70,7 @@ plays the same worlds; the current weights play 6 fixed validation worlds
 every generation (seed 777777 on). The run resumes from `<out>/state.npz`.
 
 There is one game per process (the game keeps its world in static state),
-so the workers are separate processes, as in doom_rl.
+so the workers are separate processes, as in doom_rl. `--config` takes
+JSON or a file of it (`models/*.json`); `grow_to` there (or `--grow-to`)
+grows the network a layer at a time, carrying every weight over by the
+input it reads (`../_shared/wiring.py`).

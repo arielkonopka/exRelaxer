@@ -112,6 +112,8 @@ One command builds everything, runs every test and installs the library:
 ./build.sh                   # library, unit tests, nntest; runs ctest; installs into ./install
 ./build.sh --python          # ... and the Python package, with its tests and quick experiments
 ./build.sh --vizdoom         # ... and ViZDoom from PyPI for the Doom experiments (implies --python)
+./build.sh --goe             # ... and Gardens of Eris, cloned from its repository, for goe_rl (implies --python)
+./build.sh --all             # everything: --python --vizdoom --goe
 ./build.sh --help            # --prefix DIR, --debug, --native, --no-tests, --no-install, --clean, -j N
 ```
 
@@ -354,6 +356,7 @@ build.sh                         one command: build everything, run the tests, i
 cmake/                           package config template, the installed-package test
 examples/consumer/               a separate program using the installed library (find_package)
 examples/doom_agent/             loads an evolved Doom agent (best.exr) in C++ and runs one game step
+third_party/                     Gardens of Eris, cloned by ./build.sh --goe (not in git)
 EXrelaxer.py/                    Python package exrelaxer: nanobind bindings, experiment runner,
                                  dataset loader, pytest suite
 NNtesting/                       benchmark harness nntest (see NNtesting/README.md)
@@ -361,6 +364,7 @@ NNtesting/                       benchmark harness nntest (see NNtesting/README.
   tasks/                         task code shared with the unit tests (pattern_benchmark.hpp, bars.hpp, snake.hpp)
                                  and the experiments (activity.hpp, nonlinearity.hpp, er_options.hpp)
   experiments/                   one per experiment: NAME.cpp, NAME/experiment.py or NAME.py
+    _shared/                     Python helpers shared by experiments (wiring.py: what every weight reads)
   nntest.py                      runner for the Python experiments
   datasets/fetch.py              downloads public datasets (MNIST, CIFAR-10, Kaggle, ...) into one format
   tools/compare.py               tables and before/after comparisons of result files
@@ -406,6 +410,23 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files older than format 6 load as weights only.
 
 ## Changelog
+
+### 2026-10-01: Gardens of Eris: designed networks, growing sight, build
+
+- `./build.sh --goe` clones [Gardens of Eris](https://github.com/arielkonopka/Gardens-of-Eris)
+  into `third_party/` (or updates the clone) and installs its Python
+  package `goe`; `--all` builds everything (`--python --vizdoom --goe`).
+- `goe_rl`: the eye covers the player's growing sight (`radius` `auto`,
+  an optional `seen` channel); a frozen echo-state reservoir, `skip`, a
+  feedback ladder with rung layers of their own neuron model, and
+  `readout_from all`; `es.py` takes model files and grows the network
+  (`grow_to`), carrying weights over by the input they read
+  (`NNtesting/experiments/_shared/wiring.py`).
+- Three designed networks in `goe_rl/models/` (frozen reservoir; growing
+  E-R layers; three E-R layers with a relu feedback ladder), and the
+  record of every GoE experiment, [doc/goe.md](doc/goe.md) (research log
+  §28). G1: untrained, every network stands still; a random player
+  scores 7–9 times more.
 
 ### 2026-10-01: Doom tooling, video replays, feedback ladder
 
