@@ -6,6 +6,10 @@ settings. See README.md here.
                              (2 ears x 16 bands) --------------------------/          |
                                                                      8 action readouts (learned from reward)
 
+Optional feedback ladder (feedback_first): every hidden layer above h1
+comes back to h1 as input, one tick late, through a rung of neurons in h1
+or a rung layer of its own neuron model (Player._build_ladder).
+
 Actions (one per step): forward, backward, turn left, turn right, strafe
 left, strafe right, shoot, use (doors, switches). The reward comes only
 from the game's state (rewards.py): hurt and death are penalised, kills,
@@ -81,10 +85,12 @@ class Player:
         self.net = net = exr.Network()
         self.sound = p["sound"]
         self.readout = p.get("readout", "last")
-        def neurons(size, frozen=True):
-            spec = exr.LayerSpec.dense(size, p["habituation"], model == "er", frozen=frozen,
+        def neurons(size, frozen=True, model=model, habituation=p["habituation"]):
+            if model not in ("relu", "er", "gate", "clamp"):
+                raise ValueError("model must be relu, er, gate or clamp")
+            spec = exr.LayerSpec.dense(size, habituation, model == "er", frozen=frozen,
                                        learning_rule=exr.LearningRule.traced(p["trace"]))
-            if p["habituation"]:
+            if habituation:
                 # Fade mode as in the rerun's fade2: a repeated input fades by
                 # `habituation_decay` per tick from its `habituation_fade_after`th repeat.
                 spec.habituation_rule = exr.Habituation(tolerance=p["habituation_tolerance"],
@@ -108,6 +114,16 @@ class Player:
                 spec.normalize = False
             return spec
 
+        if p.get("feedback_first", 0) > 0:
+            self._build_ladder(p, neurons, normalized)
+        else:
+            self._build_stack(p, neurons, normalized)
+        self.metered = self.layers + getattr(self, "rungs", []) + ([self.reservoir] if self.reservoir is not None else [])
+        self.neurons = sum(net.layer_size(l) for l in self.metered)
+        self.spikes = self.ticks_seen = 0
+
+    def _build_stack(self, p, neurons, normalized):
+        net, width = self.net, p["width"]
         # Hidden stack h1 .. h<depth>: h1 reads the eye (and the ears), each
         # further layer the one below. All frozen unless learn_hidden.
         if p["feedback"] not in ("none", "recurrent", "topdown", "both"):
@@ -173,9 +189,157 @@ class Player:
                 else:
                     w = w * math.sqrt(3.0 / len(w))
                 net.set_weights(layer, i, w)
-        self.metered = self.layers + ([self.reservoir] if self.reservoir is not None else [])
-        self.neurons = sum(net.layer_size(l) for l in self.metered)
-        self.spikes = self.ticks_seen = 0
+
+    def _build_ladder(self, p, neurons, normalized):
+        """The feedback ladder: every hidden layer above h1 comes back to h1 as
+        input, through `feedback_first` extra h1 neurons that read it (the
+        previous tick's output, as every feedback line). A signal that climbs
+        to h<k> returns to h1 after a loop through k layers, so the rungs
+        remember over different spans. feedback_first_from "top" keeps only
+        the top rung.
+
+        feedback_first_model chooses the rungs' neurons. "h1" (the default):
+        the rung is `feedback_first` neurons added to h1 itself, of h1's
+        kind; h2 and the readouts read them with the rest of h1. Any neuron
+        model (relu, er, gate, clamp): the rung is a layer of its own, r<k>,
+        with that model and habituation if feedback_first_habituation (the
+        habituation_* settings); it reads h<k>, and every h1 neuron reads it
+        as one more input, next to the eye and the ears. Such a loop is a
+        cycle of forward connections, so the update order is set explicitly
+        (ears, h1 .. h<depth>, rungs, readouts): h1 reads each rung's
+        previous tick.
+
+        The network is built one layer at a time, as es.py --grow-to grows
+        it: h1 (eye, ears), the readouts, then each further layer with its
+        rung. The library appends a new input's weights at the end of every
+        neuron that reads it, so the order of the weights follows the order
+        of construction; self.sources records, for every neuron, the input
+        each weight reads ((layer name, index), or ("eye", i)), which is how
+        es.py carries the weights over when the network grows."""
+        net, width, rung = self.net, p["width"], p["feedback_first"]
+        frm = p.get("feedback_first_from", "all")
+        rung_model = p.get("feedback_first_model", "h1")
+        if frm not in ("all", "top"):
+            raise ValueError("feedback_first_from must be all or top")
+        if frm == "top" and p["depth"] < 2:
+            raise ValueError("feedback_first_from top needs depth >= 2")
+        if p["feedback"] not in ("none", "recurrent", "topdown", "both"):
+            raise ValueError("feedback must be none, recurrent, topdown or both")
+        if p["reservoir"] > 0:
+            raise ValueError("feedback_first does not combine with a reservoir")
+        recurrent = p["feedback"] in ("recurrent", "both")
+        topdown = p["feedback"] in ("topdown", "both")
+        readout_all = p.get("readout_from", "top") == "all"
+
+        # Mirror of the library's dense wiring: per layer, its groups of
+        # neurons, each with the inputs it reads in weight order.
+        name, size, groups, unwired = {}, {}, {}, {}
+
+        def dense(label, spec, n):
+            layer = net.add_layer(label, spec)
+            name[layer], size[layer], groups[layer], unwired[layer] = label, n, [], list(range(n))
+            return layer
+
+        def append(layer, source_id, block):
+            for g in groups[layer]:
+                if source_id is not None and source_id in g["reads"]:
+                    continue
+                g["src"] += block
+                if source_id is not None:
+                    g["reads"].add(source_id)
+            if unwired[layer]:
+                groups[layer].append({"neurons": unwired[layer], "src": list(block),
+                                      "reads": {source_id} if source_id is not None else set()})
+                unwired[layer] = []
+
+        def connect(source, target):
+            net.connect(source, target)
+            label = name.get(source, "ear")
+            append(target, source, [(label, j) for j in range(size.get(source) or net.layer_size(source))])
+
+        def feedback(source, target, n):
+            first = size[target]
+            net.add_feedback(source, target, n)
+            groups[target].append({"neurons": list(range(first, first + n)),
+                                   "src": [(name[source], j) for j in range(size[source])], "reads": {source}})
+            size[target] += n
+            for layer in groups:  # every group reading `target` reads its new neurons too
+                for g in groups[layer]:
+                    if target in g["reads"]:
+                        g["src"] += [(name[target], j) for j in range(first, first + n)]
+
+        h1 = dense("h1", neurons(width, not p["learn_hidden"]), width)
+        net.add_inputs(h1, self.eye_size, "eye")
+        append(h1, None, [("eye", j) for j in range(self.eye_size)])
+        self.layers = [h1]
+        self.rungs = []
+        self.hidden = h1
+        if self.sound:
+            window = max(512, 1 << (self.hop - 1).bit_length())  # a power of two >= hop
+            spec = exr.CochleaSpec(sample_rate=SAMPLE_RATE, hop=self.hop, window=window, bands=p["bands"], channels=2)
+            self.ear = net.add_layer("ear", exr.LayerSpec.cochlea(spec, False, False))
+            net.add_inputs(self.ear, 2 * self.hop, "mic")
+            connect(self.ear, h1)
+        if recurrent:
+            connect(h1, h1)
+        rule = exr.LearningRule.sign() if p["rule"] == "sign" else exr.LearningRule.traced(p["trace"])
+        self.readouts = []
+        for label in ACTIONS:
+            out = dense(label.lower(), normalized(exr.LayerSpec.dense(1, False, False, learning_rule=rule)), 1)
+            if readout_all:
+                connect(h1, out)
+            net.add_output(out)
+            self.readouts.append(out)
+        for l in range(2, p["depth"] + 1):
+            h = dense(f"h{l}", neurons(width, not p["learn_hidden"]), width)
+            connect(self.layers[-1], h)
+            if recurrent:
+                connect(h, h)
+            if topdown:
+                feedback(h, self.layers[-1], p["feedback_width"])
+            if frm == "all" or l == p["depth"]:
+                if rung_model == "h1":
+                    feedback(h, h1, rung)
+                else:
+                    r = dense(f"r{l}", neurons(rung, not p["learn_hidden"], rung_model,
+                                               p.get("feedback_first_habituation", True)), rung)
+                    connect(h, r)
+                    connect(r, h1)
+                    self.rungs.append(r)
+            self.layers.append(h)
+            if readout_all:
+                for out in self.readouts:
+                    connect(h, out)
+        if not readout_all:
+            for out in self.readouts:
+                connect(self.layers[-1], out)
+        self.reservoir = None
+        if self.rungs:
+            ears = [self.ear] if self.sound else []
+            net.set_update_order(ears + self.layers + self.rungs + self.readouts)
+
+        # Every weight's input, checked against the library; then uniform
+        # weights with variance 1 / fan-in, and recurrent_scale / sqrt(n) for
+        # the n weights by which a layer reads itself (below 1 the echo fades).
+        self.sources = {}
+        rs = p["recurrent_scale"]
+        for layer in self.layers + self.rungs + self.readouts:
+            for g in groups[layer]:
+                for i in g["neurons"]:
+                    self.sources[(name[layer], i)] = g["src"]
+            for i in range(net.layer_size(layer)):
+                src = self.sources.get((name[layer], i))
+                w = np.asarray(net.weights(layer, i), dtype=np.float32)
+                if src is None or len(src) != len(w):
+                    raise RuntimeError(f"feedback ladder: the weights of {name[layer]}[{i}] do not match their inputs")
+                own = np.array([s[0] == name[layer] for s in src])
+                if own.any():
+                    w[~own] *= math.sqrt(3.0 / max(1, (~own).sum()))
+                    w[own] *= rs * math.sqrt(3.0 / own.sum())
+                else:
+                    w *= math.sqrt(3.0 / len(w))
+                net.set_weights(layer, i, w)
+        self.names = name
 
     def act(self, state, rng, explore, meter=False):
         s = state.screen_buffer
@@ -267,6 +431,12 @@ PARAMS = {
     "feedback": ("none", "feedback lines in the hidden stack: none, recurrent (each layer reads itself), topdown "
                          "(extra neurons read the layer above), both"),
     "feedback_width": (32, "topdown: extra neurons per layer that read the layer above"),
+    "feedback_first": (0, "feedback ladder: extra neurons in h1 per hidden layer above it, reading that layer "
+                          "(0: none); every layer comes back to h1 as input"),
+    "feedback_first_from": ("all", "feedback ladder: all (every layer above h1 gets a rung) or top (only the top layer)"),
+    "feedback_first_model": ("h1", "feedback ladder rungs: h1 (neurons added to h1, of its kind) or relu, er, gate, clamp "
+                                   "(a rung layer of its own that h1 reads as input)"),
+    "feedback_first_habituation": (True, "feedback ladder: rung layers habituate (the habituation_* settings)"),
     "reservoir": (0, "echo-state reservoir after the stack: neurons reading the top layer (0: none)"),
     "reservoir_recurrent": (128, "reservoir neurons that read the whole reservoir"),
     "recurrent_scale": (0.5, "scale of recurrent weights (x sqrt(3 / layer size))"),

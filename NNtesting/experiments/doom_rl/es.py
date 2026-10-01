@@ -22,11 +22,18 @@ validation weights so far.
     python3 NNtesting/experiments/doom_rl/es.py --out ... --config '{"depth": 2, "feedback": "recurrent"}'
     python3 NNtesting/experiments/doom_rl/es.py --scenario map01 --out ... --init <readout best_theta.npy> \
         --config '{"depth": 1, "feedback": "none", "evolve": "all"}'
+    python3 NNtesting/experiments/doom_rl/es.py --out ... --grow-to 4 \
+        --config '{"depth": 1, "feedback": "none", "evolve": "all", "feedback_first": 16, "feedback_first_model": "relu"}'
+
+With --grow-to the network gains a hidden layer on top whenever it learns;
+with the feedback ladder (feedback_first, see experiment.py) each new layer
+also brings its rung back to h1.
 """
 import argparse
 import json
 import multiprocessing as mp
 import os
+import signal
 import sys
 import time
 
@@ -56,6 +63,17 @@ def init_worker(p, net_seed):
     import experiment as e
     exr.set_threads(1)
     _worker.update(p=p, net_seed=net_seed, game=e.make_game(p, 1))
+    # The pool ends its workers with SIGTERM; without closing its game a
+    # worker leaves the Doom engine running, forever, and es.py hangs at exit
+    # (the engine holds the pipe multiprocessing waits on).
+    signal.signal(signal.SIGTERM, close_game)
+
+
+def close_game(signum=None, frame=None):
+    game = _worker.pop("game", None)
+    if game is not None:
+        game.close()
+    os._exit(0)
 
 
 def groups(player, evolve):
@@ -63,7 +81,7 @@ def groups(player, evolve):
     readouts, then (evolve == "all") each hidden layer's neurons."""
     out = [[(r, 0) for r in player.readouts]]
     if evolve == "all":
-        out += [[(h, i) for i in range(player.net.layer_size(h))] for h in player.layers]
+        out += [[(h, i) for i in range(player.net.layer_size(h))] for h in player.layers + getattr(player, "rungs", [])]
     return out
 
 
@@ -106,6 +124,39 @@ def split(player, evolve, theta):
     return out
 
 
+def grow_ladder(p, q, net_seed, arrays):
+    """grow() for the feedback ladder, where the new layer also adds a rung
+    (neurons in h1, or a rung layer that h1 reads) and so new inputs to old
+    neurons: every weight is matched by the input it reads (Player.sources).
+    Old weights keep their values, weights from new inputs start at zero, and
+    new neurons start as the network's random ones, so the grown network
+    plays as before up to float rounding (the extra zero-weight inputs change
+    the order of summation by about 1e-7; an E-R neuron at its threshold can
+    tip the other way, so long games may part after a while)."""
+    old, new = build(p, net_seed, None), build(q, net_seed, None)
+    fresh = initial_weights(q, net_seed)[0]
+    def keyed(player):
+        return [(player.names[layer], i) for group in groups(player, p["evolve"]) for layer, i in group]
+    old_keys, new_keys = keyed(old), keyed(new)
+    lengths = [len(new.sources[k]) for k in new_keys]
+    out = []
+    for k, a in enumerate(arrays):
+        at, before = 0, {}
+        for key in old_keys:
+            n = len(old.sources[key])
+            before[key] = dict(zip(old.sources[key], a[at:at + n]))
+            at += n
+        parts, at = [], 0
+        for key, n in zip(new_keys, lengths):
+            if key in before:
+                parts.append(np.array([before[key].get(s, 0.0) for s in new.sources[key]]))
+            else:
+                parts.append(fresh[at:at + n] if k == 0 else np.zeros(n))
+            at += n
+        out.append(np.concatenate(parts))
+    return out
+
+
 def grow(p, net_seed, arrays):
     """Adds a hidden layer on top: returns the deeper network's parameters and
     `arrays` (theta, Adam's m and v) mapped onto it. The readouts read every
@@ -113,6 +164,8 @@ def grow(p, net_seed, arrays):
     zero, so the grown network plays exactly as before; the new layer's own
     weights start as the network's random ones."""
     q = dict(p, depth=p["depth"] + 1)
+    if p.get("feedback_first", 0):
+        return q, grow_ladder(p, q, net_seed, arrays)
     old, new = build(p, net_seed, None), build(q, net_seed, None)
     fresh = split(new, q["evolve"], initial_weights(q, net_seed)[0])
     out = []
@@ -180,6 +233,8 @@ def main():
     if args.grow_to:
         if p["evolve"] != "all":
             raise ValueError("--grow-to needs evolve all: a frozen random layer would change with the depth")
+        if p.get("feedback_first", 0) and p.get("feedback_first_from", "all") != "all":
+            raise ValueError("--grow-to needs feedback_first_from all: a top-only rung would move to every new layer")
         p["readout_from"] = "all"  # the new layer joins the readouts with zero weights
     state_path = os.path.join(args.out, "state.npz")
     if os.path.exists(state_path):

@@ -5,6 +5,8 @@ settings. Part of the dynamic ladder ([doc/dynamic.md](../../../doc/dynamic.md))
 every experiment and result is recorded in [doc/doom.md](../../../doc/doom.md).
 
 ```bash
+./build.sh --vizdoom                    # all in one: ViZDoom from PyPI + the Python package (use a venv)
+# or by hand:
 python3 -m pip install vizdoom          # headless
 sudo apt-get install libopenal1         # sound: without OpenAL the audio buffer is silent
 NNtesting/nntest.py run doom_rl --set scenario=defend_the_center --set model=er,relu --set sound=true,false
@@ -29,16 +31,24 @@ the action; while training a random one with probability `explore`.
 ## Watching an agent (watch.py)
 
 ```bash
-python3 NNtesting/experiments/doom_rl/watch.py                    # replay.html: the best agent, 1 game, 3 minutes
+python3 NNtesting/experiments/doom_rl/watch.py                    # replay.mp4 + .srt + .html: the best agent, 1 game, 3 minutes
 python3 NNtesting/experiments/doom_rl/watch.py --agent <es.py output folder> --games 3 --minutes 5 --out games.html
 python3 NNtesting/experiments/doom_rl/watch.py --live --speed 0.5  # ViZDoom's own window, needs a display
 ```
 
-The replay is one HTML page with no dependencies: play, pause, scrub and
-step through the exact 160 × 120 gray screen the network saw, with its
-action, its 8 readouts, which hidden E-R neurons fired at the decision
-tick, and health, ammo, kills and reward. The sound it heard is not
-replayed. About 6 KB per step, so a 3-minute game is about 13 MB.
+The replay is three files next to each other: `replay.mp4`, a video of
+exactly the 160 × 120 gray screen the network saw (H.264, one frame per
+game step, 8.75 a second); `replay.srt`, subtitles with each step's
+action, health, ammo, kills, reward and spikes (VLC and mpv load them with
+the video); and `replay.html`, a small page that plays the video with the
+network beside it: its 8 readouts, which hidden E-R neurons fired at the
+decision tick, and step-by-step seeking. Keep the three together. The
+video takes about 3–4 KB per step (a 20-minute game: about 30 MB) and the
+page about 100 bytes per step; the browser streams the video, so long
+games do not fill its memory. `--video mkv` puts the subtitles inside the
+video; `--video mpg` writes MPEG-2, which VLC and mpv play but browsers do
+not. The sound it heard is not recorded. Needs `ffmpeg`
+(`sudo apt-get install ffmpeg`).
 `--seed 4242` (the default) starts the same games as the fresh tests.
 
 ## Topology and E-R options
@@ -57,6 +67,19 @@ replayed. About 6 KB per step, so a 3-minute game is about 13 MB.
   `habituation_tolerance`: with 0 (exact repeats only) habituation never
   acts here, because the sound and any recurrence change every tick;
 - `ticks` per game step (more ticks let E-R run longer on each frame).
+- the **feedback ladder** (`feedback_first` > 0): every hidden layer above
+  h1 comes back to h1 as input through a rung of `feedback_first` neurons
+  that read it, one tick late. A signal that climbs to h<k> returns after a
+  loop through k layers, so the rungs remember over different spans.
+  `feedback_first_from` `top` keeps only the top rung. `feedback_first_model`
+  chooses the rung neurons: `h1` (default) adds them to h1 itself, of h1's
+  kind, and h2 and the readouts read them; `relu`, `er`, `gate` or `clamp`
+  makes each rung a layer of its own, `r<k>`, with that model (and
+  habituation unless `feedback_first_habituation` is false), which every h1
+  neuron reads next to the eye and the ears; e.g. relu rungs with
+  habituation do not fatigue as E-R does. The ladder grows with
+  `es.py --grow-to` (each new layer brings its rung; the grown network
+  plays as before, up to float rounding).
 
 Every hidden layer is frozen and only the readouts learn, so the audit's
 note on the sign rule and feedback edges (appendix 1) does not apply.
