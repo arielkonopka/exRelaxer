@@ -16,13 +16,34 @@ per avatar lost. No term counts neural activity.
 
 The nntest experiment here plays the untrained network against a random
 player on the same worlds; es.py evolves the network on the reward.
+
+Beyond the plain stack (h1 .. h<depth>), the network can have:
+- a reservoir: `reservoir` E-R neurons reading h1, `reservoir_recurrent`
+  more reading the reservoir (an echo state); frozen unless
+  reservoir_evolve; the readouts read it;
+- skip: the top hidden layer reads every layer below it, not only the one
+  under it;
+- a feedback ladder: every hidden layer above h1 (or only the top one)
+  comes back to h1 as input, one tick late, through a rung layer r<k> of
+  `feedback_first` neurons of their own model (relu by default, with
+  habituation), which every h1 neuron reads next to the eye and the body;
+- readout_from all: the readouts read every hidden layer.
+With any of these the network is built by Player._build, one layer at a
+time, recording what every weight reads (_shared/wiring.py), so es.py can
+grow it (--grow-to) and carry the weights over. models/ holds the designed
+configurations (doc/goe.md).
 """
 import math
+import os
+import sys
 
 import numpy as np
 
 import exrelaxer as exr
 from exrelaxer import harness as nnt
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "_shared"))
+from wiring import Wiring  # noqa: E402
 
 try:
     import goe
@@ -44,19 +65,43 @@ PLAYER = 100
 CHANNELS = ["wall", "free", "enemy", "collectible", "danger", "door", "apple", "moving"]
 
 
+MOVE_TICKS = 8  # game ticks per move
+
+
+def vision_radius(p):
+    """The vision grid's radius. The player's sight grows with the steps it has
+    made (2 + ln(steps) / 2 cells: 2 at the start, 5.3 after 750 moves, 6.7
+    after 11250), so the grid must cover the furthest sight of an episode from
+    the start; cells beyond the current sight read zero until it reaches them.
+    "auto" sizes it for the episode's moves (episode_ticks / 8): 6 for the
+    default 2 minutes, 7 for 30."""
+    r = p["radius"]
+    if r == "auto":
+        return math.ceil(2 + math.log(max(p["episode_ticks"] / MOVE_TICKS, 1)) / 2)
+    return int(r)
+
+
+def eye_channels(p):
+    return CHANNELS + (["seen"] if p.get("seen_channel", False) else [])
+
+
 def make_game(p):
-    return goe.Game(vision_radius=p["radius"], cell_features=CELL_FEATURES, player_features=PLAYER_FEATURES,
+    return goe.Game(vision_radius=vision_radius(p), cell_features=CELL_FEATURES, player_features=PLAYER_FEATURES,
                     inventory_sections=["weapons"], inventory_slots=1, episode_ticks=p["episode_ticks"])
 
 
-def encode(state):
+def encode(state, seen_channel=False):
     """The vision grid as CHANNELS x cells in [0, 1]: what is in each cell, as the
-    E-R layer should tell apart (cells out of sight are all zero)."""
+    E-R layer should tell apart (cells out of sight are all zero). With
+    seen_channel a last channel marks the cells in sight, so the network can
+    tell an empty cell from an unseen one, and how far it sees."""
     v = state.vision
     t, step, kill, coll, sight, moving = (v[i] for i in range(len(CELL_FEATURES)))
     seen = sight > 0
     ch = np.stack([np.isin(t, WALLS), step > 0, (kill > 0) & (t != PLAYER) & ~np.isin(t, DANGER), coll > 0,
                    np.isin(t, DANGER), np.isin(t, DOORS), t == APPLE, moving > 0]) & seen
+    if seen_channel:
+        ch = np.concatenate([ch, seen[None]])
     return ch.astype(np.float32).ravel()
 
 
@@ -66,19 +111,30 @@ def body(state):
                     dtype=np.float32)
 
 
+def designed(p):
+    """True when the network uses the reservoir, skip, ladder or readout_from all,
+    and is built by Player._build; the plain stack keeps its original construction."""
+    return (p.get("reservoir", 0) > 0 or p.get("skip", False) or p.get("feedback_first", 0) > 0
+            or p.get("readout_from", "top") == "all")
+
+
 class Player:
     def __init__(self, p):
         model = p["model"]
         if model not in ("relu", "er", "gate"):
             raise ValueError("model must be relu, er or gate")
-        side = 2 * p["radius"] + 1
+        side = 2 * vision_radius(p) + 1
+        self.seen_channel = p.get("seen_channel", False)
         self.ticks = p["ticks"]
         self.readout = p["readout"]
         self.net = net = exr.Network()
+        self.wiring, self.rungs, self.reservoir = None, [], None
 
-        def neurons(size):
-            spec = exr.LayerSpec.dense(size, p["habituation"], model == "er", frozen=True)
-            if p["habituation"]:
+        def neurons(size, model=model, habituation=p["habituation"]):
+            if model not in ("relu", "er", "gate"):
+                raise ValueError("neuron model must be relu, er or gate")
+            spec = exr.LayerSpec.dense(size, habituation, model == "er", frozen=True)
+            if habituation:
                 spec.habituation_rule = exr.Habituation(tolerance=p["habituation_tolerance"],
                                                         decay=p["habituation_decay"],
                                                         fade_after=p["habituation_fade_after"])
@@ -87,11 +143,14 @@ class Player:
                 spec.gate = p["gate"]
             return spec
 
+        if designed(p):
+            self._build(p, neurons, len(eye_channels(p)) * side * side)
+            return
         self.layers = []
         for l in range(p["depth"]):
             h = net.add_layer(f"h{l + 1}", neurons(p["width"]))
             if l == 0:
-                net.add_inputs(h, len(CHANNELS) * side * side, "eye")
+                net.add_inputs(h, len(eye_channels(p)) * side * side, "eye")
                 net.add_inputs(h, 3, "body")
             else:
                 net.connect(self.layers[-1], h)
@@ -119,18 +178,86 @@ class Player:
                 else:
                     w = w * math.sqrt(3.0 / len(w))
                 net.set_weights(layer, i, w)
+        self.metered = self.layers
         self.neurons = sum(net.layer_size(l) for l in self.layers)
         self.spikes = self.ticks_seen = 0
 
+    def _build(self, p, neurons, eye_size):
+        """Built one layer at a time, as es.py --grow-to grows it: h1 (eye, body)
+        and its own loop, the reservoir, the readouts; then each further layer
+        with its connections, its rung and its readout lines."""
+        net = self.net
+        w = self.wiring = Wiring(net)
+        recurrent, skip = p["recurrent"], p.get("skip", False)
+        readout_all = p.get("readout_from", "top") == "all"
+        rung, rung_from = p.get("feedback_first", 0), p.get("feedback_first_from", "all")
+        if rung_from not in ("all", "top"):
+            raise ValueError("feedback_first_from must be all or top")
+        h1 = w.dense("h1", neurons(p["width"]), p["width"])
+        w.inputs(h1, eye_size, "eye")
+        w.inputs(h1, 3, "body")
+        if recurrent:
+            w.connect(h1, h1)
+        self.layers = [h1]
+        if p.get("reservoir", 0) > 0:
+            self.reservoir = w.dense("reservoir", neurons(p["reservoir"]), p["reservoir"])
+            w.connect(h1, self.reservoir)
+            if p["reservoir_recurrent"] > 0:
+                w.feedback(self.reservoir, self.reservoir, p["reservoir_recurrent"])
+        self.readouts = []
+        for name in ACTIONS:
+            out = w.dense(name.lower(), exr.LayerSpec.dense(1, False, False), 1)
+            if readout_all:
+                w.connect(h1, out)
+            if self.reservoir is not None:
+                w.connect(self.reservoir, out)
+            net.add_output(out)
+            self.readouts.append(out)
+        for l in range(2, p["depth"] + 1):
+            h = w.dense(f"h{l}", neurons(p["width"]), p["width"])
+            for below in (self.layers if skip else self.layers[-1:]):
+                w.connect(below, h)
+            if recurrent:
+                w.connect(h, h)
+            if rung > 0 and (rung_from == "all" or l == p["depth"]):
+                r = w.dense(f"r{l}", neurons(rung, p.get("feedback_first_model", "relu"),
+                                             p.get("feedback_first_habituation", True)), rung)
+                w.connect(h, r)
+                w.connect(r, h1)  # h1 reads the rung's previous tick (the update order below)
+                self.rungs.append(r)
+            self.layers.append(h)
+            if readout_all:
+                for out in self.readouts:
+                    w.connect(h, out)
+        if not readout_all:
+            for out in self.readouts:
+                w.connect(self.layers[-1], out)
+        if self.rungs:
+            # The rungs make forward cycles: h1 .. h<depth>, then the rungs, so h1 reads them one tick late.
+            res = [self.reservoir] if self.reservoir is not None else []
+            net.set_update_order(self.layers + self.rungs + res + self.readouts)
+        weighted = self.layers + self.rungs + ([self.reservoir] if self.reservoir is not None else []) + self.readouts
+        w.check(weighted)
+        w.init_weights(weighted, p["recurrent_scale"])
+        self.metered = self.layers + self.rungs + ([self.reservoir] if self.reservoir is not None else [])
+        self.neurons = sum(net.layer_size(l) for l in self.metered)
+        self.spikes = self.ticks_seen = 0
+
+    def evolving(self, p):
+        """The layers whose weights es.py evolves (besides the readouts) with evolve all:
+        the hidden layers, the rungs, and the reservoir only if reservoir_evolve."""
+        res = [self.reservoir] if self.reservoir is not None and p.get("reservoir_evolve", False) else []
+        return self.layers + self.rungs + res
+
     def act(self, state, meter=False):
-        self.net.set_inputs("eye", encode(state))
+        self.net.set_inputs("eye", encode(state, self.seen_channel))
         self.net.set_inputs("body", body(state))
         total = np.zeros(len(ACTIONS))
         for _ in range(self.ticks):
             self.net.step()
             total += np.asarray(self.net.outputs())
             if meter:
-                for layer in self.layers:
+                for layer in self.metered:
                     self.spikes += np.count_nonzero(np.abs(self.net.layer_output(layer)) > 1e-6)
                 self.ticks_seen += 1
         y = total if self.readout == "sum" else np.asarray(self.net.outputs())
@@ -167,7 +294,9 @@ def play(game, player, p, seeds, meter=False):
 
 
 PARAMS = {
-    "radius": (6, "vision radius: the grid has 2r + 1 cells on each side"),
+    "radius": ("auto", "vision radius: the grid has 2r + 1 cells on each side; auto: the furthest the player's "
+                       "growing sight reaches in an episode (6 for 2 minutes)"),
+    "seen_channel": (False, "one more eye channel marking the cells in sight (the sight grows during the game)"),
     "episode_ticks": (6000, "episode length in game ticks (50 a second; 6000 = 2 minutes = 750 moves)"),
     "w_death": (50.0, "penalty per avatar lost (the last one included)"),
     "model": ("er", "hidden neurons: er, relu or gate"),
@@ -175,6 +304,15 @@ PARAMS = {
     "depth": (1, "hidden layers"),
     "recurrent": (False, "each hidden layer also reads its own previous output"),
     "recurrent_scale": (0.5, "scale of recurrent weights (x sqrt(3 / layer size))"),
+    "skip": (False, "the top hidden layer reads every hidden layer below it, not only the one under it"),
+    "readout_from": ("top", "the readouts read the top hidden layer (top) or every hidden layer (all)"),
+    "reservoir": (0, "echo-state reservoir: neurons reading h1 (0: none); the readouts read it"),
+    "reservoir_recurrent": (128, "reservoir neurons that read the whole reservoir"),
+    "reservoir_evolve": (False, "es.py evolves the reservoir too (default: it stays the frozen random one)"),
+    "feedback_first": (0, "feedback ladder: neurons per rung layer r<k>, which reads h<k> and which h1 reads (0: none)"),
+    "feedback_first_from": ("all", "feedback ladder: all (every layer above h1 has a rung) or top (only the top one)"),
+    "feedback_first_model": ("relu", "feedback ladder: the rungs' neurons, relu, er or gate"),
+    "feedback_first_habituation": (True, "feedback ladder: the rungs habituate (the habituation_* settings)"),
     "gate": (0.2, "gate model: the fixed threshold"),
     "habituation": (True, "hidden neurons habituate to repeated input (fade mode)"),
     "habituation_decay": (0.9, "habituation: fade factor per habituated tick"),

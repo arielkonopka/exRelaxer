@@ -1,0 +1,18 @@
+{
+ "description": "er_reservoir whose E-R layers grow on top of h1, up to 4, whenever the network learns; the readouts read every layer and the frozen reservoir",
+ "radius": "auto",
+ "seen_channel": true,
+ "model": "er",
+ "habituation": true,
+ "depth": 1,
+ "width": 128,
+ "reservoir": 256,
+ "reservoir_recurrent": 128,
+ "reservoir_evolve": false,
+ "recurrent_scale": 0.5,
+ "readout_from": "all",
+ "evolve": "all",
+ "grow_to": 4,
+ "grow_window": 20,
+ "grow_margin": 1.0
+}

@@ -1884,6 +1884,41 @@ seeds, parameters, git commit and environment; `summary.md` has every
 table with sd, min–max, confusion matrices and all intervals); commands in
 `NNtesting/experiments/state_ablation/sweep.sh`.
 
+## 28. Gardens of Eris
+
+A second game for the E-R network, next to Doom: [Gardens of
+Eris](https://github.com/arielkonopka/Gardens-of-Eris), a grid maze that
+grows around the player, played headless through the game's Python
+package (`goe`). The network sees the cells around the player in 8
+channels and its own energy, ammo and avatars, and picks one of 14
+actions per move; the reward is the game's score (new cells visited,
+items, kills) minus 50 per avatar lost. A 2-minute game takes about a
+second, so GoE is the cheap test bed for questions Doom answers slowly.
+Every experiment, its setup and how to run it are in [goe](goe.md)
+(entries `G1`, `G2`, ...); `./build.sh --goe` fetches and builds the game.
+
+The player's sight grows with its steps (2 + ln(steps) / 2 cells), so
+the eye covers the furthest sight of an episode from the start and the
+cells beyond the current sight read zero (`radius` `auto`; an optional
+`seen` channel marks the cells in sight).
+
+Three networks are designed for evolution (`goe_rl/models/`): one E-R
+layer with a frozen E-R reservoir; the same with E-R layers growing on
+top while it learns; three E-R layers whose top reads every layer below,
+with relu rungs with habituation bringing h2 and h3 back to h1 (a
+feedback ladder without E-R). Growing carries every weight over by the
+input it reads, so a grown network plays as before.
+
+**G1, untrained** (10 worlds × 3 net seeds): every network stands still.
+It plays one action (`MOVE_UP`) in 93–99% of the moves, because its E-R
+layers are nearly silent and the readouts tie at zero; reward 7.7
+(plain), 10.2 (reservoir), 8.6 (ladder) against 71.8 for a random
+player. The reservoir and the ladder fire more (11.7 and 18.4 spikes
+per move against 2.2) but do not play better untrained. Evolution has
+not been run yet.
+
+Data: `results/goe/`.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.

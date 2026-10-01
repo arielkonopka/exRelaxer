@@ -30,6 +30,7 @@ and `NNtesting/tools/capacity.py`.
 | `new-defaults/` | §24 | every experiment but Doom on the build before the new defaults and on the new one: normalised hidden layers, normalised readouts, raw sums, amplitude 0.01 vs 0.1, 10× learning rate; `summary.md` (from `analyze.py`), `raw/`, `run.sh`, `run_python.sh` |
 | `defaults/` | §23 | `er_silence` at spontaneous amplitudes 0.01 to 1.0 (linear and log growth, with and without recurrence); `run.sh` |
 | `dynamic/` | §20 | `dyn_ladder` pilot and E-R at width 256, `nl_temporal` with a frame window, `doom` imitation, `doom_rl` pilots, architectures (depth, feedback, reservoir) and longer E-R runs; evolution (`es_*`: five topologies on defend_the_center, MAP01), the search retest, and the evolved agents' weights and settings (`doom_agent/`, rebuild with `es.build`) |
+| `goe/` | §28 | Gardens of Eris ([doc/goe.md](../doc/goe.md)): `untrained_models.jsonl.gz` (G1: untrained networks and a random player) |
 
 Runs recorded before 2026-09-27 evening used the logarithmic threshold
 growth rule, the default at the time; pass `--set growth=log` to reproduce

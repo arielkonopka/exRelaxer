@@ -1,0 +1,15 @@
+{
+ "description": "one E-R layer with habituation and a frozen E-R reservoir; h1 and the readouts evolve, the reservoir stays random",
+ "radius": "auto",
+ "seen_channel": true,
+ "model": "er",
+ "habituation": true,
+ "depth": 1,
+ "width": 128,
+ "reservoir": 256,
+ "reservoir_recurrent": 128,
+ "reservoir_evolve": false,
+ "recurrent_scale": 0.5,
+ "readout_from": "all",
+ "evolve": "all"
+}

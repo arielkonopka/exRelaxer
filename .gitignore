@@ -438,3 +438,6 @@ _vizdoom.ini
 # ViZDoom writes its runtime files into the working directory
 _vizdoom/
 _vizdoom.ini
+
+# ./build.sh --goe clones Gardens of Eris here
+/third_party/
