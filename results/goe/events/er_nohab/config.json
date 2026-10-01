@@ -1,0 +1,43 @@
+{
+ "args": {
+  "out": "/tmp/claude-0/-home-claude-exRelaxer/6e15d582-ec2c-594b-b268-e7c4a0043574/scratchpad/goe-ev/er_nohab",
+  "config": "{\"habituation\": false}",
+  "net_seed": 0,
+  "pairs": 12,
+  "sigma": 0.05,
+  "lr": 0.02,
+  "episodes": 2,
+  "validation": 6,
+  "generations": 300,
+  "workers": 2,
+  "seed": 1
+ },
+ "params": {
+  "radius": 6,
+  "episode_ticks": 6000,
+  "w_score": 0.1,
+  "w_collect": 5.0,
+  "w_apple": 20.0,
+  "w_use": 2.0,
+  "w_open": 10.0,
+  "w_teleport": 5.0,
+  "w_kill": 10.0,
+  "w_mine": 5.0,
+  "w_hurt": -0.2,
+  "w_death": -50.0,
+  "model": "er",
+  "width": 128,
+  "depth": 1,
+  "recurrent": false,
+  "recurrent_scale": 0.5,
+  "gate": 0.2,
+  "habituation": false,
+  "habituation_decay": 0.9,
+  "habituation_fade_after": 2,
+  "habituation_tolerance": 0.05,
+  "ticks": 3,
+  "readout": "last",
+  "games": 10,
+  "evolve": "all"
+ }
+}
