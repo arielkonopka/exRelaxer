@@ -137,13 +137,15 @@ parameter.
 | death | −5 |
 | kill | +1 |
 | ammo picked up | +0.02 per round |
-| ammo fired | −0.001 per round |
+| ammo fired in a step that kills nothing | −0.0005 per round (before 2026-09-29: −0.001 on every round) |
 | armor gained | +0.01 per point |
 | item picked up (ITEMCOUNT) | +0.1 |
 | key card or skull key | +2 (the key object disappears) |
 | door or lift opened | +0.5, once per door (a closed sector's ceiling rises) |
 | leaving the level | +10 (the episode ends alive before the timeout) |
 | idle | −0.005 per step while moved < 32 units over the last 20 steps |
+| closer to the exit | +w_approach (0.1 in the MAP01 runs, off by default) per 64 units of new closest walking distance to the level's exit (`exitmap.py`: exit lines from the WAD, breadth-first search around walls; doors open, heights ignored) |
+| new map square entered | +0.05 per 64 × 64-unit square not yet visited this episode (from 2026-09-29; runs saved before have none) |
 
 ## Learning
 

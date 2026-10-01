@@ -72,7 +72,11 @@ with raw sums and amplitude 0.01; new runs record both.
   every map): health lost −0.01 per point, death −5, kill +1, ammo
   picked up +0.02 per round, ammo fired −0.001 per round, armor +0.01 per
   point, item +0.1, key +2, door opened +0.5, level exit +10, idle
-  −0.005 per step. Full table in the
+  −0.005 per step. From D13 (2026-09-29, the user's suggestion): a new map
+  square (64 units) entered +0.05, and firing costs −0.0005 per round only
+  in steps that kill nothing. On MAP01 also +0.1 per 64 units of new
+  closest walking distance to the exit (the user's suggestion; about
+  3600 units from the start). Full table in the
   [doom_rl README](../NNtesting/experiments/doom_rl/README.md#reward-rewardspy).
 - **Seeds**: every candidate or model is compared on the same episodes
   (`game.set_seed`); fixed validation episodes use seed 777777, fresh
@@ -408,6 +412,66 @@ generation 295.
 
 Data: `results/dynamic/es_d12_untildeath.jsonl.gz`, agent and test in
 `results/dynamic/doom_agent/untildeath_d1/`.
+
+### D13. `map01` with rewards for new places and for nearing the exit (2026-09-29 to 30)
+
+**Question.** On a whole level the agents so far wandered and never left
+(D6 to D8). Do rewards for reaching places not visited before and for
+getting closer to the exit make them move through the level?
+
+**Setup.** Reward changes (all in `rewards.py`):
+- +0.05 for each 64 × 64-unit map square first entered in a game
+  (`w_explore`);
+- the fire penalty is charged only in steps with no kill, 0.0005 a round
+  (was 0.001 for every round);
+- +0.1 for each 64 units by which the agent gets closer to the exit than
+  it has been in that game (`w_approach`). The distance is the walking
+  distance around walls (`exitmap.py`: the exit lines come from the WAD,
+  then a breadth-first search on a 16-unit grid). On MAP01 the start is
+  about 3600 units from the exit by path and 600 in a straight line.
+
+A game ends at death, after 30 minutes, or after 2 minutes without a new
+square (`stall_steps` 1050); without that stop the untrained agent
+idles for the full 30 minutes. 1 E-R layer with habituation, every weight
+evolving, 12 antithetic pairs, 3 games per candidate, σ 0.05, lr 0.02.
+First 108 generations with the new-place reward only (`map01_explore`,
+from scratch; validation −4.6 to −3.7). Then 300 generations with the
+exit reward added, warm from that run's best (`map01_exit`). Tested on
+30 fresh games (seed 4242) with the full reward.
+
+**Result.** Validation rose from −1.5 (first 20 generations) to +0.3
+(last 20); the best was +2.4 at generation 106.
+
+| Agent | Reward | Kills | Squares visited | Closest to exit | Exits | Game length |
+|-------|--------|-------|-----------------|-----------------|-------|-------------|
+| untrained | −3.18 | 0.2 | 23 | 2614 | 0 | 1.9 min |
+| start (new places only) | −0.40 | 0.7 | 48 | 2241 | 0 | 1.7 min |
+| final generation | **+0.69** | 0.8 | **68** | **2193** | 0 | 2.1 min |
+| best validation | +0.09 | 0.7 | 55 | 2333 | 0 | 1.8 min |
+
+Closest to exit is the mean over games of the smallest walking distance
+reached, in map units. About three games in four ended in death, the
+rest by the 2-minute stall rule.
+
+**Conclusion.**
+- **Rewarding new places works.** Trained agents cover two to three times
+  more of the map than the untrained one, pick up more items and open
+  doors.
+- **Rewarding nearness to the exit barely moved the agent toward it.**
+  The final agent gets 50 units closer than the agent trained without
+  that reward, and ends about 2200 units (by path) from the exit. No
+  agent left the level. The approach reward is paid once per new closest
+  distance, and exploring earns more, so evolution did not trade one for
+  the other.
+- Games are short because the agent dies: on MAP01 it meets monsters it
+  cannot yet handle, unlike the arena where it learned to survive (D12).
+- The best-validation weights test worse than the final ones: with 5
+  validation games, the pick is noisy.
+- One seed.
+
+Data: `results/dynamic/es_d13_map01_explore.jsonl.gz`,
+`results/dynamic/es_d13_map01_exit.jsonl.gz`, agent and test in
+`results/dynamic/doom_agent/map01_exit_d1/`.
 
 ## Open questions
 

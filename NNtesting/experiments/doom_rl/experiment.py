@@ -164,10 +164,22 @@ class Player:
                 net.add_feedback(self.reservoir, self.reservoir, p["reservoir_recurrent"])
         rule = exr.LearningRule.sign() if p["rule"] == "sign" else exr.LearningRule.traced(p["trace"])
         self.readouts = []
+        # readout_thresholds: the readouts also read every hidden neuron's E-R
+        # threshold (the state its history leaves), set as inputs before each
+        # tick; for each layer its outputs then its thresholds, so a grown
+        # layer's weights still come last.
+        self.thresholds = [] if not p.get("readout_thresholds", False) else \
+            (self.layers if p.get("readout_from", "top") == "all" else self.layers[-1:])
         for name in ACTIONS:
             out = net.add_layer(name.lower(), normalized(exr.LayerSpec.dense(1, False, False, learning_rule=rule)))
             for h in (self.layers if p.get("readout_from", "top") == "all" else self.layers[-1:]):
                 net.connect(h, out)
+                if h in self.thresholds:
+                    source = f"thr_{net.layer_name(h)}"
+                    if not self.readouts:
+                        net.add_inputs(out, net.layer_size(h), source)
+                    else:
+                        net.connect_inputs(source, out)
             if self.reservoir is not None:
                 net.connect(self.reservoir, out)
             net.add_output(out)
@@ -361,6 +373,8 @@ class Player:
             if self.sound:
                 chunk = audio[t * self.hop:(t + 1) * self.hop]
                 self.net.set_inputs("mic", np.concatenate([chunk[:, 0], chunk[:, 1]]))
+            for h in self.thresholds:
+                self.net.set_inputs(f"thr_{self.net.layer_name(h)}", self.net.neuron_state(h)["threshold"])
             self.net.step()
             total += np.asarray(self.net.outputs())
             if meter:
@@ -379,13 +393,33 @@ class Player:
             self.net.apply_reward_to(self.readouts[action], reward, lr)
 
 
+def make_shaper(p):
+    """The reward shaper for parameters p; runs saved before the explore term
+    (2026-09-29) have no w_explore and get none."""
+    names = ("hurt", "death", "kill", "ammo", "fire", "armor", "item", "key", "door", "exit", "idle", "explore",
+             "approach")
+    return rewards.Shaper({k: p.get("w_" + k, 0.0) for k in names}, p["idle_steps"], p["idle_distance"],
+                          p.get("explore_cell", 64.0), lambda state: exit_field(p["scenario"], state))
+
+
+_exit_fields = {}
+
+
+def exit_field(scenario, state):
+    """The walking-distance field to the level's exit (built once per map), or None without an exit."""
+    if scenario not in _exit_fields:
+        import exitmap
+        wad, name = exitmap.wad_for(scenario)
+        exits = exitmap.exit_points(wad, name) if wad else []
+        _exit_fields[scenario] = exitmap.DistanceField(state.sectors, exits) if exits else None
+    return _exit_fields[scenario]
+
+
 def play(game, player, p, episodes, lr, explore, rng, meter=False):
-    shaper = rewards.Shaper({k: p["w_" + k] for k in ("hurt", "death", "kill", "ammo", "fire", "armor", "item",
-                                                      "key", "door", "exit", "idle")},
-                            p["idle_steps"], p["idle_distance"])
+    shaper = make_shaper(p)
     buttons = np.eye(len(ACTIONS), dtype=int).tolist()
     stats = {k: [] for k in ("reward", "kills", "damage", "deaths", "items", "keys", "doors", "ammo_picked", "exits",
-                             "distance", "steps")}
+                             "cells", "distance", "steps")}
     parts = {}
     baseline = 0.0
     for _ in range(episodes):
@@ -398,6 +432,7 @@ def play(game, player, p, episodes, lr, explore, rng, meter=False):
             game.make_action(buttons[a], FRAME_SKIP)
             state = None if game.is_episode_finished() else game.get_state()
             r = shaper.step(state) if state is not None else shaper.end(game)
+            stalled = state is not None and 0 < p.get("stall_steps", 0) <= shaper.since_new
             if lr > 0:
                 # Advantage: the reward against its running mean, so a steady
                 # stream of penalties (being hurt) does not teach every action alike.
@@ -405,8 +440,10 @@ def play(game, player, p, episodes, lr, explore, rng, meter=False):
                 baseline += p["baseline"] * (r - baseline)
             total += r
             steps += 1
+            if stalled:
+                break  # no new square for stall_steps steps: the game ends here, without a death
         stats["reward"].append(total)
-        for k in ("kills", "damage", "deaths", "items", "keys", "doors", "ammo_picked", "exits"):
+        for k in ("kills", "damage", "deaths", "items", "keys", "doors", "ammo_picked", "exits", "cells"):
             stats[k].append(shaper.counts[k])
         stats["distance"].append(shaper.distance)
         stats["steps"].append(steps)
@@ -450,6 +487,8 @@ PARAMS = {
     "readout": ("last", "action values: last (the last tick of the step) or sum (the readouts summed over the step's ticks; "
                         "scores lower, doc/doom.md D11)"),
     "readout_from": ("top", "which hidden layers the readouts read: top, or all (every layer, bottom first)"),
+    "readout_thresholds": (False, "the readouts also read each hidden neuron's E-R threshold (its history), "
+                                  "not only its output"),
     "rule": ("sign", "readout learning rule: sign (as in snake) or trace (traced, eligibility over recent ticks)"),
     "reward_mode": ("error", "error: learn only while the chosen readout's sign disagrees with the reward; always"),
     "baseline": (0.01, "rate of the running reward mean subtracted before learning (0: learn from the raw reward)"),
@@ -462,7 +501,8 @@ PARAMS = {
     "w_death": (5.0, "penalty for dying"),
     "w_kill": (1.0, "reward per kill"),
     "w_ammo": (0.02, "reward per round of ammo picked up"),
-    "w_fire": (0.001, "penalty per round fired (spent)"),
+    "w_fire": (0.0005, "penalty per round fired in a step that killed nothing (was 0.001 on every round "
+                       "before 2026-09-29)"),
     "w_armor": (0.01, "reward per armor point gained"),
     "w_item": (0.1, "reward per counted item picked up"),
     "w_key": (2.0, "reward per key"),
@@ -471,6 +511,12 @@ PARAMS = {
     "w_idle": (0.005, "penalty per step while idle"),
     "idle_steps": (20, "idle: the window of steps (20 = 2.3 s)"),
     "idle_distance": (32.0, "idle: moved less than this many map units over the window"),
+    "w_explore": (0.05, "reward each time the player enters a map square it has not been in this episode"),
+    "stall_steps": (0, "if > 0, a game also ends after this many steps without entering a new map square "
+                       "(1050 = 2 minutes); for games until death on levels where standing still is safe"),
+    "w_approach": (0.0, "reward per 64 map units of new closest walking distance to the level's exit "
+                        "(MAP01; exitmap.py)"),
+    "explore_cell": (64.0, "explore: side of a map square in map units (a Doom corridor is about 64-128)"),
 }
 
 
