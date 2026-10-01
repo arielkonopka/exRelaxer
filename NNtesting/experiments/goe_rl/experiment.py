@@ -10,9 +10,14 @@ The game is the `goe` package of https://github.com/arielkonopka/Gardens-of-Eris
 world. One step is one move (8 game ticks); the network runs `ticks` ticks
 on each step's view and the largest readout picks the action.
 
-The reward is the game's own score (+1 per new cell visited, +1 per item
-collected, + the energy of what the player kills) with a penalty `w_death`
-per avatar lost. No term counts neural activity.
+The reward (`reward` events, the default) weighs the game's events with the
+w_* parameters (goe's reward_weights, Gardens-of-Eris PR #289): items,
+golden apples, items used, doors opened, teleports, monsters killed and
+mines set off are rewarded; energy lost and avatars lost are penalised; a
+little of the game's score (new cells visited) keeps the player exploring.
+`reward` score is the reward of G1 (doc/goe.md): the game's own score (+1
+per new cell visited, +1 per item collected, + the energy of what the player
+kills) and w_death per avatar lost. No term counts neural activity.
 
 The nntest experiment here plays the untrained network against a random
 player on the same worlds; es.py evolves the network on the reward.
@@ -85,9 +90,28 @@ def eye_channels(p):
     return CHANNELS + (["seen"] if p.get("seen_channel", False) else [])
 
 
+EVENTS = ["score", "collect", "apple", "use", "open", "teleport", "kill", "mine", "hurt", "death"]
+
+
+def events_reward(p):
+    """Whether the reward weighs the game's events (else: score and w_death, as in G1)."""
+    reward = p.get("reward", "events")
+    if reward not in ("events", "score"):
+        raise ValueError("reward must be events or score")
+    return reward == "events"
+
+
 def make_game(p):
+    weights = None
+    if events_reward(p):
+        if not hasattr(goe, "EVENTS"):
+            raise RuntimeError("reward events needs a goe package with reward_weights (Gardens-of-Eris PR #289); "
+                               "update it, or set reward=score")
+        weights = {k: p["w_" + k] for k in EVENTS}
+        weights["death"] = -p["w_death"]
     return goe.Game(vision_radius=vision_radius(p), cell_features=CELL_FEATURES, player_features=PLAYER_FEATURES,
-                    inventory_sections=["weapons"], inventory_slots=1, episode_ticks=p["episode_ticks"])
+                    inventory_sections=["weapons"], inventory_slots=1, episode_ticks=p["episode_ticks"],
+                    **({"reward_weights": weights} if weights else {}))
 
 
 def encode(state, seen_channel=False):
@@ -275,18 +299,27 @@ class RandomPlayer:
 
 
 def play(game, player, p, seeds, meter=False):
-    """Plays one episode per world seed; returns the means of reward, score, avatars lost, death, steps."""
+    """Plays one episode per world seed; returns the means of reward, score, avatars lost, death, steps and,
+    with the events reward, each event's count (as ev_<event>; ev_score is the score's own count)."""
     index = [goe.ACTIONS.index(a) for a in ACTIONS]
+    events = events_reward(p)
     stats = {k: [] for k in ("reward", "score", "avatars_lost", "dead", "steps")}
     for seed in seeds:
         game.new_episode(seed=int(seed))
-        score, steps = 0.0, 0
+        reward, steps = 0.0, 0
         while not game.is_episode_finished():
-            score += game.make_action(index[player.act(game.get_state(), meter)])
+            reward += game.make_action(index[player.act(game.get_state(), meter)])
             steps += 1
-        lost = game.avatars_lost + int(game.is_player_dead())
-        stats["reward"].append(score - p["w_death"] * lost)
-        stats["score"].append(score)
+        if events:
+            counts = game.episode_events
+            for k, v in counts.items():
+                stats.setdefault("ev_" + k, []).append(v)
+            stats["reward"].append(reward)
+            stats["score"].append(counts["score"])
+        else:
+            lost = game.avatars_lost + int(game.is_player_dead())
+            stats["reward"].append(reward - p["w_death"] * lost)
+            stats["score"].append(reward)
         stats["avatars_lost"].append(game.avatars_lost)
         stats["dead"].append(float(game.is_player_dead()))
         stats["steps"].append(steps)
@@ -298,7 +331,18 @@ PARAMS = {
                        "growing sight reaches in an episode (6 for 2 minutes)"),
     "seen_channel": (False, "one more eye channel marking the cells in sight (the sight grows during the game)"),
     "episode_ticks": (6000, "episode length in game ticks (50 a second; 6000 = 2 minutes = 750 moves)"),
-    "w_death": (50.0, "penalty per avatar lost (the last one included)"),
+    "reward": ("events", "events: the game's events weighed by w_* (Gardens-of-Eris PR #289); score: the game's "
+                         "score, minus w_death per avatar lost (G1)"),
+    "w_score": (0.1, "events: reward per point of the game's score (mostly new cells visited)"),
+    "w_collect": (5.0, "events: reward per item collected (each once an episode)"),
+    "w_apple": (20.0, "events: reward per golden apple collected"),
+    "w_use": (2.0, "events: reward per use of the usable in hand (a broken apple eaten)"),
+    "w_open": (10.0, "events: reward per door opened (each once an episode)"),
+    "w_teleport": (5.0, "events: reward per trip through a teleporter"),
+    "w_kill": (10.0, "events: reward per monster, drone or puppet master killed by the player's shots or blasts"),
+    "w_mine": (5.0, "events: reward per mine or bomb set off by the player's shots"),
+    "w_hurt": (-0.2, "events: reward per energy point lost (negative: a penalty)"),
+    "w_death": (50.0, "penalty per avatar lost, the last one included (events: weight -w_death)"),
     "model": ("er", "hidden neurons: er, relu or gate"),
     "width": (128, "hidden neurons per layer"),
     "depth": (1, "hidden layers"),
@@ -347,6 +391,7 @@ def run(t):
     t.record("spikes_per_step", player.spikes / max(player.ticks_seen, 1) * p["ticks"])
     t.record("active_fraction", player.spikes / max(player.ticks_seen, 1) / player.neurons)
     control = play(game, RandomPlayer(t.seed), p, seeds)
-    for k in ("reward", "score", "avatars_lost", "dead"):
-        t.record(k + "_random", control[k])
+    for k, v in control.items():
+        if k != "steps":
+            t.record(k + "_random", v)
     game.close()

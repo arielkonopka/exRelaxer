@@ -24,7 +24,7 @@ state, so parallel players are separate processes.
 | Senses: body | energy / max energy, ammo (up to 10), spare avatars (up to 3) |
 | Actions | 14 readouts: move, shoot and interact × up, down, left, right; next gun; use. The largest is played |
 | Time | one game step is one move (8 game ticks, 50 ticks a second); the network runs `ticks` (3) ticks on each step's view |
-| Reward | the game's score gained in the step (+1 per new cell visited, +1 per item, + the energy of what the player kills), −`w_death` (50) per avatar lost |
+| Reward | `reward` events (default since Gardens-of-Eris PR #289): the game's events weighed by `w_*`: +5 per item, +20 per golden apple, +2 per use, +10 per door opened, +5 per teleport, +10 per monster killed, +5 per mine set off, −0.2 per energy point lost, −`w_death` (50) per avatar lost, +0.1 per score point. `reward` score (G1): the game's score gained in the step (+1 per new cell visited, +1 per item, + the energy of what the player kills), −`w_death` (50) per avatar lost |
 | Episode | `episode_ticks` (6000: 2 minutes, 750 moves) unless the last avatar dies first |
 
 **The sight grows.** The player sees 2 + ln(steps) / 2 cells far
@@ -97,6 +97,7 @@ every generation. `--config` takes JSON or a file of it.
 
 It writes `config.json`, `log.jsonl` (a line per generation: `depth`,
 `validation_reward`, `validation_score`, `validation_avatars_lost`,
+`validation_events` (each event's count, with the events reward),
 spikes, population mean and best), `best.exr` (the network with the best
 validation, in the library's format), `best_theta.npy`, `best.json` and
 `state.npz` (for resuming). One generation with the defaults is 24

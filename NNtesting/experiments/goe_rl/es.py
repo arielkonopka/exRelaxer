@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Evolves the goe_rl network on Gardens of Eris: OpenAI-ES (antithetic
 Gaussian perturbations, centred-rank fitness, Adam) on its weights, scored
-by the game reward of experiment.py (score, minus w_death per avatar lost),
+by the game reward of experiment.py (the events weighed by w_*, or reward=score: score minus w_death per avatar lost),
 as doom_rl/es.py does for Doom. `evolve` "all" (the default here, the best
 setting on Doom) evolves the hidden layers' weights and the readouts;
 "readout" only the readouts. Steps are relative to each layer's weight RMS.
@@ -128,13 +128,15 @@ def initial_weights(p, net_seed):
 
 
 def play(task):
-    """Plays one game per seed with weights theta; returns (reward, score, avatars lost, spikes per step)."""
+    """Plays one game per seed with weights theta; returns (reward, score, avatars lost, spikes per step, events)."""
     import experiment as e
     theta, seeds = task
     p = _worker["p"]
     player = build(p, _worker["net_seed"], theta)  # fresh E-R state for every candidate
     r = e.play(_worker["game"], player, p, seeds, meter=True)
-    return r["reward"], r["score"], r["avatars_lost"] + r["dead"], player.spikes / max(player.ticks_seen, 1) * p["ticks"]
+    events = {k[3:]: v for k, v in r.items() if k.startswith("ev_")}
+    return (r["reward"], r["score"], r["avatars_lost"] + r["dead"],
+            player.spikes / max(player.ticks_seen, 1) * p["ticks"], events)
 
 
 def centred_ranks(x):
@@ -202,7 +204,7 @@ def main():
                 tasks = [(theta + sigma * e, seeds) for e in eps] + [(theta - sigma * e, seeds) for e in eps]
                 tasks.append((theta, validation))
                 results = pool.map(play, tasks)
-                val, val_score, val_lost, val_spikes = results.pop()
+                val, val_score, val_lost, val_spikes, val_events = results.pop()
                 rewards = np.array([r[0] for r in results])
                 ranks = centred_ranks(rewards)
                 grad = (ranks[:args.pairs] - ranks[args.pairs:]) @ eps / (2 * args.pairs * sigma)
@@ -233,11 +235,13 @@ def main():
                          grown_at=grown_at, depth=p["depth"])
                 line = {"generation": gen, "depth": p["depth"], "validation_reward": val, "validation_score": val_score,
                         "validation_avatars_lost": val_lost, "validation_spikes_per_step": val_spikes,
+                        "validation_events": val_events,
                         "population_mean": float(rewards.mean()), "population_best": float(rewards.max()),
                         "best_validation": best, "seconds": time.time() - start}
                 with open(os.path.join(args.out, "log.jsonl"), "a") as f:
                     f.write(json.dumps(line) + "\n")
-                print(f"gen {gen}: validation {val:.1f} (score {val_score:.1f}, lost {val_lost:.2f}, "
+                happened = "".join(f", {k} {n:.1f}" for k, n in val_events.items() if n and k != "score")
+                print(f"gen {gen}: validation {val:.1f} (score {val_score:.1f}, lost {val_lost:.2f}{happened}, "
                       f"{val_spikes:.1f} spikes), population {rewards.mean():.1f} best {rewards.max():.1f}, "
                       f"{line['seconds']:.0f} s", flush=True)
                 if grew:

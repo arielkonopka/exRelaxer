@@ -11,7 +11,7 @@ the game's repository (`agent/`, `agent/python`).
 # or by hand:
 git clone https://github.com/arielkonopka/Gardens-of-Eris
 sudo apt-get install liballegro5-dev libopenal-dev libsndfile1-dev   # the game's libraries
-python3 -m pip install ./Gardens-of-Eris/agent/python                  # the goe package (builds the game)
+python3 -m pip install ./Gardens-of-Eris/agent/python                  # the goe package (builds the game; events need PR #289)
 NNtesting/nntest.py run goe_rl --set model=er,relu                    # untrained network vs a random player
 python3 NNtesting/experiments/goe_rl/es.py --out results/goe-es/er_d1 --workers 4 --generations 300
 python3 NNtesting/experiments/goe_rl/es.py --out results/goe-es/er_reservoir --config NNtesting/experiments/goe_rl/models/er_reservoir.json
@@ -55,9 +55,25 @@ model, relu with habituation by default, bring h<k> back to h1) and
 
 ## Reward
 
-The game's own score, gained during the step: +1 for each cell the player
-visits for the first time, +1 for each item collected, + the energy of what
-the player kills. Each avatar lost costs `w_death` (50). The maze never ends,
+The game counts what the player's avatar does (goe's `reward_weights`, Gardens-of-Eris
+PR #289), and the reward weighs those events with the `w_*` parameters:
+
+| Event | Weight | |
+|-------|-------:|-|
+| `collect` | +5 | an item collected (each once an episode) |
+| `apple` | +20 | a golden apple collected |
+| `use` | +2 | the usable in hand used (a broken apple eaten) |
+| `open` | +10 | a door opened (each once an episode) |
+| `teleport` | +5 | a trip through a teleporter |
+| `kill` | +10 | a monster, drone or puppet master killed by the player's shots or blasts |
+| `mine` | +5 | a mine or bomb set off by the player's shots |
+| `hurt` | -0.2 | per energy point lost |
+| `death` | -50 | per avatar lost, the last one included |
+| `score` | +0.1 | per point of the game's score, mostly new cells visited, so exploring pays a little |
+
+`--set reward=score` gives the reward of G1 (doc/goe.md): the game's own
+score (+1 per new cell visited, +1 per item collected, + the energy of what
+the player kills), minus `w_death` (50) per avatar lost. The maze never ends,
 so an episode is `episode_ticks` (6000, 2 minutes, 750 moves) unless the
 last avatar dies first.
 
