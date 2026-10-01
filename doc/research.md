@@ -1914,8 +1914,17 @@ It plays one action (`MOVE_UP`) in 93–99% of the moves, because its E-R
 layers are nearly silent and the readouts tie at zero; reward 7.7
 (plain), 10.2 (reservoir), 8.6 (ladder) against 71.8 for a random
 player. The reservoir and the ladder fire more (11.7 and 18.4 spikes
-per move against 2.2) but do not play better untrained. Evolution has
-not been run yet.
+per move against 2.2) but do not play better untrained.
+
+**G2, evolution on the event reward** (Gardens-of-Eris PR #289: the
+reward pays for items, apples, use, doors, teleports, kills and mines,
+and charges for energy and avatars lost). One E-R layer that reads
+itself (habituation on), 300 generations of ES: on 30 fresh worlds the
+best weights score +18.4 against +10.1 untrained and +13.8 for a random
+player (the final weights +17.3). Without habituation and recurrence the
+best weights score +18.9 but the final ones +9.2. The gains are items,
+doors and less damage; kills, teleports, apples and mines stay too rare
+in 2-minute games to be learned. The score alone gave ES no signal.
 
 Data: `results/goe/`.
 

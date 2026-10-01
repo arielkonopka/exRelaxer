@@ -24,7 +24,7 @@ state, so parallel players are separate processes.
 | Senses: body | energy / max energy, ammo (up to 10), spare avatars (up to 3) |
 | Actions | 14 readouts: move, shoot and interact × up, down, left, right; next gun; use. The largest is played |
 | Time | one game step is one move (8 game ticks, 50 ticks a second); the network runs `ticks` (3) ticks on each step's view |
-| Reward | the game's score gained in the step (+1 per new cell visited, +1 per item, + the energy of what the player kills), −`w_death` (50) per avatar lost |
+| Reward | `reward` events (default since Gardens-of-Eris PR #289): the game's events weighed by `w_*`: +5 per item, +20 per golden apple, +2 per use, +10 per door opened, +5 per teleport, +10 per monster killed, +5 per mine set off, −0.2 per energy point lost, −`w_death` (50) per avatar lost, +0.1 per score point. `reward` score (G1): the game's score gained in the step (+1 per new cell visited, +1 per item, + the energy of what the player kills), −`w_death` (50) per avatar lost |
 | Episode | `episode_ticks` (6000: 2 minutes, 750 moves) unless the last avatar dies first |
 
 **The sight grows.** The player sees 2 + ln(steps) / 2 cells far
@@ -97,6 +97,7 @@ every generation. `--config` takes JSON or a file of it.
 
 It writes `config.json`, `log.jsonl` (a line per generation: `depth`,
 `validation_reward`, `validation_score`, `validation_avatars_lost`,
+`validation_events` (each event's count, with the events reward),
 spikes, population mean and best), `best.exr` (the network with the best
 validation, in the library's format), `best_theta.npy`, `best.json` and
 `state.npz` (for resuming). One generation with the defaults is 24
@@ -235,11 +236,81 @@ Checks of the new parts:
 Data: `results/goe/untrained_models.jsonl.gz` (one line per network and
 seed).
 
+### G2. Evolution on the event reward (2026-10-01)
+
+**Question.** With a reward that pays for what the player does
+(collecting, apples, use, doors, teleports, kills, mines) and charges
+for harm (energy lost, avatars lost), does evolution teach the plain
+E-R network to play, and does it beat a random player?
+
+**Setup.** `reward` events with the default weights (+5 item, +20 apple,
++2 use, +10 door, +5 teleport, +10 kill, +5 mine, −0.2 per energy point
+lost, −50 per avatar lost, +0.1 per score point). One E-R layer of 128
+neurons, `evolve` all, net seed 0, 2-minute games, radius 6 (what `auto`
+gives for 2 minutes). Two networks:
+- `er_rec`: habituation on, and h1 reads itself (`recurrent`), which
+  keeps it firing (about 31 spikes per move; without recurrence the
+  plain network fires about 2, G1);
+- `er_nohab`: habituation off, no recurrence (about 33 spikes per move).
+
+`es.py` defaults (12 pairs, sigma 0.05, lr 0.02, 2 worlds per candidate,
+6 validation worlds), 300 generations, 2 workers each, about 55 seconds
+per generation. Then the untrained, best (best validation) and final
+weights played 30 fresh worlds (seeds 4242–4271) next to a random
+player (`results/goe/events/fresh.py`). The best weights reproduce
+their logged validation exactly (47.68 and 27.05). Before this, two
+runs on the G1 reward (score minus avatars lost) showed nothing in 35
+generations and were stopped.
+
+**Result.** Validation reward, 15-generation means: `er_rec` +7 at the
+start, +15 by generations 31–45, +18 at 136–150, best single
+generation +47.7. `er_nohab` hovered at +9 to +14 all along, best +27.
+On the 30 fresh worlds:
+
+| Player | Reward | Score | Items | Doors | Kills | Energy lost | Game over |
+|--------|-------:|------:|------:|------:|------:|------------:|----------:|
+| `er_rec` untrained | 10.1 | 51.8 | 1.50 | 0.77 | 0 | 10.5 | 10% |
+| `er_rec` best | **18.4** | 69.6 | 1.90 | 1.03 | 0.03 | 10.5 | 10% |
+| `er_rec` final | 17.3 | 55.9 | 1.97 | 1.20 | 0.03 | 10.5 | 13% |
+| `er_nohab` untrained | 12.3 | 33.5 | 1.00 | 0.63 | 0 | 3.5 | 3% |
+| `er_nohab` best | **18.9** | 47.7 | 1.50 | 0.77 | 0 | 0 | 3% |
+| `er_nohab` final | 9.2 | 49.0 | 1.13 | 0.33 | 0 | 7.0 | 7% |
+| random player | 13.8 | 71.7 | 1.87 | 1.03 | 0 | 7.0 | 13% |
+
+No player used an item, teleported or set off a mine; an apple was
+collected once in 30 games (`er_nohab` best).
+
+**Conclusion.**
+- **Evolution helps, a little, on this reward.** Both best networks
+  beat a random player on fresh worlds (+18.4 and +18.9 against +13.8)
+  and their untrained selves (+10.1, +12.3). With recurrence the gain
+  holds to the end (final +17.3); without habituation and recurrence
+  the final weights fall back to the untrained level (+9.2), so its best
+  was partly luck of the validation worlds.
+- **What it learned is to stay alive and open a door, not to fight.**
+  The gains come from items and doors (the recurrent network now opens
+  as many doors as the random player and collects as many items) and,
+  for `er_nohab`, from taking no damage. Kills stay at about one in 30
+  games, and teleports, apples, use and mines never happen: in 2-minute
+  games these events are too rare for ES to see.
+- **The score alone gave no signal** (two runs, 35 generations, no
+  gain). Rewarding events gives ES something to climb, but slowly: 300
+  generations for +8.
+
+Data: `results/goe/events/` (per run: `config.json`, `log.jsonl.gz`,
+`best.json`, `best_theta.npy`; `fresh.json` and `fresh.py` for the
+fresh-world test).
+
 ## Open questions
 
 - **Does evolution get past standing still?** Run the three designed
   networks for 300 generations (above) and compare against the random
-  player and against each other on fresh worlds.
+  player and against each other on fresh worlds. G2: the plain network
+  with recurrence does, slowly, on the event reward.
+- **Rare events.** Kills, teleports, apples and mines almost never happen
+  in 2-minute games, so ES cannot reward them (G2). Longer games, or
+  worlds seeded with more monsters near the start, would show whether
+  the network can learn them.
 - **Growing.** Does `er_reservoir_grow` grow at all, and does it beat
   `er_reservoir`, which it starts as?
 - **Memory.** Does the ladder (loops to h1 through non-fatiguing relu
