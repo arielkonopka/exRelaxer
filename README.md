@@ -111,6 +111,7 @@ One command builds everything, runs every test and installs the library:
 ```bash
 ./build.sh                   # library, unit tests, nntest; runs ctest; installs into ./install
 ./build.sh --python          # ... and the Python package, with its tests and quick experiments
+./build.sh --vizdoom         # ... and ViZDoom from PyPI for the Doom experiments (implies --python)
 ./build.sh --help            # --prefix DIR, --debug, --native, --no-tests, --no-install, --clean, -j N
 ```
 
@@ -124,6 +125,7 @@ and with `--python` the pytest suite) and installs into `./install`
 | run the unit tests again | `./build/exrelaxer_tests` or `ctest --test-dir build` |
 | run experiments | `./build/NNtesting/nntest list` (also `install/bin/nntest`) |
 | run Python experiments (`--python`) | `PYTHONPATH=build/EXrelaxer.py/package NNtesting/nntest.py list` |
+| watch the best Doom agent play (`--vizdoom`) | `PYTHONPATH=build/EXrelaxer.py/package python3 NNtesting/experiments/doom_rl/watch.py` writes a video (`replay.mp4`), subtitles and a replay page (`replay.html`); `--live` shows the game window ([doom_rl README](NNtesting/experiments/doom_rl/README.md#watching-an-agent-watchpy)) |
 | use the library in another C++ program | `find_package(exrelaxer)` with `-DCMAKE_PREFIX_PATH=install` (see [below](#using-the-library)) |
 
 Arguments after `--` go to CMake, e.g.
@@ -208,7 +210,9 @@ Either way headers are included as `"network.hpp"`, `"layers/cochlea.hpp"`,
 ... (installed, they are in `DIR/include/exrelaxer`), and OpenMP comes along
 when the library was built with it. [examples/consumer](examples/consumer)
 is a complete program; the CTest test `installed_package_example` installs
-the build and compiles it against the package.
+the build and compiles it against the package. [examples/doom_agent](examples/doom_agent)
+loads an agent evolved in Python ([doc/doom_guide.md](doc/doom_guide.md#c)) and
+runs one game step.
 
 ## Quick start
 
@@ -349,6 +353,7 @@ tests/
 build.sh                         one command: build everything, run the tests, install
 cmake/                           package config template, the installed-package test
 examples/consumer/               a separate program using the installed library (find_package)
+examples/doom_agent/             loads an evolved Doom agent (best.exr) in C++ and runs one game step
 EXrelaxer.py/                    Python package exrelaxer: nanobind bindings, experiment runner,
                                  dataset loader, pytest suite
 NNtesting/                       benchmark harness nntest (see NNtesting/README.md)
@@ -401,6 +406,30 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files older than format 6 load as weights only.
 
 ## Changelog
+
+### 2026-10-01: Doom tooling, video replays, feedback ladder
+
+- `./build.sh --vizdoom` installs ViZDoom (the official release, from
+  PyPI) with the Python build requirements and builds the Python package;
+  it warns when `libopenal1` (the game's sound) or `ffmpeg` (replays) is
+  missing.
+- `doom_rl/watch.py` writes a replay as a video (`replay.mp4`, H.264, one
+  frame per game step; `--video mkv` or `mpg` for MPEG-2), subtitles
+  (`replay.srt`: action, health, ammo, kills, reward) and a small page
+  (`replay.html`) that plays the video with the network's readouts and
+  firing beside it. Frames stream to `ffmpeg`, so long games no longer
+  make one huge HTML file.
+- The **feedback ladder** in `doom_rl` (`feedback_first`): every hidden
+  layer above h1 comes back to h1 as input, one tick late, so the rungs
+  remember over different spans. The rungs are neurons in h1 or layers of
+  their own with another neuron model (`feedback_first_model`, e.g. relu
+  with habituation). `es.py --grow-to` grows the ladder: each new layer
+  brings its rung, and the weights carry over by the input they read.
+- `es.py` fix: the workers now close their games; before, every run (and
+  every growth) left ViZDoom engines running and `es.py` hung at exit.
+- [doc/doom_guide.md](doc/doom_guide.md): how to install, watch, retest
+  and train Doom agents with other parameters, and use them from C++;
+  `examples/doom_agent` loads a saved agent in C++ and runs one game step.
 
 ### 2026-09-28: new defaults
 

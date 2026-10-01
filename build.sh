@@ -6,6 +6,7 @@
 #
 #   ./build.sh                    build, test, install into ./install
 #   ./build.sh --python           ... and the Python package (needs nanobind, pytest)
+#   ./build.sh --vizdoom          ... and ViZDoom from PyPI, for the doom_rl experiments
 #   ./build.sh --help             all options
 #
 # After it:
@@ -21,6 +22,7 @@ prefix="$root/install"
 build_type=Release
 jobs=""
 python=OFF
+vizdoom=0
 native=OFF
 run_tests=1
 install=1
@@ -37,6 +39,11 @@ Usage: ./build.sh [options] [-- extra cmake configure arguments]
   --debug          Debug build (default: Release)
   --native         optimise for this machine's CPU (EXRELAXER_NATIVE)
   --python         also build the Python extension and run its tests
+  --vizdoom        pip-install ViZDoom (official Farama release from PyPI) and
+                   the Python build requirements (nanobind, pytest, numpy) into
+                   the Python interpreter, for the doom_rl experiments; implies
+                   --python. Use a virtual environment: Debian's system Python
+                   refuses pip installs
   --no-tests       build only, do not run the tests
   --no-install     do not install
   --clean          delete the build tree first
@@ -58,6 +65,7 @@ while [[ $# -gt 0 ]]; do
         --debug) build_type=Debug; shift ;;
         --native) native=ON; shift ;;
         --python) python=ON; shift ;;
+        --vizdoom) vizdoom=1; python=ON; shift ;;
         --no-tests) run_tests=0; shift ;;
         --no-install) install=0; shift ;;
         --clean) clean=1; shift ;;
@@ -92,6 +100,20 @@ if [[ $python == ON ]]; then
     configure+=(-DPython_EXECUTABLE="$py" -DPython3_EXECUTABLE="$py")
 fi
 
+if [[ $vizdoom == 1 ]]; then
+    step "Installing ViZDoom and the Python build requirements with $py"
+    "$py" -m pip install --upgrade vizdoom nanobind pytest numpy
+    "$py" -c "import vizdoom; print('  vizdoom', vizdoom.__version__)"
+    if ! { ldconfig -p 2>/dev/null || /sbin/ldconfig -p 2>/dev/null; } | grep -q libopenal.so.1; then
+        echo "  warning: libopenal1 not found; Doom's audio buffer will be silent" >&2
+        echo "           (sudo apt-get install libopenal1)" >&2
+    fi
+    if ! command -v ffmpeg >/dev/null; then
+        echo "  warning: ffmpeg not found; watch.py needs it to write replays" >&2
+        echo "           (sudo apt-get install ffmpeg)" >&2
+    fi
+fi
+
 step "Configuring ($build_type) in $build_dir"
 cmake "${configure[@]}" "${extra[@]}"
 
@@ -113,6 +135,11 @@ step "Done"
 echo "  unit tests:        $build_dir/exrelaxer_tests"
 echo "  experiments:       $build_dir/NNtesting/nntest list"
 [[ $python == ON ]] && echo "  Python package:    PYTHONPATH=$build_dir/EXrelaxer.py/package  (NNtesting/nntest.py list)"
+if [[ $vizdoom == 1 ]]; then
+    echo "  Doom:              NNtesting/nntest.py run doom_rl  (doc/doom.md)"
+    echo "  watch the agent:   PYTHONPATH=$build_dir/EXrelaxer.py/package $py NNtesting/experiments/doom_rl/watch.py"
+    echo "                     (writes replay.mp4, .srt and .html; --live shows the game window instead)"
+fi
 if [[ $install == 1 ]]; then
     echo "  library package:   $prefix  (find_package(exrelaxer) with -DCMAKE_PREFIX_PATH=$prefix;"
     echo "                     link exrelaxer::core, see examples/consumer)"

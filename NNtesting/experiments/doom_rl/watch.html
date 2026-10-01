@@ -27,7 +27,7 @@ h1 { font-size: 24px; margin: 0 0 4px; }
 .grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; }
 @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
-#screen { width: 100%; aspect-ratio: 4 / 3; image-rendering: pixelated; display: block; border-radius: 6px; background: #000; }
+#screen { width: 100%; aspect-ratio: 4 / 3; image-rendering: pixelated; object-fit: contain; display: block; border-radius: 6px; background: #000; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 button, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 600; min-width: 84px; }
@@ -58,7 +58,7 @@ input[type=range] { flex: 1 1 200px; accent-color: var(--accent); }
   <p class="sub" id="sub">Loading…</p>
   <div class="grid">
     <div class="card">
-      <canvas id="screen" width="160" height="120" aria-label="The screen the network saw"></canvas>
+      <video id="screen" preload="auto" muted playsinline aria-label="The screen the network saw"></video>
       <div class="controls">
         <button class="primary" id="play">Play</button>
         <button id="back" aria-label="Step back">◀</button>
@@ -89,25 +89,19 @@ input[type=range] { flex: 1 1 200px; accent-color: var(--accent); }
       </div>
     </div>
   </div>
-  <p class="note" id="note">Space plays or pauses; the arrow keys step. The screen is exactly the 160 × 120 gray image the network saw; the chosen action is the largest readout. The network also heard the game's sound, which is not replayed here.</p>
+  <p class="note" id="note">Space plays or pauses; the arrow keys step. The video is the 160 × 120 gray image the network saw (lightly compressed); it and its subtitles (.srt) also play in any video player; the chosen action is the largest readout. The network also heard the game's sound, which is not replayed here.</p>
   <p class="note" id="err"></p>
 </main>
 <script>
 const META = /*META*/null;
-const FRAMES_B64 = "/*FRAMES*/";
 const $ = id => document.getElementById(id);
 const LABELS = {MOVE_FORWARD: "forward", MOVE_BACKWARD: "backward", TURN_LEFT: "turn left", TURN_RIGHT: "turn right",
                 MOVE_LEFT: "strafe left", MOVE_RIGHT: "strafe right", ATTACK: "shoot", USE: "use"};
-let frames = null, cur = 0, game = 0, playing = false, timer = null;
+const video = $("screen");
+let cur = 0, game = 0, shown = -1;
 
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function fmt(s) { const m = Math.floor(s / 60), r = Math.floor(s % 60); return m + ":" + String(r).padStart(2, "0"); }
-
-async function inflate(b64) {
-  const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-  const stream = new Blob([bin]).stream().pipeThrough(new DecompressionStream("deflate"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
 
 function build() {
   const acts = $("acts");
@@ -129,12 +123,17 @@ function build() {
     `${META.hidden} hidden E-R neurons, ${META.ticks} ticks per step`;
 }
 
+// The video holds every game's steps one after another, one frame per step.
+function stepAt(t) { return Math.max(0, Math.min(META.steps.length - 1, Math.floor(t / META.step_seconds + 1e-3))); }
+function gameOf(i) { let g = 0; while (g + 1 < META.games.length && META.games[g + 1].first <= i) g++; return g; }
+
 function show() {
-  const g = META.games[game], i = g.first + cur, s = META.steps[i];
-  const W = META.width, H = META.height, ctx = $("screen").getContext("2d");
-  const img = ctx.createImageData(W, H), px = frames.subarray(i * W * H, (i + 1) * W * H);
-  for (let k = 0; k < W * H; k++) { const v = px[k]; img.data[4 * k] = img.data[4 * k + 1] = img.data[4 * k + 2] = v; img.data[4 * k + 3] = 255; }
-  ctx.putImageData(img, 0, 0);
+  const i = stepAt(video.currentTime);
+  if (i === shown) return;
+  shown = i; game = gameOf(i);
+  const g = META.games[game], s = META.steps[i];
+  cur = i - g.first;
+  if (parseInt($("game").value, 10) !== game) { $("game").value = game; $("seek").max = g.steps - 1; }
   const [a, y, bits, spikes, health, ammo, kills, reward] = s;
   const m = Math.max(1e-6, ...y.map(Math.abs));
   y.forEach((v, j) => {
@@ -158,38 +157,46 @@ function show() {
 }
 
 function setPlaying(on) {
-  playing = on; $("play").textContent = on ? "Pause" : "Play";
-  clearInterval(timer);
-  if (on) timer = setInterval(() => {
-    if (cur >= META.games[game].steps - 1) { setPlaying(false); return; }
-    cur++; show();
-  }, META.step_seconds * 1000 / parseFloat($("speed").value));
+  if (on) video.play(); else video.pause();
 }
-function go(n) { cur = Math.max(0, Math.min(META.games[game].steps - 1, n)); show(); }
+function go(n) {
+  const g = META.games[game];
+  n = Math.max(0, Math.min(g.steps - 1, n));
+  video.currentTime = (g.first + n + 0.5) * META.step_seconds;  // the middle of the step's frame
+}
 function pickGame(g) { game = g; $("seek").max = META.games[g].steps - 1; go(0); }
+function track() { show(); if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(track); }
 
-$("play").onclick = () => setPlaying(!playing);
+video.addEventListener("play", () => { $("play").textContent = "Pause"; });
+video.addEventListener("pause", () => { $("play").textContent = "Play"; });
+video.addEventListener("seeked", show);
+video.addEventListener("timeupdate", show);
+video.addEventListener("error", () => { $("err").textContent = `Could not play ${META.video}: keep it next to this page.`; });
+$("play").onclick = () => setPlaying(video.paused);
 $("back").onclick = () => { setPlaying(false); go(cur - 1); };
 $("fwd").onclick = () => { setPlaying(false); go(cur + 1); };
 $("seek").oninput = e => go(parseInt(e.target.value, 10));
-$("speed").onchange = () => { if (playing) setPlaying(true); };
+$("speed").onchange = () => { video.playbackRate = parseFloat($("speed").value); };
 $("game").onchange = e => { setPlaying(false); pickGame(parseInt(e.target.value, 10)); };
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
-  if (e.key === " ") { e.preventDefault(); setPlaying(!playing); }
+  if (e.key === " ") { e.preventDefault(); setPlaying(video.paused); }
   if (e.key === "ArrowLeft") { setPlaying(false); go(cur - 1); }
   if (e.key === "ArrowRight") { setPlaying(false); go(cur + 1); }
 });
 
-(async () => {
-  try {
-    build();
-    frames = await inflate(FRAMES_B64);
-    pickGame(0);
-  } catch (err) {
-    $("err").textContent = "Could not load the replay: " + err;
+try {
+  build();
+  if (!META.browser_video) {
+    $("err").textContent = `${META.video} is MPEG-2, which browsers do not play: open it in VLC or mpv (with its .srt), ` +
+      "or write the replay again with --video mp4.";
+  } else {
+    video.src = META.video;
+    video.addEventListener("loadeddata", () => { pickGame(0); track(); }, {once: true});
   }
-})();
+} catch (err) {
+  $("err").textContent = "Could not load the replay: " + err;
+}
 </script>
 </body>
 </html>

@@ -10,6 +10,7 @@ Each experiment is one entry in the [log](#log), newest last, numbered
 `D1`, `D2`, ... so that other pages can cite them. The dynamic ladder that
 led here is in [dynamic](dynamic.md); the research log summarises the
 findings in [§20](research.md#20-dynamic-ladder-time-varying-input-and-doom).
+How to run everything below is in the [guide](doom_guide.md).
 Doom validates mechanisms end to end; they are debugged first in
 controlled benchmarks ([protocol](protocol.md#1-controlled-first-doom-last)).
 
@@ -26,7 +27,8 @@ controlled benchmarks ([protocol](protocol.md#1-controlled-first-doom-last)).
 | Files | `results/dynamic/doom_agent/untildeath_d1/`: `best.exr` (the whole network in the library's own format), `best_theta.npy` (its evolved weights), `config.json`, `best.json` (generation 296, validation +20.3) |
 
 Watch it play: `python3 NNtesting/experiments/doom_rl/watch.py` writes
-`replay.html`, a step-by-step replay of what it saw and did (`--live`
+`replay.mp4` (what it saw), `replay.srt` (what it did, as subtitles) and
+`replay.html`, a step-by-step replay of both (`--live`
 shows the game window instead; [doom_rl README](../NNtesting/experiments/doom_rl/README.md)).
 
 Load the saved network with the library alone (`best.exr`); it plays
@@ -58,7 +60,8 @@ with raw sums and amplitude 0.01; new runs record both.
 ## Setup shared by all entries
 
 - **Game**: [ViZDoom](https://github.com/Farama-Foundation/ViZDoom)
-  (`python3 -m pip install vizdoom`), headless, about 5000 game steps per
+  (`python3 -m pip install vizdoom`, or `./build.sh --vizdoom`, which
+  also builds the Python package), headless, about 5000 game steps per
   second. Sound needs `libopenal1`; without it the audio buffer is silent.
 - **Speed**: call `exr.set_threads(1)`. With OpenMP, steps this small are
   20× slower.
@@ -417,6 +420,12 @@ Data: `results/dynamic/es_d12_untildeath.jsonl.gz`, agent and test in
   the default setup it keeps the E-R layer active between frames. A test
   with the sound replaced by unrelated audio of the same loudness would
   separate the two.
+- **Memory through the feedback ladder.** `feedback_first` brings every
+  hidden layer back to h1 as input (rungs of h1 neurons, or rung layers
+  of their own model, e.g. relu with habituation, which do not fatigue as
+  E-R does), and grows with `--grow-to`. It is untested: does a grown
+  ladder beat the grown stack of D10, and do non-fatiguing rungs keep
+  more of the past than E-R rungs? ([how to run it](doom_guide.md#feedback-ladder))
 - **Baseline.** The fair reference for any temporal claim is a stateless
   network given past frames ([dynamic](dynamic.md)); it has not been run
   under evolution.
