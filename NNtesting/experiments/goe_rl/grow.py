@@ -119,10 +119,19 @@ def play(task):
     if theta is None:
         rewards, events = C.play(w["game"], C.RandomPlayer(), w["p"], worlds)
         return rewards, events, {}
-    net = C.Net(w["p"], w["columns"], w["frozen"], theta, w["net_seed"])
-    rewards, events = C.play(w["game"], net, w["p"], worlds, meter=True)
-    spikes = {k: v / max(net.ticks_seen, 1) * w["p"]["ticks"] for k, v in net.spikes.items()}
-    return rewards, events, spikes
+    # a fresh network (fresh E-R and habituation state) for every world, so a world's score does not
+    # depend on which worlds the same process played before it
+    rewards, events, spikes, ticks = [], {}, {}, 0
+    for world in worlds:
+        net = C.Net(w["p"], w["columns"], w["frozen"], theta, w["net_seed"])
+        r, e = C.play(w["game"], net, w["p"], [world], meter=True)
+        rewards.append(r[0])
+        for k, x in e.items():
+            events[k] = events.get(k, 0.0) + x
+        for k, x in net.spikes.items():
+            spikes[k] = spikes.get(k, 0) + x
+        ticks += net.ticks_seen
+    return np.array(rewards), events, {k: x / max(ticks, 1) * w["p"]["ticks"] for k, x in spikes.items()}
 
 
 def centred_ranks(x):
