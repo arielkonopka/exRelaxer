@@ -1,0 +1,38 @@
+{
+ "d12": {
+  "reward": 16.55,
+  "kills": 19.8,
+  "deaths": 0.5,
+  "survive_s": 1277.4,
+  "spikes": 157,
+  "depth": 1,
+  "thresholds": false
+ },
+ "grow3_final": {
+  "reward": 13.54,
+  "kills": 17.73,
+  "deaths": 0.67,
+  "survive_s": 1006.8,
+  "spikes": 406,
+  "depth": 3,
+  "thresholds": false
+ },
+ "thr3_best": {
+  "reward": 11.52,
+  "kills": 15.7,
+  "deaths": 0.67,
+  "survive_s": 1051.8,
+  "spikes": 404,
+  "depth": 3,
+  "thresholds": true
+ },
+ "thr4_final": {
+  "reward": 12.49,
+  "kills": 16.9,
+  "deaths": 0.7,
+  "survive_s": 939.6,
+  "spikes": 538,
+  "depth": 4,
+  "thresholds": true
+ }
+}
