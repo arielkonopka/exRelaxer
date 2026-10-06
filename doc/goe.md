@@ -185,6 +185,76 @@ for m in er_reservoir er_reservoir_grow er_ladder; do
 done
 ```
 
+## The growing column network
+
+`columns.py` and `grow.py` in `NNtesting/experiments/goe_rl/`: a network that is
+taught one skill at a time in fixed rooms, and grows a new column whenever it has
+learned. Design notes and the reasons behind each choice:
+[review](../results/goe/columns/design.md).
+
+```
+eye: 13 x 13 cells x 12 channels -+-> retina: one E-R neuron per cell and channel,
+                                  |   fading habituation, no weights ---------------+
+                                  +-> raw: the same image, passed through ----------+
+                                                                                    |
+column k   c<k>  Conv2D, 8 kernels 3 x 3 over retina + raw (shared weights)  <------+
+           p<k>  max pool 3 x 3, stride 2 (8 x 7 x 7)
+           h<k>  64 E-R neurons, fading habituation: read p<k>, the body, h<k-1>, themselves
+readouts   14 actions, reading h1 .. h<k> (a new column's lines start at zero)
+```
+
+**Senses.** The 8 channels of goe_rl, plus `avatar` (a spare avatar), `in_sight`,
+`novelty` and `visited`. Novelty is the game's own memory of each board cell for
+the episode (1 / sqrt(1 + times seen), Gardens-of-Eris PR #303), so "have I been
+here" is an input, not something the network must remember. The body adds the
+number of items in each inventory section to energy, ammo and spare avatars.
+
+**Retina and raw.** Habituation works on the eye's own cells, so a moving player
+lights the whole retina and a still one sees it fade. The raw copy keeps the still
+view, so the network is never blind. Ties between readouts are broken at random
+(seeded by the world): untrained, every readout is silent and goe_rl's network
+pressed `MOVE_UP` in 93–99% of moves (G1).
+
+**Rooms.** A skill room is the start chunk built from a pattern laid out anew from
+each world seed, walled in by solid chunks (a wall default pattern); 150 moves.
+
+| Room | Layout | Rewarded by |
+|------|--------|-------------|
+| `explore` | 25 × 25, a quarter of the cells walls | `explore` (cells seen for the first time), score |
+| `collect` | 13 × 13, 2 guns and 2 keys | `collect` |
+| `doors` | 13 × 13 split by a wall with a locked door; its key on the player's side, 2 guns beyond | `collect`, `open` |
+| `avatar` | 13 × 13, 2 spare avatars | `avatar` (Gardens-of-Eris PR #305) |
+| `mines` | 13 × 13, a row of landmines with 1–2 gaps, 2 guns and 4 more mines beyond | `collect`; a mine stepped on kills (`death`, −50) |
+| `maze` | the game's random maze, 750 moves (2 minutes, as G2) | everything |
+
+Rewards: the G2 weights plus `w_explore` 0.1 and `w_avatar` 10.
+
+**Stages and growth.** `curriculum` (default `explore,collect,doors,avatar,mines,maze`):
+stage s trains on the rooms of the first s + 1 skills plus a quarter of mazes. ES
+(as es.py) evolves only the readouts and the newest column (32 320 weights with one
+column); older columns are frozen. Every 10 generations the weights play a fixed
+test set (6 worlds of each kind in the stage, never trained on), paired with the
+network the stage started from. The stage ends, and a column is added, when
+- the paired gain is real: its bootstrap 5th percentile is above 0 and the mean
+  gain at least 0.5, on 2 checks in a row, and
+- the test mean has not improved for 3 checks (a plateau), after at least 30
+  generations.
+
+A stage that never gets there never ends. After the last skill, the network can go
+on growing on the final mix up to `max_columns` (8). `grow_columns` false runs the
+same curriculum with one column, the control.
+
+```bash
+python3 NNtesting/experiments/goe_rl/grow.py --check     # growing keeps play exact; every room plays
+python3 NNtesting/experiments/goe_rl/grow.py --out results/goe-grow/grow --workers 4 --generations 400
+python3 NNtesting/experiments/goe_rl/grow.py --out results/goe-grow/control --config '{"grow_columns": false}'
+```
+
+`log.jsonl` has a line per generation (population reward per world, spikes per
+step of the retina, convolutions and E-R layers), a `check` line per test (test
+mean, paired gain and its bound, gain by kind, events) and `stage` / `grow` lines.
+`best_stage<s>.exr` is the best test network of each stage, `best.exr` of the last.
+
 ## Log
 
 ### G1. Untrained networks and the designed models (2026-10-01)

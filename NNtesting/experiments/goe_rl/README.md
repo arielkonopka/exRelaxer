@@ -17,6 +17,20 @@ python3 NNtesting/experiments/goe_rl/es.py --out results/goe-es/er_d1 --workers 
 python3 NNtesting/experiments/goe_rl/es.py --out results/goe-es/er_reservoir --config NNtesting/experiments/goe_rl/models/er_reservoir.json
 ```
 
+## The growing column network
+
+`columns.py` (network, senses, skill rooms) and `grow.py` (curriculum, ES,
+growth) teach a network one skill at a time in fixed rooms (explore, collect,
+doors, avatar, mines, then the maze) and add a column of new convolution
+features and E-R neurons whenever the current one has measurably learned; see
+[doc/goe.md](../../../doc/goe.md#the-growing-column-network). Needs a goe with
+the novelty cells and the avatar event (Gardens-of-Eris PR #303, #305).
+
+```bash
+python3 NNtesting/experiments/goe_rl/grow.py --check
+python3 NNtesting/experiments/goe_rl/grow.py --out results/goe-grow/grow --workers 4 --generations 400
+```
+
 ## Senses and network
 
 ```
