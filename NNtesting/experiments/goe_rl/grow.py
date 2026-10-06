@@ -7,7 +7,10 @@
 
 Evolution is OpenAI-ES as in es.py (antithetic pairs, centred ranks, Adam, steps
 relative to each group's weight RMS), on what the network trains now: the readouts,
-the newest column's kernels and its E-R layer. Older columns are frozen.
+the newest column's kernels and its E-R layer. Older columns are frozen. With
+`fitness` per_world (the default) candidates are ranked in each world and the
+ranks summed, so a maze world (rewards in the tens, a death -50) does not drown
+the rooms (a few points each).
 
 Stages. `curriculum` lists skills (columns.SKILLS: explore, collect, doors, avatar,
 mines, maze). Stage s trains on the rooms of the first s + 1 skills, in equal
@@ -27,7 +30,8 @@ and the next stage's reference is that play on its own test set. A stage that ne
 becomes competent never moves on: the network grows only when it has learned.
 
 Files in --out: config.json, log.jsonl (a line per generation, plus "check" and
-"grow" lines), state.npz and frozen.npz (resume), best_stage<s>.exr / best.exr.
+"grow" lines), state.npz and frozen.npz (resume), best_stage<s>.exr / best.exr, and
+before_stage<s>/ (the run just before stage s began: a no-growth control resumes from it).
 """
 import argparse
 import json
@@ -49,6 +53,8 @@ TRAIN = {
     "curriculum": ("explore,collect,doors,avatar,mines,maze", "skills in teaching order (columns.SKILLS)"),
     "maze_share": (0.25, "share of random-maze worlds in every stage's training mix"),
     "grow_columns": (True, "a new column with every new stage (false: one network, the control)"),
+    "fitness": ("per_world", "per_world: candidates ranked in each world, the ranks summed (every world counts "
+                             "the same); sum: ranked by the summed reward"),
     "max_columns": (8, "at most this many columns"),
     "check_every": (10, "generations between test checks"),
     "test_per_kind": (6, "fixed test worlds per kind in the stage's mix"),
@@ -278,8 +284,12 @@ def main():
                 worlds = train_worlds(p, st["stage"], rng, args.episodes)
                 tasks = [(theta + sigma * e, worlds) for e in eps] + [(theta - sigma * e, worlds) for e in eps]
                 results = pool.map(play, tasks)
-                rewards = np.array([r.sum() for r, _, _ in results])
-                ranks = centred_ranks(rewards)
+                per_world = np.array([r for r, _, _ in results])  # candidates x worlds
+                rewards = per_world.sum(axis=1)
+                if p["fitness"] == "per_world":  # each world counts the same: a maze death does not drown a room
+                    ranks = centred_ranks(sum(centred_ranks(per_world[:, j]) for j in range(per_world.shape[1])))
+                else:
+                    ranks = centred_ranks(rewards)
                 grad = (ranks[:args.pairs] - ranks[args.pairs:]) @ eps / (2 * args.pairs * sigma)
                 st["gen"] += 1
                 st["t"] += 1
@@ -328,6 +338,14 @@ def main():
                     more_stages = st["stage"] < last_stage
                     can_grow = p["grow_columns"] and st["columns"] < p["max_columns"]
                     if ready and (more_stages or can_grow):
+                        # the run as it stands before moving on: a control can resume from it
+                        # (copy both files into a new --out as state.npz and frozen.npz)
+                        save()
+                        snap = os.path.join(args.out, f"before_stage{st['stage'] + 1}")
+                        os.makedirs(snap, exist_ok=True)
+                        for path in (state_path, frozen_path):
+                            with open(path, "rb") as src, open(os.path.join(snap, os.path.basename(path)), "wb") as dst:
+                                dst.write(src.read())
                         if can_grow:
                             old = C.Net(p, st["columns"], frozen, theta, args.net_seed)
                             frozen = old.frozen()
