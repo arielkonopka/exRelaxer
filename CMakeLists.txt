@@ -179,6 +179,7 @@ add_executable(exrelaxer_tests
     tests/plasticity.cpp
     tests/structure.cpp
     tests/reinforcement.cpp
+    tests/development.cpp
 )
 
 target_link_libraries(exrelaxer_tests PRIVATE

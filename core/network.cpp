@@ -79,6 +79,8 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
     }
     if (spec.bus && spec.type != LayerType::Dense)
         throw std::invalid_argument("network: bus '" + name + "' must be a Dense layer");
+    if (spec.minimumSize > 0 && (spec.type != LayerType::Dense || spec.minimumSize > impl->size()))
+        throw std::invalid_argument("network: layer '" + name + "': a minimum size is for Dense layers, at most their size");
     this->nodes.push_back({name, spec, std::move(impl)});
     this->ops_.push_back({OpKind::AddLayer, this->nodes.size() - 1, 0, 0});
     this->orderValid = false;
@@ -231,11 +233,43 @@ void network::pruneNeurons(LayerId id, std::vector<size_t> indices)
                                     std::to_string(i));
     if (indices.empty())
         return;
+    if (target.size() - indices.size() < this->nodes[id].spec.minimumSize)
+        throw std::invalid_argument("network::pruneNeurons: layer '" + this->nodes[id].name + "' would have " +
+                                    std::to_string(target.size() - indices.size()) + " neurons, below its minimum " +
+                                    std::to_string(this->nodes[id].spec.minimumSize));
     target.removeNeurons(indices);
     layerShrank(id, indices);
     BuildOp op{OpKind::Prune, id, 0, 0};
     op.indices = indices;
     this->ops_.push_back(std::move(op));
+}
+
+void network::setMinimumSize(LayerId id, size_t minimum)
+{
+    const dense& target = denseLayer(id, "setMinimumSize");
+    if (minimum > target.size())
+        throw std::invalid_argument("network::setMinimumSize: layer '" + this->nodes[id].name + "' has " +
+                                    std::to_string(target.size()) + " neurons, fewer than " + std::to_string(minimum));
+    this->nodes[id].spec.minimumSize = minimum;
+}
+
+size_t network::minimumSize(LayerId id) const
+{
+    checkId(id);
+    return this->nodes[id].spec.minimumSize;
+}
+
+std::vector<size_t> network::grownNeurons(LayerId id) const
+{
+    checkId(id);
+    std::vector<size_t> out;
+    if (!this->nodes[id].impl->hasNeurons())
+        return out;
+    const auto& layer = dynamic_cast<const neuron_layer&>(*this->nodes[id].impl);
+    for (size_t i = 0; i < layer.size(); ++i)
+        if (layer.neuronGrown(i))
+            out.push_back(i);
+    return out;
 }
 
 void network::freezeNeurons(LayerId id, size_t first, size_t count, bool frozen)
@@ -965,6 +999,14 @@ void network::describe(std::ostream& os) const
             os << " " << this->nodes[r].name;
         os << "\n";
     }
+    for (LayerId id = 0; id < this->nodes.size(); ++id) {
+        const Node& node = this->nodes[id];
+        const size_t grown = grownNeurons(id).size();
+        if (node.spec.minimumSize == 0 && grown == 0 && !node.spec.grown)
+            continue;
+        os << "  growth " << node.name << ": " << node.impl->size() << " neurons, " << grown << " grown, minimum "
+           << node.spec.minimumSize << (node.spec.grown ? ", a grown layer" : "") << "\n";
+    }
     const auto names = [this](const std::vector<LayerId>& layers, const std::vector<std::string>& inputs) {
         std::string text;
         for (LayerId id : layers)
@@ -1029,8 +1071,9 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //        connect; growth and pruning in the history; neuron format 4
 //        (per-synapse rules, frozen neurons and inputs); critic and
 //        curiosity model
+//  19  + minimum size and the grown-layer tag per layer
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 18;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 19;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -1288,6 +1331,8 @@ void network::save(std::ostream& os) const
             writeValue(os, node.spec.restingThreshold);
             writeValue<std::uint8_t>(os, node.spec.binary);
             writeValue<std::uint8_t>(os, node.spec.bus);
+            writeCount(os, node.spec.minimumSize);  // current setting, like frozen
+            writeValue<std::uint8_t>(os, node.spec.grown);
             break;
         }
         case OpKind::Connect:
@@ -1381,6 +1426,9 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
     const std::uint32_t neuron_format = version <= 2 ? 1 : version <= 8 ? 2 : version <= 17 ? 3 : 4;
 
     auto net = std::make_unique<network>(factory);
+    // Minimum sizes are saved as they are now, which earlier pruning in the
+    // history may have gone below: they are set once the history is replayed.
+    std::vector<size_t> minimum_sizes;
 
     // 1. Replay the construction. The build methods validate ids and wiring
     // exactly as they did originally.
@@ -1474,6 +1522,11 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 spec.binary = readValue<std::uint8_t>(is) != 0;
                 spec.bus = readValue<std::uint8_t>(is) != 0;
             }
+            if (version >= 19) {
+                minimum_sizes.resize(net->nodes.size() + 1, 0);
+                minimum_sizes.back() = readCount(is, "minimum size");
+                spec.grown = readValue<std::uint8_t>(is) != 0;
+            }
             net->addLayer(name, spec);
             break;
         }
@@ -1547,6 +1600,15 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                                      std::to_string(static_cast<int>(kind)));
         }
     }
+
+    for (LayerId id = 0; id < minimum_sizes.size(); ++id)
+        if (minimum_sizes[id] > 0) {
+            try {
+                net->setMinimumSize(id, minimum_sizes[id]);
+            } catch (const std::invalid_argument& e) {
+                throw std::runtime_error(std::string("network::load: ") + e.what());
+            }
+        }
 
     // 2. Output layers and custom update order
     const size_t output_count = readCount(is, "output count");

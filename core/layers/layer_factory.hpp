@@ -44,6 +44,8 @@ struct LayerSpec
                                  // their builders below turn it on
     bool binary = false;         // neurons without E-R: output the sign of a sum that passes the gate (see neuron::binary)
     bool bus = false;            // Dense: the layer is a bus (see network::addBus)
+    size_t minimumSize = 0;      // Dense: pruning never leaves fewer neurons (see network::setMinimumSize); 0 = no floor
+    bool grown = false;          // the layer was added by structural growth, not built with the network (a tag; see doc/development.md)
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina

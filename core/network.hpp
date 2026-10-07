@@ -144,8 +144,20 @@ public:
                    size_t group = 0);
     // Removes neurons (by index) from a Dense layer; every layer reading it
     // must be Dense, and drops the matching inputs. The critic and the
-    // curiosity model drop their features too.
+    // curiosity model drop their features too. Throws std::invalid_argument,
+    // changing nothing, when it would leave fewer neurons than the layer's
+    // minimum size.
     void pruneNeurons(LayerId id, std::vector<size_t> indices);
+    // The protected core of a Dense layer: pruning never leaves fewer than
+    // `minimum` neurons (0, the default: no floor). Which neurons survive is
+    // up to the caller (e.g. pruning grown neurons first); the floor is a
+    // count. Throws std::invalid_argument when the layer has fewer neurons
+    // than `minimum` now. Saved (LayerSpec::minimumSize).
+    void setMinimumSize(LayerId id, size_t minimum);
+    size_t minimumSize(LayerId id) const;
+    // Neurons growLayer added (see neuron_layer::growthOrder), in index order;
+    // the others are the layer's base neurons.
+    std::vector<size_t> grownNeurons(LayerId id) const;
     // Freezes (or unfreezes) single neurons of a layer: they run but do not
     // learn (see neuron_layer::setNeuronsFrozen).
     void freezeNeurons(LayerId id, size_t first, size_t count, bool frozen = true);

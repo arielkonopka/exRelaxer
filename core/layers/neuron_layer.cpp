@@ -39,6 +39,7 @@ neuron& neuron_layer::newNeuron()
     n.setBinary(binary_);
     output_.push_back(n.output());
     frozen_.push_back(0);
+    growth_order_.push_back(0);
     resizeLearningState();
     return n;
 }
@@ -142,6 +143,19 @@ size_t neuron_layer::frozenNeuronCount() const
     return static_cast<size_t>(std::count(frozen_.begin(), frozen_.end(), std::uint8_t{1}));
 }
 
+size_t neuron_layer::grownNeuronCount() const
+{
+    return static_cast<size_t>(std::ranges::count_if(growth_order_, [](std::uint32_t o) { return o != 0; }));
+}
+
+void neuron_layer::markGrown(size_t count)
+{
+    if (count > growth_order_.size())
+        throw std::out_of_range("markGrown: more neurons than the layer has");
+    for (size_t i = growth_order_.size() - count; i < growth_order_.size(); ++i)
+        growth_order_[i] = ++grown_so_far_;
+}
+
 void neuron_layer::setAlphaJitter(const Jitter& jitter)
 {
     alpha_jitter_ = jitter;
@@ -232,8 +246,10 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
         n.setRestingThreshold(resting_, mode != DeserializeMode::FullState);  // a full state keeps its thresholds
         n.setBinary(!has_er_ && binary_);
     }
-    if (!in_place)
+    if (!in_place) {
         frozen_.assign(count, 0);
+        growth_order_.assign(count, 0);
+    }
     output_.resize(count);
     for (size_t i = 0; i < count; ++i)
         output_[i] = neurons_[i].output();
@@ -589,6 +605,7 @@ void neuron_layer::eraseNeuronState(std::span<const size_t> indices)
     erase(neurons_);
     erase(output_);
     erase(frozen_);
+    erase(growth_order_);
     for (std::vector<float>* v : {&bias_, &post_, &noise_, &noise_trace_, &baseline_, &theta_, &dyds_, &dydthr_,
                                   &dthrdthr_, &dthrds_, &bias_elig_, &bias_adapt_, &bias_grad_, &inverse_norm_})
         erase(*v);
