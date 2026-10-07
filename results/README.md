@@ -36,3 +36,4 @@ Runs recorded before 2026-09-27 evening used the logarithmic threshold
 growth rule, the default at the time; pass `--set growth=log` to reproduce
 them with the current library. The `run.sh` files show the exact commands
 (run from the repository root after `./build.sh`).
+| `snake-growth/` | §30 | `snake_growth`: a growing network learning Snake always-on, from ER(1) and ER(4), with and without growth, frozen or plastic old neurons, recovery 0.99, fixed ER(8); saturation of untrained populations; `summary.md`, `runs.jsonl.gz`; commands in `NNtesting/experiments/snake_growth/sweep.py` |
