@@ -1675,9 +1675,11 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
         EXPECT_EQ(m.thresholdGrowth(), spec.thresholdGrowth);
 
     // A format-13 file (no growth rule saved) loads with the log rule, the
-    // only one it knew: drop this layer's rule bytes and the format-15 fields
-    // after them (fadeAfter, spontaneous below / amplitude / rate), and mark
-    // it version 13.
+    // only one it knew: drop this layer's rule bytes and the later fields
+    // after them (fadeAfter, spontaneous below / amplitude / rate, resting
+    // threshold, normalize, binary, bus), and mark it version 13. (The layer
+    // data is then read as neuron format 3; the format-4 bytes after it are
+    // never reached.)
     network plain;
     const auto p = plain.addLayer("h", LayerSpec::Dense(2, false, true));
     plain.addInputs(p, 1);
@@ -1690,7 +1692,7 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
     const size_t at = bytes.find(ruleBytes);
     ASSERT_NE(at, std::string::npos);
     ASSERT_EQ(bytes.find(ruleBytes, at + 1), std::string::npos);
-    bytes.erase(at, ruleBytes.size() + sizeof(std::uint32_t) + 4 * sizeof(float) + sizeof(std::uint8_t));
+    bytes.erase(at, ruleBytes.size() + sizeof(std::uint32_t) + 4 * sizeof(float) + 3 * sizeof(std::uint8_t));
     const std::uint32_t v13 = 13;
     bytes.replace(4, sizeof v13, reinterpret_cast<const char*>(&v13), sizeof v13);
     std::stringstream old(bytes);

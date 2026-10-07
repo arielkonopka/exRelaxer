@@ -5,12 +5,15 @@
 #include <istream>
 #include <ostream>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
+#include "layers/dense.hpp"
 #include "layers/layer.hpp"
 #include "layers/layer_factory.hpp"
 #include "layers/neuron_layer.hpp"
+#include "reinforcement.hpp"
 
 namespace exr {
 
@@ -72,7 +75,9 @@ public:
     // everything it already reads; call this before growing `to` with feedback.
     // Each pair can be connected once. connect(x, x) makes every neuron of x
     // read x's own output (recurrence) and is ignored by the update order.
-    void connect(LayerId from, LayerId to);
+    // `init`: how the new weights start; Zero adds a connection that changes
+    // nothing until it learns (e.g. a new layer joining a readout).
+    void connect(LayerId from, LayerId to, WeightInit init = WeightInit::Random);
 
     // Adds `width` new neurons to `to`, wired to read `from`'s output. Layers
     // already reading `to` are extended automatically.
@@ -97,6 +102,89 @@ public:
     // Marks a layer as output; outputs() concatenates output layers in the
     // order they were marked.
     void addOutput(LayerId id);
+
+    // --- Buses ------------------------------------------------------------
+    // A bus is a named group of neurons that some layers write into and any
+    // number of later layers read from: growing a network then means
+    // subscribing a new layer to buses instead of rewiring. A bus is a Dense
+    // layer with its own neuron type, whatever the layers around it use
+    // (e.g. non-habituating E-R, or perceptrons: LayerSpec::Perceptron).
+    // Buses start frozen (their weights from the writers do not learn);
+    // unfreeze() lets them learn. Sensors can write into a bus too
+    // (connectInputs).
+    //
+    //   auto vision = net.addBus("vision", LayerSpec::Dense(28, false, true));
+    //   net.connectInputs("eye", vision);
+    //   net.subscribe(column, vision);          // column reads the bus
+    //   net.writeBus(column, motor_bus);         // column writes into another
+    //
+    // Throws std::invalid_argument when the spec is not Dense.
+    LayerId addBus(const std::string& name, LayerSpec spec, bool frozen = true);
+    // `writer` writes into the bus: connect(writer, bus, init).
+    void writeBus(LayerId writer, LayerId bus, WeightInit init = WeightInit::Random);
+    // `reader` reads the bus: connect(bus, reader, init).
+    void subscribe(LayerId reader, LayerId bus, WeightInit init = WeightInit::Random);
+    bool isBus(LayerId id) const;
+    std::vector<LayerId> buses() const;
+    // The layers writing into / reading a bus (forward edges), in order.
+    std::vector<LayerId> busWriters(LayerId bus) const;
+    std::vector<LayerId> busReaders(LayerId bus) const;
+
+    // --- Changing a running network ----------------------------------------
+    // Everything here works between steps, keeps the rest of the network as
+    // it is and is saved: a loaded network has the same structure.
+    //
+    // Width: `count` new neurons in a Dense layer, reading the same inputs as
+    // its wiring group `group` (0: the neurons it was built with). Layers
+    // reading it get the new outputs with `outgoing` weights (default Zero:
+    // the network behaves exactly as before until the new neurons' weights
+    // learn). `freezeExisting` freezes the layer's current neurons, so only
+    // the new ones learn.
+    void growLayer(LayerId id, size_t count, WeightInit outgoing = WeightInit::Zero, bool freezeExisting = false,
+                   size_t group = 0);
+    // Removes neurons (by index) from a Dense layer; every layer reading it
+    // must be Dense, and drops the matching inputs. The critic and the
+    // curiosity model drop their features too.
+    void pruneNeurons(LayerId id, std::vector<size_t> indices);
+    // Freezes (or unfreezes) single neurons of a layer: they run but do not
+    // learn (see neuron_layer::setNeuronsFrozen).
+    void freezeNeurons(LayerId id, size_t first, size_t count, bool frozen = true);
+    // Freezes (or unfreezes) the weights with which Dense layer `id` reads
+    // `source` (a layer, or a named input source): e.g. a readout keeps what
+    // it learned from old layers while it learns to read a new one.
+    void freezeInputs(LayerId id, LayerId source, bool frozen = true);
+    void freezeInputs(LayerId id, const std::string& inputSource, bool frozen = true);
+
+    // --- Reinforcement signals (see reinforcement.hpp) ----------------------
+    // Actor-critic: a TD(lambda) value predictor over the outputs of
+    // spec.layers (and named inputs). Replaces any critic set before.
+    // Throws std::invalid_argument for unknown layers or inputs.
+    void setCritic(const CriticSpec& spec);
+    void removeCritic();
+    bool hasCritic() const { return critic_.has_value(); }
+    const critic& getCritic() const;  // throws std::logic_error without a critic
+    // V of the current state (after the last step).
+    float criticValue() const;
+    // One TD step after step(): `reward` is what the step earned. Returns the
+    // TD error; the critic learns from it, the layers do not.
+    float temporalDifference(float reward, bool terminal = false);
+    // temporalDifference(), then applyReward(TD error, learningRate): the
+    // layers learn from the critic's error instead of the raw reward.
+    float applyRewardTD(float reward, float learningRate, bool terminal = false);
+    // An episode boundary: the critic forgets the previous state and its traces.
+    void resetCritic();
+
+    // Curiosity: a forward model predicting spec.predict* from spec.from*
+    // one tick earlier. Replaces any model set before.
+    void setCuriosity(const CuriositySpec& spec);
+    void removeCuriosity();
+    bool hasCuriosity() const { return curiosity_.has_value(); }
+    const curiosity& getCuriosity() const;  // throws std::logic_error without one
+    // After step(): the model predicts this tick from the last one, learns
+    // from the miss and returns the intrinsic reward (0 right after a reset).
+    // Add it to the reward, e.g. applyRewardTD(reward + curiosityReward(), lr).
+    float curiosityReward();
+    void resetCuriosity();
 
     // A frozen layer still runs forward() but does not learn:
     // applyReward() skips it. Layers can also start frozen via
@@ -146,7 +234,12 @@ public:
     //   an output layer       its own errors, one per neuron (the first time
     //                         it is marked as output)
     //   FeedbackAlignment     (hidden) its fixed random projection of the errors
-    //   Sign, Trace (hidden)  nothing: they need a scalar reward
+    //   EProp (hidden)        its fixed random projection of the errors
+    //   Surrogate             backpropagation through time (see learning.hpp):
+    //                         from the output layers that are Surrogate,
+    //                         through every Surrogate layer, over the last
+    //                         `window` ticks
+    //   Sign, Trace, Eligibility (hidden)  nothing: they need a scalar reward
     // Throws std::invalid_argument on a size mismatch.
     void applyError(std::span<const float> errors, float learningRate);
     std::vector<float> outputs() const;
@@ -223,13 +316,15 @@ private:
     };
 
     // One entry per successful build call, replayed by load().
-    enum class OpKind : uint8_t { AddLayer, Connect, Feedback, Inputs, ConnectInputs };
+    enum class OpKind : uint8_t { AddLayer, Connect, Feedback, Inputs, ConnectInputs, Grow, Prune };
     struct BuildOp
     {
         OpKind kind;
-        size_t a;      // AddLayer: layer id; Connect/Feedback: from; Inputs, ConnectInputs: target
-        size_t b;      // Connect/Feedback: to; Inputs, ConnectInputs: input source index
-        size_t count;  // Feedback: width; Inputs: sensor count
+        size_t a;      // AddLayer: layer id; Connect/Feedback: from; Inputs, ConnectInputs: target; Grow, Prune: layer
+        size_t b;      // Connect/Feedback: to; Inputs, ConnectInputs: input source index; Grow: wiring group
+        size_t count;  // Feedback: width; Inputs: sensor count; Grow: new neurons
+        WeightInit init = WeightInit::Random;  // Connect: the new weights; Grow: the outgoing weights
+        std::vector<size_t> indices = {};      // Prune: the neurons removed
     };
 
     void checkId(LayerId id) const;
@@ -237,6 +332,19 @@ private:
     std::vector<LayerId> topologicalOrder() const;
     size_t addSource(LayerId target, const Shape& shape, const std::string& name);
     size_t findSource(const std::string& name) const;
+    dense& denseLayer(LayerId id, const char* what);
+    // The outputs of `layers` and the values of the named `inputs`, concatenated.
+    std::vector<float> gather(const std::vector<LayerId>& layers, const std::vector<std::string>& inputs) const;
+    // Size of gather(layers, {}) and where layer `id`'s outputs start in it
+    // (every occurrence).
+    std::vector<size_t> offsetsOf(const std::vector<LayerId>& layers, LayerId id) const;
+    void checkFeatures(const std::vector<LayerId>& layers, const std::vector<std::string>& inputs) const;
+    // Keep the critic and curiosity model in step with a layer that grew by
+    // `count` (its old size `oldSize`) or lost `removed`.
+    void layerGrew(LayerId id, size_t oldSize, size_t count);
+    void layerShrank(LayerId id, std::span<const size_t> removed);
+    // Surrogate gradients for applyError.
+    void backpropagateSurrogate(std::span<const float> errors, float learningRate);
 
     const layer_factory& factory;
     std::vector<Node> nodes;
@@ -245,6 +353,8 @@ private:
     std::vector<InputSource> sources_;
     std::vector<LayerId> outputs_;
     std::vector<BuildOp> ops_;
+    std::optional<critic> critic_;
+    std::optional<curiosity> curiosity_;
 
     bool customOrder = false;
     mutable std::vector<LayerId> order_;

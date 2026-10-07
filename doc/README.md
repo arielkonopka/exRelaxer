@@ -9,7 +9,7 @@ of known limitations, see the [project README](../README.md).
 | [state output](state_output.md) | Experimental State layer: three values per neuron (output, E-R threshold above rest, habituation streak) that downstream layers can read; timing, usage, and what it changes on the controlled benchmarks |
 | [protocol](protocol.md) | Research protocol: controlled benchmarks before Doom, determinism, no new mechanism without a hypothesis and a controlled experiment, reporting |
 | [neuron](neuron.md) | `neuron`, `DeserializeMode`, `Habituation`, `ThresholdGrowth`, the tunable constants: E-R, habituation, fixed gate and ReLU, learning rule, serialization format |
-| [learning](learning.md) | `LearningRule`: the learning rules a layer can use (sign, trace, feedback alignment, perturbation, Oja, BCM), bias, decay, `applyError` |
+| [learning](learning.md) | `LearningRule`: the learning rules a layer can use (sign, trace, feedback alignment, perturbation, Oja, BCM, per-synapse eligibility, e-prop, surrogate gradients), bias, decay, `applyError`; the actor-critic TD error and the curiosity reward |
 | [layer](layer.md) | `layer` (base class), `neuron_layer`, `Shape`, `InputRange`, `LayerType`: what every layer type shares |
 | [dense](dense.md) | `dense`: wiring groups, growth propagation, SIMD forward pass and learning |
 | [spatial](spatial.md) | image layers: `retina` (grid and spiral sampling), `conv2d`, `locally_connected2d`, `pool2d`, `Window2D` |
@@ -25,7 +25,7 @@ of known limitations, see the [project README](../README.md).
 | [activity](activity.md) | experiments on E-R activity without a penalty: sparsity, path choice, fatigue, history; the fixed-threshold control `gate` |
 | [kernels](kernels.md) | weight layout, SIMD kernels, determinism, parallelism, performance, random streams |
 | [layer_factory](layer_factory.md) | `layer_factory`, `LayerSpec`: creating layers by type, registering new types |
-| [network](network.md) | `network`: layer graph, inputs/outputs, update order, freezing, save/load |
+| [network](network.md) | `network`: layer graph, inputs/outputs, update order, freezing, buses, growing and pruning a running network, save/load |
 | [pattern_benchmark](pattern_benchmark.md) | Task support (`NNtesting/tasks/pattern_benchmark.hpp`): gapped-pattern benchmark, frozen value detectors, delay window |
 | [NNtesting](../NNtesting/README.md) | The `nntest` benchmark harness: experiments, parameter sweeps, result files, comparisons |
 | [research](research.md) | Research log: parameter changes, mechanisms, topologies, jitter and what each showed |

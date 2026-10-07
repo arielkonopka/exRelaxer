@@ -11,6 +11,7 @@
 // reading it gets the new outputs appended to its pool, with new weights.
 #pragma once
 #include <cstddef>
+#include <deque>
 #include <functional>
 #include <optional>
 #include <span>
@@ -49,8 +50,60 @@ public:
     void forward() override;
     // Learning (applyReward and friends, see neuron_layer): every neuron
     // that learns updates its row against its group's inputs: their current
-    // signs (Sign rule) or their trace (every other rule).
+    // signs (Sign rule), their trace (Trace, FeedbackAlignment, ...) or its
+    // per-synapse eligibility (Eligibility, EProp).
     bool learns() const override { return true; }
+    bool supportsPerSynapse() const override { return true; }
+    bool followsShrinkingSources() const override { return true; }
+
+    // --- Growth and pruning -----------------------------------------------
+    // `count` new neurons reading the same inputs as wiring group `group`
+    // (a copy of its pool), with new weights drawn by incomingInit(); layers
+    // reading this one get the new outputs, with weights drawn by
+    // outgoingInit() (Zero: the new neurons start without influence). If the
+    // group reads this layer itself, the new neurons read their own outputs
+    // too. Throws std::out_of_range for a missing group.
+    void growNeurons(size_t count, size_t group = 0);
+    // Removes neurons (sorted, unique indices): their weights, state and
+    // outputs; layers reading this one drop the matching inputs (only Dense
+    // readers can). Throws std::invalid_argument for bad indices and
+    // std::logic_error for a reader that cannot follow, before changing
+    // anything.
+    void removeNeurons(std::span<const size_t> indices);
+
+    // --- Freezing inputs ----------------------------------------------------
+    // The weights reading `inputs` (entries of a layer's output buffer or of
+    // the sensors) stop learning, or learn again, in every group reading
+    // them; inputs added later learn. Returns how many weight columns
+    // changed state. Saved with the layer.
+    size_t setInputsFrozen(const InputRange& inputs, bool frozen = true);
+    // Frozen weight columns over all groups.
+    size_t frozenInputCount() const;
+
+    // --- Per-synapse rules (see learning.hpp) -------------------------------
+    // Neuron `index`'s eligibility trace E, in pool order (Eligibility,
+    // EProp; empty for other rules). Read-only probe.
+    std::vector<float> synapseTrace(size_t index) const;
+    // EProp: neuron `index`'s threshold eligibility, d thr / d w in pool
+    // order (empty for other rules). Read-only probe.
+    std::vector<float> thresholdTrace(size_t index) const;
+    // Surrogate gradients. Every forward() records its inputs and the
+    // neurons' local derivatives, keeping the last `window` ticks (cleared
+    // when the wiring changes; not saved). network::applyError then calls
+    // backpropagate() tick by tick and applyGradients() once.
+    size_t historyFrames() const { return history_.size(); }
+    // dL / dx of one input range that comes from a layer: `offset` is the
+    // range's first entry in that layer's output.
+    using SourceGradient = std::function<void(const layer& source, size_t offset, std::span<const float> gradient)>;
+    // One tick of backpropagation, `ago` forwards back (0 = the last). `gy`:
+    // dL / dy of every neuron at that tick; `gthr`: dL / dthr of every
+    // neuron's threshold after that tick, replaced by dL / dthr before it.
+    // Accumulates the weight (and bias) gradients and hands dL / dx of every
+    // input range read from a layer to `toSource` (sensors are skipped).
+    void backpropagate(size_t ago, std::span<const float> gy, std::span<float> gthr, const SourceGradient& toSource);
+    // w -= learningRate * gain * accumulated dL / dw for unfrozen neurons
+    // and inputs (and the same for the bias), then clears the gradients.
+    void applyGradients(float learningRate);
 
     // --- Weights --------------------------------------------------------
     // Neuron `index`'s weights, in pool order (empty when not wired).
@@ -87,6 +140,10 @@ protected:
     void copyInputTraces(std::vector<float>& out) const override;
     void storeInputTraces(std::span<const float> traces) override;
     void clearInputTraces() override;
+    void resetSynapseState() override;
+    void writeLayerExtras(std::ostream& os) const override;
+    void readLayerExtras(std::istream& is, DeserializeMode mode) override;
+    void sourceShrank(const layer& source, std::span<const size_t> removed) override;
 
 private:
     struct Group
@@ -101,6 +158,11 @@ private:
         std::vector<std::uint8_t> active;   // per-row eligibility during learning
         std::vector<float> keep;            // per-row shrink factor during learning
         std::vector<float> trace;           // input trace X (rules other than Sign), pool order
+        std::vector<std::uint8_t> frozen;   // per pool entry: 1 = its weights do not learn (empty: none)
+        kernels::weight_matrix elig;        // Eligibility, EProp: per-synapse eligibility trace E
+        kernels::weight_matrix adapt;       // EProp: per-synapse threshold eligibility
+        kernels::weight_matrix grad;        // Surrogate: accumulated dL / dw
+        std::vector<float> rowA, rowB, rowC, rowD;  // per-row scratch for the per-synapse kernels
 
         bool reads(const layer& source) const;
         void append(const InputRange& range);
@@ -117,9 +179,28 @@ private:
     // The only way a group is created. Throws std::logic_error if a neuron
     // is already in a group: a neuron belongs to exactly one group.
     void addGroup(Group group);
+    // Fills `w` from `stream`, or with zeros for WeightInit::Zero.
+    static void initWeights(rng::WeightStream stream, WeightInit init, std::span<float> w);
+    // Sizes the group's per-synapse matrices to its weights (new inputs and
+    // rows start at 0).
+    void syncSynapseState(Group& group) const;
+    // Per-synapse updates after a group fired (Eligibility, EProp).
+    void traceSynapses(Group& group);
+    // Copies of the frozen columns' weights, put back after an update.
+    std::vector<float> saveFrozen(const Group& group) const;
+    void restoreFrozen(Group& group, const std::vector<float>& saved) const;
+
+    // One recorded forward() for surrogate gradients.
+    struct Frame
+    {
+        std::vector<std::vector<float>> inputs;  // per group: the pool values
+        std::vector<float> dyds, dydthr, dthrdthr, dthrds;
+    };
+    void record();
 
     std::vector<Group> groups_;
     std::vector<size_t> group_of_;  // per neuron: index into groups_, or no_group
+    std::deque<Frame> history_;     // Surrogate: newest first
 };
 
 } // namespace exr

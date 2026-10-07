@@ -118,6 +118,35 @@ public:
     void learnScaled(std::span<const float> pre, std::span<const float> delta, std::span<const float> keep,
                      std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock);
 
+    // --- Per-synapse state and gradients (rules with a value per weight) --
+    // These treat a matrix with the weights' shape as one value per synapse
+    // (an eligibility trace, a gradient). Per-row arguments have
+    // paddedRows() entries; padding rows are left at 0.
+    //
+    // m[r][c] = decay * m[r][c] + post[r] * x[c], for the rows of blocks
+    // [firstBlock, lastBlock).
+    void trace(std::span<const float> x, std::span<const float> post, float decay, size_t firstBlock,
+               size_t lastBlock);
+    // e-prop: with `adapt` the threshold eligibility (same shape), for every
+    // synapse: e = dyds[r] * x[c] + dydthr[r] * adapt; adapt = dthrdthr[r] *
+    // adapt + dthrds[r] * x[c]; this = decay * this + e.
+    void eprop(weight_matrix& adapt, std::span<const float> x, std::span<const float> dyds,
+               std::span<const float> dydthr, std::span<const float> dthrdthr, std::span<const float> dthrds,
+               float decay, size_t firstBlock, size_t lastBlock);
+    // w = clamp(w * keep[r] + delta[r] * e[r][c]) for every row r with
+    // active[r] != 0; `e` has this matrix's shape.
+    void learnFrom(const weight_matrix& e, std::span<const float> delta, std::span<const float> keep,
+                   std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock);
+    // out[c] += sum over rows of w[r][c] * g[r] (backpropagation through
+    // the weights); `g` has paddedRows() entries, `out` cols().
+    void multiplyTransposed(std::span<const float> g, std::span<float> out) const;
+    // Every entry 0, shape kept.
+    void zero();
+    void copyColumn(size_t col, std::span<float> out) const;
+    // Removes rows / columns; the indices are sorted, unique and in range.
+    void removeRows(std::span<const size_t> rows);
+    void removeColumns(std::span<const size_t> cols);
+
 private:
     // The weights of block b: cols() inputs x `lanes` rows.
     std::span<const float> block(size_t b) const { return std::span(data_).subspan(b * cols_ * lanes, cols_ * lanes); }

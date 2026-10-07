@@ -29,6 +29,8 @@ doc/ folder); this package binds them with nanobind.
 from ._core import (  # noqa: F401
     CochleaSpec,
     Compression,
+    CriticSpec,
+    CuriositySpec,
     DeserializeMode,
     DisparityMeasure,
     DisparitySpec,
@@ -50,6 +52,7 @@ from ._core import (  # noqa: F401
     Shape,
     Spontaneous,
     ThresholdGrowth,
+    WeightInit,
     Window2D,
     build_info,
     constants,
@@ -61,9 +64,9 @@ from ._core import (  # noqa: F401
 from . import audio, datasets  # noqa: F401,E402
 
 __all__ = [
-    "CochleaSpec", "Compression", "DeserializeMode", "DisparityMeasure", "DisparitySpec", "Edge", "EdgeKind",
+    "CochleaSpec", "Compression", "CriticSpec", "CuriositySpec", "DeserializeMode", "DisparityMeasure", "DisparitySpec", "Edge", "EdgeKind",
     "FrequencyScale", "Habituation", "Interpolation", "Jitter", "LayerSpec", "LayerType", "LearningRule",
     "LearningRuleType", "Network", "PoolMode", "ResizeSpec",
-    "RetinaSpec", "Sampling", "Shape", "Spontaneous", "ThresholdGrowth", "Window2D", "audio", "build_info", "constants", "datasets", "filters", "reseed",
+    "RetinaSpec", "Sampling", "Shape", "Spontaneous", "ThresholdGrowth", "WeightInit", "Window2D", "audio", "build_info", "constants", "datasets", "filters", "reseed",
     "set_threads", "threads",
 ]

@@ -21,8 +21,10 @@ cue 0 -> m = +1, cue 1 -> m = -1, other cues -> +1 or -1 at random (balanced)
 - Cues are shown equally often and the reward is +1 in exactly half the
   episodes.
 - Rules are the library's, unchanged: `sign` (eligibility = E-R threshold
-  above rest; input factor = sign of the input at the reward tick) and
-  `trace` (P and X traces with decay `trace`).
+  above rest; input factor = sign of the input at the reward tick),
+  `trace` (P and X traces with decay `trace`), `eligibility` (a trace per
+  synapse, e = trace * e + |y| x) and `eprop` (e-prop's per-synapse
+  eligibility, filtered with `trace`, the reward as learning signal).
 
 Metrics (per trial): `success` (the rewarded cue's weight ends above every
 irrelevant weight, the punished cue's below every one), `selectivity`

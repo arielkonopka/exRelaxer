@@ -47,6 +47,8 @@ add_library(exrelaxer_core STATIC
     core/neuron.hpp
     core/learning.cpp
     core/learning.hpp
+    core/reinforcement.cpp
+    core/reinforcement.hpp
     core/layers/layer.cpp
     core/layers/layer.hpp
     core/layers/neuron_layer.cpp
@@ -174,6 +176,9 @@ add_executable(exrelaxer_tests
     tests/temporal.cpp
     tests/traces.cpp
     tests/state_tap.cpp
+    tests/plasticity.cpp
+    tests/structure.cpp
+    tests/reinforcement.cpp
 )
 
 target_link_libraries(exrelaxer_tests PRIVATE

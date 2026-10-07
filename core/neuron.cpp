@@ -129,8 +129,93 @@ float neuron::activate(float weightedSum)
         }
     } else if (rectified_ ? sum <= gate_ : gate_ > 0.0f && std::abs(sum) <= gate_) {
         output_ = 0.0f;  // fixed threshold (one-sided when rectified): all-or-nothing, without adaptation
+    } else if (binary_) {
+        output_ = kernels::sign(sum);  // a perceptron: whether it passed, not by how much
     }
     return output_;
+}
+
+float neuron::activate(float weightedSum, float width, Derivatives& d)
+{
+    const float threshold = threshold_;
+    const float y = activate(weightedSum);
+    d = {};
+
+    // How the effective sum (after the clamp and habituation) moves with
+    // the given one.
+    float chain = std::abs(weightedSum) <= max_output ? 1.0f : 0.0f;
+    float s = std::clamp(weightedSum, -max_output, max_output);
+    if (has_habituation_) {
+        const int habituatedTicks = habituation_counter_ - static_cast<int>(habituation_.onset()) + 1;
+        if (habituatedTicks > 0) {
+            const float factor =
+                habituation_.decay > 0.0f ? std::pow(habituation_.decay, static_cast<float>(habituatedTicks)) : 0.0f;
+            chain *= factor;
+            s *= factor;
+        }
+    }
+    const float a = std::abs(s);
+    const float sg = s >= 0.0f ? 1.0f : -1.0f;
+    // Triangular pseudo-derivative of a step at |s| = edge, integrating to
+    // 1; its half-width is `width` times `scale` (the edge, or the resting
+    // threshold for a step at 0).
+    const auto bump = [width, a](float edge, float scale) {
+        const float half = width * std::max(scale, min_threshold);
+        return std::max(0.0f, 1.0f - std::abs(a - edge) / half) / half;
+    };
+
+    if (has_er_) {
+        const bool fired = a > threshold;
+        const float b = bump(threshold, threshold);
+        d.dyds = (fired ? 1.0f : 0.0f) + a * b;  // y = s * H(|s| - thr)
+        d.dydthr = -s * b;
+        if (fired) {
+            // Which term of max(thr, 2 * resting, grown) set the new threshold.
+            const float floor = std::max(threshold, resting_ * 2);
+            float grown = threshold, dthr = 0.0f, ds = 0.0f;
+            switch (growth_.rule) {
+            case ThresholdGrowth::Rule::Log:
+                grown = threshold + alpha_ * std::log(a / threshold);
+                dthr = 1.0f - alpha_ / threshold;
+                ds = alpha_ / a * sg;
+                break;
+            case ThresholdGrowth::Rule::Linear:
+                grown = threshold + growth_.amount * (a - threshold);
+                dthr = 1.0f - growth_.amount;
+                ds = growth_.amount * sg;
+                break;
+            case ThresholdGrowth::Rule::Fixed:
+                grown = threshold + growth_.amount;
+                dthr = 1.0f;
+                break;
+            case ThresholdGrowth::Rule::Multiplicative:
+                grown = threshold * (1.0f + growth_.amount);
+                dthr = 1.0f + growth_.amount;
+                break;
+            }
+            if (grown >= floor) {
+                d.dthrdthr = dthr;
+                d.dthrds = ds;
+            } else if (threshold >= resting_ * 2) {
+                d.dthrdthr = 1.0f;
+            }
+        } else {
+            d.dthrdthr = recovery_;
+        }
+    } else {
+        const bool gated = rectified_ || gate_ > 0.0f;
+        const bool passed = rectified_ ? s > gate_ : a > gate_;
+        // The step at the gate (at 0 without one): one-sided when rectified
+        // (only at +gate).
+        const float b = !rectified_ || s >= 0.0f ? bump(gate_, gate_ > 0.0f ? gate_ : resting_) : 0.0f;
+        if (binary_)
+            d.dyds = b;  // y = sign(s) * H(|s| - gate): only the step moves it
+        else
+            d.dyds = gated ? (passed ? 1.0f : 0.0f) + a * b : 1.0f;
+    }
+    d.dyds *= chain;
+    d.dthrds *= chain;
+    return y;
 }
 
 void neuron::excite(float effectiveSum)

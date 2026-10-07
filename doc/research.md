@@ -1928,6 +1928,59 @@ in 2-minute games to be learned. The score alone gave ES no signal.
 
 Data: `results/goe/`.
 
+## 29. Per-synapse eligibility, e-prop and surrogate gradients
+
+New in the library (doc/[learning](learning.md#per-synapse-rules)): three
+per-synapse rules for `dense` (Eligibility, a reward-modulated trace per
+synapse; E-prop, eligibility through the E-R threshold; Surrogate,
+truncated backpropagation through time), a TD(λ) critic and a curiosity
+reward ([learning](learning.md#actor-critic-and-curiosity)), buses with
+their own neuron type, and growing, pruning and freezing a running network
+([network](network.md#changing-a-running-network)).
+
+**First test: `delayed_credit`** (§25 setup, one E-R neuron, recovery 0.9,
+4 cues, 4 distractors, lr 0.01, 400 episodes, 10 seeds). The reward comes
+`delay` ticks after the cue; success means the rewarded cue's weight ends
+above every irrelevant one and the punished cue's below. Trace decay λ
+(e-prop's κ) 0.9:
+
+| Rule | success at delay 0 / 2 / 4 / 8 / 16 / 32 | SNR at 2 / 4 / 8 / 16 | distractor drift |
+|------|------------------------------------------|-----------------------|------------------|
+| sign | 1 / 0 / 0 / 0 / 0 / 0 | – | – |
+| trace | 1 / 1 / 0.9 / 0.6 / 0.1 / 0 | 3.76 / 3.31 / 2.32 / 1.14 | 0.42–0.53 |
+| eligibility | 1 / 0.8 / 1 / 0.6 / 0.2 / 0 | 8.64 / 7.33 / 3.65 / 1.31 | 0.13–0.19 |
+| eprop | 1 / 0.7 / 0.5 / 0.3 / 0 / 0 | – | 0.24–0.46 |
+
+With λ = 0.97 (delays 8 / 16 / 32):
+
+| Rule | success | SNR | distractor drift |
+|------|---------|-----|------------------|
+| trace | 0.7 / 0.6 / 0.4 | 2.26 / 2.66 / 1.42 | 2.1–3.3 (weights grow without bound) |
+| eligibility | 0.6 / 0.3 / 0 | 6.30 / 3.09 / 1.49 | 0.23–0.32 |
+| eprop | 0.4 / 0.2 / 0 | 2.43 / 1.46 / 0.99 | – |
+
+- **Eligibility is the cleanest rule**: about twice the trace rule's
+  signal-to-noise at delays 2–8 and three times less drift on the
+  distractor synapses, because a synapse collects credit only when its
+  input and its neuron were active together. The trace rule pairs every
+  active input with every active tick of the neuron.
+- **Success at long delays is the same or lower**: with one neuron the
+  trace rule's broad credit still lands on the cue more often than not,
+  at the price of distractor weights that grow without bound at λ 0.97.
+  Ten seeds: differences of 0.1–0.2 in success are within noise.
+- **E-prop is weaker here**: its eligibility follows the neuron's real
+  dependence on the weight, which the threshold forgets with recovery 0.9
+  in about ten ticks; the κ filter has to carry the rest. It is the rule
+  for recurrent layers driven by an error or a TD signal, not this
+  single-neuron reward task.
+- Sign has no delayed credit (§25), unchanged.
+- Not tested yet: the critic, curiosity and the new rules on a game; the
+  GoE nets saved in `reports/goe-grow/` are the next test bed.
+
+Data: [`results/learning-rules-v2/delayed_credit/`](../results/learning-rules-v2/delayed_credit/)
+(`*_097` at λ 0.97); command:
+`NNtesting/nntest.py run delayed_credit --trials 10 --set rule=eligibility --set trace=0.9 --set delay=0,2,4,8,16,32`.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.

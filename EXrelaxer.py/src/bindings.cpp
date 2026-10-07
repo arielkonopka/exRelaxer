@@ -25,6 +25,7 @@
 
 #include "filters.hpp"
 #include "network.hpp"
+#include "reinforcement.hpp"
 #include "neuron.hpp"
 #include "random.hpp"
 #include "layers/conv2d.hpp"
@@ -378,9 +379,16 @@ NB_MODULE(_core, m)
         .value("FeedbackAlignment", LearningRuleType::FeedbackAlignment)
         .value("Perturbation", LearningRuleType::Perturbation)
         .value("Oja", LearningRuleType::Oja)
-        .value("BCM", LearningRuleType::BCM);
+        .value("BCM", LearningRuleType::BCM)
+        .value("Eligibility", LearningRuleType::Eligibility)
+        .value("EProp", LearningRuleType::EProp)
+        .value("Surrogate", LearningRuleType::Surrogate);
+    nb::enum_<WeightInit>(m, "WeightInit", "How new weights start when wiring changes: Random or Zero.")
+        .value("Random", WeightInit::Random)
+        .value("Zero", WeightInit::Zero);
     nb::class_<LearningRule>(m, "LearningRule",
-                             "How a layer learns: sign (default), trace, feedback_alignment, perturbation, oja or bcm.")
+                             "How a layer learns: sign (default), trace, feedback_alignment, perturbation, oja, bcm, "
+                             "eligibility, eprop or surrogate.")
         .def(nb::init<>())
         .def_rw("type", &LearningRule::type)
         .def_rw("bias", &LearningRule::bias)
@@ -390,6 +398,9 @@ NB_MODULE(_core, m)
         .def_rw("noise", &LearningRule::noise)
         .def_rw("bcm_rate", &LearningRule::bcmRate)
         .def_rw("winners", &LearningRule::winners)
+        .def_rw("width", &LearningRule::width,
+                "EProp, Surrogate: half-width of the pseudo-derivative, relative to the threshold.")
+        .def_rw("window", &LearningRule::window, "Surrogate: ticks backpropagated through.")
         .def_static("sign", &LearningRule::sign, "The original rule: rate * gain * reward * eligibility * sign(input).")
         .def_static("traced", &LearningRule::traced, "trace"_a = 0.0f, "baseline"_a = 0.05f,
                     "Graded three-factor rule: (reward - baseline) * output trace * input trace.")
@@ -400,9 +411,19 @@ NB_MODULE(_core, m)
         .def_static("oja", &LearningRule::oja, "winners"_a = 0, "Unsupervised Oja rule (normalised Hebbian).")
         .def_static("bcm", &LearningRule::bcm, "bcm_rate"_a = 0.01f, "winners"_a = 0, "decay"_a = 0.0f,
                     "Unsupervised BCM rule with a sliding threshold.")
+        .def_static("eligibility", &LearningRule::eligibility, "trace"_a = 0.9f, "baseline"_a = 0.05f,
+                    "Reward-modulated eligibility traces: e = trace * e + |y| * x per synapse, "
+                    "w += rate * gain * (reward - baseline) * e. Dense layers only.")
+        .def_static("eprop", &LearningRule::eprop, "trace"_a = 0.0f, "width"_a = 0.5f, "baseline"_a = 0.0f,
+                    "e-prop for E-R neurons: an online gradient through each neuron's adaptive threshold, times a\n"
+                    "learning signal (own error, random projection of the errors, or a reward / TD error). Dense only.")
+        .def_static("surrogate", &LearningRule::surrogate, "window"_a = 8, "width"_a = 0.5f,
+                    "Surrogate gradients: backpropagation through time over `window` ticks, through thresholds\n"
+                    "and between Surrogate layers; driven by Network.apply_error. Dense layers only.")
         .def("with_bias", &LearningRule::withBias, "on"_a = true)
         .def("with_decay", &LearningRule::withDecay, "decay"_a)
         .def_prop_ro("unsupervised", &LearningRule::unsupervised)
+        .def_prop_ro("per_synapse", &LearningRule::perSynapse)
         .def("validate", &LearningRule::validate)
         .def("__eq__", [](const LearningRule& a, const LearningRule& b) { return a == b; })
         .def("__repr__", [](const LearningRule& r) { return "<LearningRule " + describeLearningRule(r) + ">"; });
@@ -436,6 +457,9 @@ NB_MODULE(_core, m)
                 "E-R resting threshold (default baseline_threshold, 0.2): eligibility boundary, half the floor after firing.")
         .def_rw("normalize", &LayerSpec::normalize,
                 "Dense, Conv2D, LocallyConnected2D: divide each weighted sum by the length of the neuron's weights.")
+        .def_rw("binary", &LayerSpec::binary,
+                "Neurons without E-R: output the sign of a sum that passes the gate (1 / 0 with rectify).")
+        .def_ro("bus", &LayerSpec::bus, "The layer is a bus (Network.add_bus).")
         .def_rw("window", &LayerSpec::window)
         .def_rw("pool", &LayerSpec::pool)
         .def_rw("retina_spec", &LayerSpec::retina)
@@ -470,6 +494,16 @@ NB_MODULE(_core, m)
             "channels"_a, "window"_a, "habituation"_a = true, "er"_a = true, nb::kw_only(), "frozen"_a = false,
             "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter,
             "learning_rule"_a = signRule)
+        .def_static(
+            "perceptron",
+            [](size_t size, float threshold, bool frozen, const LearningRule& rule) {
+                LayerSpec spec = LayerSpec::Perceptron(size, threshold);
+                spec.frozen = frozen;
+                spec.learningRule = rule;
+                return spec;
+            },
+            "size"_a, "threshold"_a = 0.0f, nb::kw_only(), "frozen"_a = false, "learning_rule"_a = signRule,
+            "Classic perceptrons: no E-R or habituation, output 1 when the weighted sum exceeds threshold, else 0.")
         .def_static("pool2d", &LayerSpec::Pool2D, "window"_a, "mode"_a = PoolMode::Max)
         .def_static(
             "retina",
@@ -536,6 +570,42 @@ NB_MODULE(_core, m)
     fm.def("centre_surround_bank", &filters::centreSurroundBank, "size"_a, "centre_sigma"_a, "surround_sigma"_a,
            "gain"_a = 1.0f);
 
+    // --- Reinforcement signals (core/reinforcement.hpp) -------------------------
+    nb::class_<CriticSpec>(m, "CriticSpec",
+                           "Actor-critic: a TD(lambda) value predictor over the outputs of `layers` and the named "
+                           "`inputs`.")
+        .def("__init__",
+             [](CriticSpec* c, std::vector<size_t> layers, std::vector<std::string> inputs, float gamma, float lambda,
+                float rate) { new (c) CriticSpec{std::move(layers), std::move(inputs), gamma, lambda, rate}; },
+             "layers"_a = std::vector<size_t>{}, "inputs"_a = std::vector<std::string>{}, "gamma"_a = 0.95f,
+             "lambda_"_a = 0.8f, "rate"_a = 0.05f)
+        .def_rw("layers", &CriticSpec::layers)
+        .def_rw("inputs", &CriticSpec::inputs)
+        .def_rw("gamma", &CriticSpec::gamma)
+        .def_rw("lambda_", &CriticSpec::lambda)
+        .def_rw("rate", &CriticSpec::rate)
+        .def("__eq__", [](const CriticSpec& a, const CriticSpec& b) { return a == b; });
+    nb::class_<CuriositySpec>(m, "CuriositySpec",
+                              "Curiosity: a forward model predicting the next values of predict_layers / "
+                              "predict_inputs from the current from_layers / from_inputs; intrinsic reward = "
+                              "scale * mean squared prediction error.")
+        .def("__init__",
+             [](CuriositySpec* c, std::vector<size_t> predictLayers, std::vector<std::string> predictInputs,
+                std::vector<size_t> fromLayers, std::vector<std::string> fromInputs, float rate, float scale) {
+                 new (c) CuriositySpec{std::move(predictLayers), std::move(predictInputs), std::move(fromLayers),
+                                       std::move(fromInputs), rate, scale};
+             },
+             "predict_layers"_a = std::vector<size_t>{}, "predict_inputs"_a = std::vector<std::string>{},
+             "from_layers"_a = std::vector<size_t>{}, "from_inputs"_a = std::vector<std::string>{}, "rate"_a = 0.1f,
+             "scale"_a = 1.0f)
+        .def_rw("predict_layers", &CuriositySpec::predictLayers)
+        .def_rw("predict_inputs", &CuriositySpec::predictInputs)
+        .def_rw("from_layers", &CuriositySpec::fromLayers)
+        .def_rw("from_inputs", &CuriositySpec::fromInputs)
+        .def_rw("rate", &CuriositySpec::rate)
+        .def_rw("scale", &CuriositySpec::scale)
+        .def("__eq__", [](const CuriositySpec& a, const CuriositySpec& b) { return a == b; });
+
     // --- Network -------------------------------------------------------------
     nb::class_<network::Edge>(m, "Edge")
         .def_ro("source", &network::Edge::from)
@@ -548,8 +618,9 @@ NB_MODULE(_core, m)
 
         // Building
         .def("add_layer", &network::addLayer, "name"_a, "spec"_a, "Adds a layer; returns its id.")
-        .def("connect", &network::connect, "source"_a, "target"_a,
-             "target reads source's output (only the neurons target has now).")
+        .def("connect", &network::connect, "source"_a, "target"_a, "init"_a = WeightInit::Random,
+             "target reads source's output (only the neurons target has now). init=WeightInit.Zero adds\n"
+             "weights that start at 0, so the connection changes nothing until it learns.")
         .def("add_feedback", &network::addFeedback, "source"_a, "target"_a, "width"_a,
              "Adds width new neurons to target, reading source.")
         .def("add_inputs", nb::overload_cast<LayerId, size_t, const std::string&>(&network::addInputs), "target"_a,
@@ -561,6 +632,98 @@ NB_MODULE(_core, m)
         .def("connect_inputs", &network::connectInputs, "name"_a, "target"_a,
              "The named input source also feeds target.")
         .def("add_output", &network::addOutput, "layer"_a)
+
+        // Buses
+        .def("add_bus", &network::addBus, "name"_a, "spec"_a, "frozen"_a = true,
+             "A named group of neurons (a Dense layer with its own neuron type) that layers write into and\n"
+             "read from; frozen (not learning) unless frozen=False. Returns its id.")
+        .def("write_bus", &network::writeBus, "writer"_a, "bus"_a, "init"_a = WeightInit::Random,
+             "writer writes into the bus (connect(writer, bus)).")
+        .def("subscribe", &network::subscribe, "reader"_a, "bus"_a, "init"_a = WeightInit::Random,
+             "reader reads the bus (connect(bus, reader)).")
+        .def("is_bus", &network::isBus, "layer"_a)
+        .def_prop_ro("buses", &network::buses)
+        .def("bus_writers", &network::busWriters, "bus"_a)
+        .def("bus_readers", &network::busReaders, "bus"_a)
+
+        // Changing a running network
+        .def("grow_layer", &network::growLayer, "layer"_a, "count"_a, "outgoing"_a = WeightInit::Zero,
+             "freeze_existing"_a = false, "group"_a = 0,
+             "count new neurons in a Dense layer, reading what its wiring group `group` reads; readers get\n"
+             "them with `outgoing` weights (Zero: nothing changes until they learn). freeze_existing freezes\n"
+             "the layer's current neurons.")
+        .def("prune_neurons", &network::pruneNeurons, "layer"_a, "indices"_a,
+             "Removes neurons from a Dense layer; Dense readers drop the matching inputs.")
+        .def("freeze_neurons", &network::freezeNeurons, "layer"_a, "first"_a, "count"_a, "frozen"_a = true,
+             "Single neurons stop (or resume) learning.")
+        .def("freeze_inputs", nb::overload_cast<LayerId, LayerId, bool>(&network::freezeInputs), "layer"_a,
+             "source"_a, "frozen"_a = true, "The weights with which a Dense layer reads `source` stop (or resume) learning.")
+        .def("freeze_inputs", nb::overload_cast<LayerId, const std::string&, bool>(&network::freezeInputs),
+             "layer"_a, "source"_a, "frozen"_a = true, "The same for a named input source.")
+        .def(
+            "frozen_neurons",
+            [](network& net, LayerId id) {
+                const neuron_layer& l = neuronLayer(net, id);
+                std::vector<size_t> out;
+                for (size_t i = 0; i < l.size(); ++i)
+                    if (l.neuronFrozen(i))
+                        out.push_back(i);
+                return out;
+            },
+            "layer"_a, "Indices of the layer's frozen neurons.")
+        .def(
+            "frozen_input_count", [](network& net, LayerId id) { return layerAs<dense>(net, id, "Dense").frozenInputCount(); },
+            "layer"_a, "Frozen weight columns of a Dense layer.")
+
+        // Reinforcement signals
+        .def("set_critic", &network::setCritic, "spec"_a)
+        .def(
+            "set_critic",
+            [](network& net, std::vector<size_t> layers, std::vector<std::string> inputs, float gamma, float lambda,
+               float rate) { net.setCritic({std::move(layers), std::move(inputs), gamma, lambda, rate}); },
+            nb::kw_only(), "layers"_a = std::vector<size_t>{}, "inputs"_a = std::vector<std::string>{},
+            "gamma"_a = 0.95f, "lambda_"_a = 0.8f, "rate"_a = 0.05f,
+            "Actor-critic: a TD(lambda) value predictor over these layers' outputs and named inputs.")
+        .def("remove_critic", &network::removeCritic)
+        .def_prop_ro("has_critic", &network::hasCritic)
+        .def_prop_ro("critic_spec", [](const network& net) { return net.getCritic().spec(); })
+        .def("critic_value", &network::criticValue, "V of the current state.")
+        .def(
+            "critic_weights",
+            [](const network& net) {
+                const critic& c = net.getCritic();
+                std::vector<float> w(c.weights().begin(), c.weights().end());
+                w.push_back(c.bias());
+                return toNumpy(std::move(w));
+            },
+            "The value weights, then the bias (a copy).")
+        .def("temporal_difference", &network::temporalDifference, "reward"_a, "terminal"_a = false,
+             "After step(): one TD step of the critic; returns the TD error (the layers do not learn).")
+        .def("apply_reward_td", &network::applyRewardTD, "reward"_a, "learning_rate"_a, "terminal"_a = false,
+             nb::call_guard<nb::gil_scoped_release>(),
+             "After step(): the critic's TD error replaces the reward for every unfrozen layer; returns it.")
+        .def("reset_critic", &network::resetCritic, "An episode boundary: the critic forgets the last state and its traces.")
+        .def("set_curiosity", &network::setCuriosity, "spec"_a)
+        .def(
+            "set_curiosity",
+            [](network& net, std::vector<size_t> predictLayers, std::vector<std::string> predictInputs,
+               std::vector<size_t> fromLayers, std::vector<std::string> fromInputs, float rate, float scale) {
+                net.setCuriosity({std::move(predictLayers), std::move(predictInputs), std::move(fromLayers),
+                                  std::move(fromInputs), rate, scale});
+            },
+            nb::kw_only(), "predict_layers"_a = std::vector<size_t>{}, "predict_inputs"_a = std::vector<std::string>{},
+            "from_layers"_a = std::vector<size_t>{}, "from_inputs"_a = std::vector<std::string>{}, "rate"_a = 0.1f,
+            "scale"_a = 1.0f,
+            "Curiosity: a forward model from from_* to the next predict_*; its error is an intrinsic reward.")
+        .def("remove_curiosity", &network::removeCuriosity)
+        .def_prop_ro("has_curiosity", &network::hasCuriosity)
+        .def_prop_ro("curiosity_spec", [](const network& net) { return net.getCuriosity().spec(); })
+        .def("curiosity_reward", &network::curiosityReward,
+             "After step(): the forward model predicts this tick, learns, and returns the intrinsic reward.")
+        .def(
+            "curiosity_prediction", [](const network& net) { return toNumpy(net.getCuriosity().predict()); },
+            "The forward model's prediction of the next targets.")
+        .def("reset_curiosity", &network::resetCuriosity)
         .def("freeze", &network::freeze, "layer"_a)
         .def("unfreeze", &network::unfreeze, "layer"_a)
         .def("is_frozen", &network::isFrozen, "layer"_a)
@@ -780,6 +943,36 @@ NB_MODULE(_core, m)
                 return toNumpy(layerAs<dense>(net, id, "Dense").inputTrace(index));
             },
             "layer"_a, "neuron"_a, "A Dense neuron's input trace X after the last step (empty for Sign).")
+        .def(
+            "synapse_trace", [](network& net, LayerId id, size_t index) {
+                return toNumpy(layerAs<dense>(net, id, "Dense").synapseTrace(index));
+            },
+            "layer"_a, "neuron"_a, "Eligibility / EProp: a Dense neuron's per-synapse eligibility trace (empty otherwise).")
+        .def(
+            "threshold_trace", [](network& net, LayerId id, size_t index) {
+                return toNumpy(layerAs<dense>(net, id, "Dense").thresholdTrace(index));
+            },
+            "layer"_a, "neuron"_a, "EProp: a Dense neuron's threshold eligibility d thr / d w (empty otherwise).")
+        .def(
+            "derivatives",
+            [](network& net, LayerId id) {
+                const neuron_layer& l = neuronLayer(net, id);
+                std::vector<float> dyds, dydthr, dthrdthr, dthrds;
+                for (size_t i = 0; i < l.size(); ++i) {
+                    const Derivatives d = l.derivatives(i);
+                    dyds.push_back(d.dyds);
+                    dydthr.push_back(d.dydthr);
+                    dthrdthr.push_back(d.dthrdthr);
+                    dthrds.push_back(d.dthrds);
+                }
+                nb::dict d;
+                d["dyds"] = toNumpy(std::move(dyds));
+                d["dydthr"] = toNumpy(std::move(dydthr));
+                d["dthrdthr"] = toNumpy(std::move(dthrdthr));
+                d["dthrds"] = toNumpy(std::move(dthrds));
+                return d;
+            },
+            "layer"_a, "EProp / Surrogate: each neuron's local derivatives in the last step (zeros otherwise).")
         .def(
             "reset_traces", [](network& net, LayerId id) { neuronLayer(net, id).clearTraces(); }, "layer"_a,
             "Zeroes the layer's learning traces (output, noise and input traces), e.g. between episodes;\n"
