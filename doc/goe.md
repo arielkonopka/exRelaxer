@@ -185,6 +185,82 @@ for m in er_reservoir er_reservoir_grow er_ladder; do
 done
 ```
 
+## The growing column network
+
+`columns.py` and `grow.py` in `NNtesting/experiments/goe_rl/`: a network that is
+taught one skill at a time in fixed rooms, and grows a new column whenever it has
+learned. Design notes and the reasons behind each choice:
+[review](../results/goe/columns/design.md).
+
+```
+eye: 13 x 13 cells x 12 channels -+-> retina: one E-R neuron per cell and channel,
+                                  |   fading habituation, no weights ---------------+
+                                  +-> raw: the same image, passed through ----------+
+                                                                                    |
+column k   c<k>  Conv2D, 8 kernels 3 x 3 over retina + raw (shared weights)  <------+
+           p<k>  max pool 3 x 3, stride 2 (8 x 7 x 7)
+           h<k>  64 E-R neurons, fading habituation: read p<k>, the body, h<k-1>, themselves
+readouts   14 actions, reading h1 .. h<k> (a new column's lines start at zero)
+```
+
+**Senses.** The 8 channels of goe_rl, plus `avatar` (a spare avatar), `in_sight`,
+`novelty` and `visited`. Novelty is the game's own memory of each board cell for
+the episode (1 / sqrt(1 + times seen), Gardens-of-Eris PR #303), so "have I been
+here" is an input, not something the network must remember. The body adds the
+number of items in each inventory section to energy, ammo and spare avatars.
+
+**Retina and raw.** Habituation works on the eye's own cells, so a moving player
+lights the whole retina and a still one sees it fade. The raw copy keeps the still
+view, so the network is never blind. Ties between readouts are broken at random
+(seeded by the world): untrained, every readout is silent and goe_rl's network
+pressed `MOVE_UP` in 93–99% of moves (G1).
+
+**Rooms.** A skill room is the start chunk built from a pattern laid out anew from
+each world seed, walled in by solid chunks (a wall default pattern); 150 moves.
+
+| Room | Layout | Rewarded by |
+|------|--------|-------------|
+| `explore` | 25 × 25, a quarter of the cells walls | `explore` (cells seen for the first time), score |
+| `collect` | 13 × 13, 2 guns and 2 keys | `collect` |
+| `doors` | 13 × 13 split by a wall with a locked door; its key on the player's side, 2 guns beyond | `collect`, `open` |
+| `avatar` | 13 × 13, 2 spare avatars | `avatar` (Gardens-of-Eris PR #305) |
+| `mines` | 13 × 13, a row of landmines with 1–2 gaps, 2 guns and 4 more mines beyond | `collect`; a mine stepped on kills (`death`, −50) |
+| `maze` | the game's random maze, 750 moves (2 minutes, as G2) | everything |
+
+Rewards: the G2 weights plus `w_explore` 0.1 and `w_avatar` 10.
+
+**Stages and growth.** `curriculum` (default `explore,collect,doors,avatar,mines,maze`):
+stage s trains on the rooms of the first s + 1 skills plus a quarter of mazes. ES
+(as es.py) evolves only the readouts and the newest column (32 320 weights with one
+column); older columns are frozen. Every 10 generations the weights play a fixed
+test set (6 worlds of each kind in the stage, never trained on), paired with the
+network the stage started from. The stage ends, and a column is added, when
+- the paired gain is real: its bootstrap 5th percentile is above 0 and the mean
+  gain at least 0.5, on 2 checks in a row, and
+- the test mean has not improved for 3 checks (a plateau), after at least 30
+  generations.
+
+A stage that never gets there never ends. After the last skill, the network can go
+on growing on the final mix up to `max_columns` (8). `grow_columns` false runs the
+same curriculum with one column, the control.
+
+```bash
+python3 NNtesting/experiments/goe_rl/grow.py --check     # growing keeps play exact; every room plays
+python3 NNtesting/experiments/goe_rl/grow.py --out results/goe-grow/grow --workers 4 --generations 400
+python3 NNtesting/experiments/goe_rl/grow.py --out results/goe-grow/control --config '{"grow_columns": false}'
+```
+
+`log.jsonl` has a line per generation (population reward per world, spikes per
+step of the retina, convolutions and E-R layers), a `check` line per test (test
+mean, paired gain and its bound, gain by kind, events) and `stage` / `grow` lines.
+`best_stage<s>.exr` is the best test network of each stage, `best.exr` of the last.
+
+`agent.py export RUN OUT` saves a run's network as an agent folder (`agent.json`,
+`weights.npz`: every column's kernels and weights and the readouts, `net.exr`: the
+library network); `agent.load(OUT)` rebuilds it as a `columns.Net` (its `convs`,
+`hidden` and `readouts` are the layers to train with other rules), `agent.load_exr`
+from the `.exr` file, and `agent.py check OUT` confirms both play as exported.
+
 ## Log
 
 ### G1. Untrained networks and the designed models (2026-10-01)
@@ -300,6 +376,75 @@ collected once in 30 games (`er_nohab` best).
 Data: `results/goe/events/` (per run: `config.json`, `log.jsonl.gz`,
 `best.json`, `best_theta.npy`; `fresh.json` and `fresh.py` for the
 fresh-world test).
+
+### G3. The growing column network, taught in skill rooms (2026-10-06/07)
+
+**Question.** Does the [growing column network](#the-growing-column-network),
+taught one skill at a time, learn the skills, does it grow, and does growing beat
+the same curriculum with one column?
+
+**Setup.** `grow.py` defaults: curriculum explore, collect, doors, avatar, mines,
+maze; 12 pairs, sigma 0.05, lr 0.02, 4 worlds per candidate, per-world ranks; 1200
+generations. The control (`grow_columns` false) resumed from the growing run's
+snapshot at its first growth (generation 280), so both share the first stage. Then
+both final networks, the untrained network they started from and a random player
+played fresh worlds (`results/goe/columns/fresh.py`): 30 mazes (seeds 4242–4271,
+as G2) and 10 rooms of each skill. Two earlier attempts were stopped and fixed:
+ranking by the summed reward let one maze death (−50) drown the rooms (no gain in
+107 generations), and one network played all of a task's worlds in a row, so E-R
+state carried across worlds and a score depended on the worker count.
+
+**Result.** Stages (test mean at the stage's start, on that stage's test set; the
+random player on the same worlds):
+
+| Stage (rooms + mazes) | Growing: generation, columns, start | Control: generation, start | Random |
+|---|---|---|---|
+| explore | 0, 1, 9.98 | (shared) | 30.71 |
+| + collect | 280, 2, 13.06 | 290, 13.72 | 19.71 |
+| + doors | 400, 3, 19.75 | 520, 23.28 | 15.53 |
+| + avatar | 570, 4, 31.51 | 1060, 30.21 | 15.47 |
+
+Neither reached the mines stage. On the doors stage the growing network's new
+column took it from 19.75 to 33 in 170 generations; the control needed 540 to
+leave it. On the avatar stage the 4-column network stayed flat for 630 generations
+(test 20.7–38.9 around its start of 31.5).
+
+Fresh worlds (mean per world; mazes ± standard error):
+
+| Player | Maze reward | Maze, G2 reward | Items | Doors | Avatars lost | Collect room | Avatar room (woken) | Mine room (deaths) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| grown, 4 columns | **57.8** ± 9.9 | **17.6** | 2.2 | 1.57 | 0.33 | **28.0** | **28.3** (0.7) | −32.9 (0.9) |
+| control, 1 column | 49.1 ± 8.1 | 7.7 | 2.9 | 1.57 | 0.57 | 18.2 | 23.0 (0.4) | −38.0 (1.0) |
+| untrained | 19.1 ± 4.6 | 4.2 | 0.8 | 0.43 | 0.13 | 12.1 | 7.6 (0.2) | −14.4 (0.4) |
+| random player | 37.0 ± 6.4 | 13.9 | 1.9 | 1.60 | 0.33 | 10.2 | 11.3 (0.3) | −13.1 (0.4) |
+
+The G2 reward weighs explore and avatar 0, as G2 did (G2's best network: 18.4 on
+the same 30 mazes).
+
+**Conclusion.**
+- **The curriculum teaches, and the network grows when it has learned.** It grew
+  three times, each time after the paired gain over the stage's start was real
+  (bootstrap bound above 0 twice in a row) and flat. The grown network beats a
+  random player in every kind of world but the mine rooms, and the untrained
+  network by 3× in mazes.
+- **Growth helped where a new skill came in.** The doors stage was where the new
+  column paid: 170 generations against the control's 540. On fresh worlds the
+  grown network leads the control in the rooms (collect 28 vs 18, avatars woken
+  0.7 vs 0.4) and loses fewer avatars in mazes (0.33 vs 0.57). Its maze lead
+  (+8.7 per maze, paired) is within the noise (standard error 12.7, it wins 15 of 30).
+- **The explore rooms never improved** (gain around 0 in every check), though
+  they were most of the first stage's worlds; maze exploration did grow (379 cells
+  seen first per maze against 172 for random). The room reward (0.1 per new cell)
+  is probably too small to rank on.
+- **Mines are unlearned**: neither reached that stage, and both walk onto a mine
+  in nearly every mine room. Danger is the next thing to teach, earlier.
+- **Cost.** Each column adds a convolution over the whole eye: 4 columns run at
+  about 25 s per generation on 4 cores against 15 s for one.
+
+Data: `results/goe/columns/`: `grow/` and `control/` (exported agents:
+`agent.json`, `weights.npz`, `net.exr`; `config.json`, `log.jsonl.gz`), `fresh.json`
+and `fresh.py`. `goe_rl/agent.py` loads them (`load`, `load_exr`) and checks that
+they play as exported.
 
 ## Open questions
 
