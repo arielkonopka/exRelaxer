@@ -97,15 +97,17 @@ def check(folder, worlds=None):
     game = C.make_game(p)
     out = {}
     run = info["source"]
-    for name, make in (("run", lambda: _from_run(run)), ("weights.npz", lambda: load(folder)),
-                       ("net.exr", lambda: load_exr(folder))):
+    makers = [("weights.npz", lambda: load(folder)), ("net.exr", lambda: load_exr(folder))]
+    if os.path.exists(os.path.join(run, "state.npz")):  # the run itself, while its folder exists
+        makers.insert(0, ("run", lambda: _from_run(run)))
+    for name, make in makers:
         rewards = []
         for world in worlds:
             r, _ = C.play(game, make(), p, [world])
             rewards.append(float(r[0]))
         out[name] = rewards
         print(f"{name:12s}", np.round(rewards, 2))
-    same = out["run"] == out["weights.npz"] == out["net.exr"]
+    same = all(r == out["net.exr"] for r in out.values())
     print("identical play" if same else "PLAY DIFFERS")
     return same
 
