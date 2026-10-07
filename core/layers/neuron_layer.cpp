@@ -36,7 +36,9 @@ neuron& neuron_layer::newNeuron()
     n.setThresholdGrowth(growth_);
     n.setSpontaneous(spontaneous_);
     n.setRestingThreshold(resting_);
+    n.setBinary(binary_);
     output_.push_back(n.output());
+    frozen_.push_back(0);
     resizeLearningState();
     return n;
 }
@@ -117,6 +119,29 @@ void neuron_layer::setRectified(bool rectified)
         n.setRectified(rectified);
 }
 
+void neuron_layer::setBinary(bool binary)
+{
+    if (binary && has_er_)
+        throw std::invalid_argument("setBinary: binary output is for neurons without E-R");
+    binary_ = binary;
+    for (neuron& n : neurons_)
+        n.setBinary(binary);
+}
+
+void neuron_layer::setNeuronsFrozen(size_t first, size_t count, bool frozen)
+{
+    if (first > neurons_.size() || count > neurons_.size() - first)
+        throw std::out_of_range("setNeuronsFrozen: neurons [" + std::to_string(first) + ", " +
+                                std::to_string(first + count) + ") past the layer's " +
+                                std::to_string(neurons_.size()));
+    std::fill_n(frozen_.begin() + static_cast<std::ptrdiff_t>(first), count, frozen ? 1 : 0);
+}
+
+size_t neuron_layer::frozenNeuronCount() const
+{
+    return static_cast<size_t>(std::count(frozen_.begin(), frozen_.end(), std::uint8_t{1}));
+}
+
 void neuron_layer::setAlphaJitter(const Jitter& jitter)
 {
     alpha_jitter_ = jitter;
@@ -141,6 +166,7 @@ void neuron_layer::serialize(std::ostream& os) const
         binary_io::write(os, std::span<const float>(weights));
     }
     writeLearningState(os);
+    writeLayerExtras(os);
 }
 
 void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint32_t neuronFormat)
@@ -204,7 +230,10 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
         n.setThresholdGrowth(growth_);
         n.setSpontaneous(spontaneous_);
         n.setRestingThreshold(resting_, mode != DeserializeMode::FullState);  // a full state keeps its thresholds
+        n.setBinary(!has_er_ && binary_);
     }
+    if (!in_place)
+        frozen_.assign(count, 0);
     output_.resize(count);
     for (size_t i = 0; i < count; ++i)
         output_[i] = neurons_[i].output();
@@ -218,9 +247,11 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
         neuronsReplaced();  // unwired: the weights have nothing to belong to
     }
     if (neuronFormat >= 3)
-        readLearningState(is, mode);
+        readLearningState(is, mode, neuronFormat);
     else
         resizeLearningState();
+    if (neuronFormat >= 4 && is)
+        readLayerExtras(is, mode);
 }
 
 // --- Learning rules -----------------------------------------------------------
@@ -230,6 +261,9 @@ void neuron_layer::setLearningRule(const LearningRule& rule)
     rule.validate();
     if (rule.type != LearningRuleType::Sign && !learns())
         throw std::invalid_argument("setLearningRule: this layer type does not learn");
+    if (rule.perSynapse() && !supportsPerSynapse())
+        throw std::invalid_argument(std::string("setLearningRule: the ") + learningRuleName(rule.type) +
+                                    " rule keeps a value per synapse and is for Dense layers only");
     resetLearningState(rule);
     if (rule_.type == LearningRuleType::Perturbation)
         noise_state_ = ((std::uint64_t{rng::learning()()} << 32) | rng::learning()()) | 1u;  // never 0
@@ -239,7 +273,11 @@ void neuron_layer::clearTraces()
 {
     std::fill(post_.begin(), post_.end(), 0.0f);
     std::fill(noise_trace_.begin(), noise_trace_.end(), 0.0f);
+    std::fill(bias_elig_.begin(), bias_elig_.end(), 0.0f);
+    std::fill(bias_adapt_.begin(), bias_adapt_.end(), 0.0f);
+    std::fill(bias_grad_.begin(), bias_grad_.end(), 0.0f);
     clearInputTraces();
+    resetSynapseState();
 }
 
 void neuron_layer::resetLearningState(const LearningRule& rule)
@@ -251,8 +289,16 @@ void neuron_layer::resetLearningState(const LearningRule& rule)
     noise_trace_.clear();
     baseline_.clear();
     theta_.clear();
+    dyds_.clear();
+    dydthr_.clear();
+    dthrdthr_.clear();
+    dthrds_.clear();
+    bias_elig_.clear();
+    bias_adapt_.clear();
+    bias_grad_.clear();
     feedback_ = kernels::weight_matrix();
     clearInputTraces();
+    resetSynapseState();
     resizeLearningState();
 }
 
@@ -265,9 +311,15 @@ void neuron_layer::resizeLearningState()
     const bool perturb = t == LearningRuleType::Perturbation;
     noise_.resize(perturb ? n : 0, 0.0f);
     noise_trace_.resize(perturb ? n : 0, 0.0f);
-    baseline_.resize(t == LearningRuleType::Trace || perturb ? n : 0, 0.0f);
+    baseline_.resize(rule_.usesBaseline() ? n : 0, 0.0f);
     theta_.resize(t == LearningRuleType::BCM ? n : 0, 1.0f);
-    plain_ = bias_.empty() && post_.empty() && noise_.empty() && !normalized_;
+    const bool derivatives = rule_.usesDerivatives();
+    for (std::vector<float>* v : {&dyds_, &dydthr_, &dthrdthr_, &dthrds_})
+        v->resize(derivatives ? n : 0, 0.0f);
+    bias_elig_.resize(rule_.bias && (t == LearningRuleType::Eligibility || t == LearningRuleType::EProp) ? n : 0, 0.0f);
+    bias_adapt_.resize(rule_.bias && t == LearningRuleType::EProp ? n : 0, 0.0f);
+    bias_grad_.resize(rule_.bias && t == LearningRuleType::Surrogate ? n : 0, 0.0f);
+    plain_ = bias_.empty() && post_.empty() && noise_.empty() && !normalized_ && !rule_.perSynapse();
 }
 
 void neuron_layer::setNormalized(bool normalized)
@@ -340,7 +392,24 @@ float neuron_layer::fireWithRule(size_t i, float sum)
         sum += bias_[i];
     if (!noise_.empty())
         sum += noise_[i];
+    if (!dyds_.empty()) {
+        Derivatives d;
+        const float y = neurons_[i].activate(sum, rule_.width, d);
+        dyds_[i] = d.dyds;
+        dydthr_[i] = d.dydthr;
+        dthrdthr_[i] = d.dthrdthr;
+        dthrds_[i] = d.dthrds;
+        if (!bias_adapt_.empty()) {
+            // The bias is a weight whose input is always 1.
+            const float now = d.dyds + d.dydthr * bias_adapt_[i];
+            bias_adapt_[i] = d.dthrdthr * bias_adapt_[i] + d.dthrds;
+            bias_elig_[i] = rule_.trace * bias_elig_[i] + now;
+        }
+        return y;
+    }
     const float y = neurons_[i].activate(sum);
+    if (!bias_elig_.empty())
+        bias_elig_[i] = rule_.trace * bias_elig_[i] + std::abs(y);
     if (!post_.empty()) {
         const float p = rule_.trace * post_[i] + y;
         post_[i] = p;
@@ -464,6 +533,11 @@ void neuron_layer::learn(Modulator m, float learningRate)
     });
     if (r.unsupervised() && r.winners > 0)
         selectWinners();
+    for (size_t i = 0; i < n; ++i)
+        if (frozen_[i])
+            step_active_[i] = 0;
+    any_active.store(std::ranges::any_of(step_active_, [](std::uint8_t a) { return a != 0; }),
+                     std::memory_order_relaxed);
     // The baseline follows the modulator whether or not anything learned.
     if (!baseline_.empty() && r.baseline > 0.0f)
         for (size_t i = 0; i < n; ++i)
@@ -475,9 +549,55 @@ void neuron_layer::learn(Modulator m, float learningRate)
     norms_stale_ = true;
     if (!bias_.empty())
         for (size_t i = 0; i < n; ++i)
-            if (step_active_[i])
-                bias_[i] = std::min(std::max(bias_[i] * (scaled ? step_keep_[i] : 1.0f) + step_delta_[i], -max_weight),
-                                    max_weight);
+            if (step_active_[i]) {
+                // The bias's input is 1; per-synapse rules use its eligibility.
+                const float pre = bias_elig_.empty() ? 1.0f : bias_elig_[i];
+                bias_[i] = std::min(
+                    std::max(bias_[i] * (scaled ? step_keep_[i] : 1.0f) + step_delta_[i] * pre, -max_weight), max_weight);
+            }
+}
+
+void neuron_layer::applyBiasGradient(float learningRate)
+{
+    if (bias_.empty() || bias_grad_.empty())
+        return;
+    for (size_t i = 0; i < neurons_.size(); ++i) {
+        if (!frozen_[i])
+            bias_[i] = std::min(std::max(bias_[i] - learningRate * neurons_[i].learningGain() * bias_grad_[i],
+                                         -max_weight), max_weight);
+        bias_grad_[i] = 0.0f;
+    }
+}
+
+void neuron_layer::eraseNeuronState(std::span<const size_t> indices)
+{
+    if (indices.empty())
+        return;
+    const auto erase = [indices](auto& v) {
+        if (v.empty())
+            return;
+        size_t next = 0, out = 0;
+        for (size_t i = 0; i < v.size(); ++i) {
+            if (next < indices.size() && indices[next] == i) {
+                ++next;
+                continue;
+            }
+            v[out++] = v[i];
+        }
+        v.resize(out);
+    };
+    erase(neurons_);
+    erase(output_);
+    erase(frozen_);
+    for (std::vector<float>* v : {&bias_, &post_, &noise_, &noise_trace_, &baseline_, &theta_, &dyds_, &dydthr_,
+                                  &dthrdthr_, &dthrds_, &bias_elig_, &bias_adapt_, &bias_grad_, &inverse_norm_})
+        erase(*v);
+    std::vector<size_t> rows;
+    for (size_t i : indices)
+        if (i < feedback_.rows())
+            rows.push_back(i);
+    feedback_.removeRows(rows);
+    norms_stale_ = true;
 }
 
 bool neuron_layer::ruleStep(size_t i, float m, float learningRate, float& delta, float& keep) const
@@ -518,6 +638,13 @@ bool neuron_layer::ruleStep(size_t i, float m, float learningRate, float& delta,
     case LearningRuleType::BCM:
         delta = rate * post_[i] * (post_[i] - theta_[i]);
         return true;
+    case LearningRuleType::Eligibility:
+    case LearningRuleType::EProp:
+        // The per-synapse traces (the derived layer's) carry the credit.
+        delta = rate * (m - (r.baseline > 0.0f ? baseline_[i] : 0.0f));
+        return delta != 0.0f;
+    case LearningRuleType::Surrogate:
+        return false;  // gradients come from network::applyError (backpropagation through time)
     }
     return false;
 }
@@ -592,9 +719,17 @@ void neuron_layer::writeLearningState(std::ostream& os) const
     copyInputTraces(traces);
     writeFloats(os, traces);
     binary_io::write(os, noise_state_);
+    // Neuron format 4: the per-synapse rules' parameters and the bias's
+    // eligibility, and which neurons are frozen.
+    binary_io::write(os, rule_.width);
+    binary_io::write(os, rule_.window);
+    writeFloats(os, bias_elig_);
+    writeFloats(os, bias_adapt_);
+    std::vector<float> frozen(frozen_.begin(), frozen_.end());
+    writeFloats(os, frozen);
 }
 
-void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode)
+void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std::uint32_t neuronFormat)
 {
     LearningRule rule;
     const auto type = binary_io::read<std::uint8_t>(is);
@@ -619,6 +754,21 @@ void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode)
     const auto feedback_cols = binary_io::read<std::uint64_t>(is);
     std::vector<float> traces = readFloats(is);
     const auto rng_state = binary_io::read<std::uint64_t>(is);
+    std::vector<float> bias_elig, bias_adapt, frozen;
+    if (neuronFormat >= 4) {
+        rule.width = binary_io::read<float>(is);
+        rule.window = binary_io::read<std::uint32_t>(is);
+        bias_elig = readFloats(is);
+        bias_adapt = readFloats(is);
+        frozen = readFloats(is);
+        if (is) {
+            try {
+                rule.validate();
+            } catch (const std::invalid_argument& e) {
+                throw std::runtime_error(std::string("layer deserialize: ") + e.what());
+            }
+        }
+    }
     if (!is)
         return;
     if (rng_state == 0)
@@ -636,6 +786,9 @@ void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode)
             to = std::move(from);
     };
     restore(bias_, state[0]);
+    if (frozen.size() == n)
+        for (size_t i = 0; i < n; ++i)
+            frozen_[i] = frozen[i] != 0.0f ? 1 : 0;
     if (feedback_cols > 0)
         feedback_ = kernels::weight_matrix(state[6].size() / feedback_cols, static_cast<size_t>(feedback_cols), state[6]);
     if (mode == DeserializeMode::FullState) {
@@ -646,6 +799,8 @@ void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode)
         restore(theta_, state[5]);
         storeInputTraces(traces);
         noise_state_ = rng_state;
+        restore(bias_elig_, bias_elig);
+        restore(bias_adapt_, bias_adapt);
     }
 }
 

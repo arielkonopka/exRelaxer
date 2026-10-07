@@ -51,8 +51,10 @@ inline constexpr float default_learning_gain = 2.0f;        // default per-neuro
 
 // Layout of a serialized neuron. 1: without recovery / learning gain
 // (network formats 1-2); 2: with them; 3: the same neuron record, and layers
-// of neurons append their learning rule and its state (network format 9).
-inline constexpr std::uint32_t NEURON_FORMAT_VERSION = 3;
+// of neurons append their learning rule and its state (network format 9);
+// 4: the same, and layers append the per-synapse rules' state and frozen
+// neurons and inputs (network format 18).
+inline constexpr std::uint32_t NEURON_FORMAT_VERSION = 4;
 // Upper bound for a serialized weight count, so corrupt data fails with an
 // error instead of an enormous allocation.
 inline constexpr std::uint64_t max_serialized_weights = std::uint64_t{1} << 26;
@@ -165,6 +167,22 @@ struct ThresholdGrowth
     bool operator==(const ThresholdGrowth&) const = default;
 };
 
+// Local derivatives of one activate() call, for gradient-based learning
+// rules (e-prop, surrogate gradients; see learning.hpp). s is the weighted
+// sum the neuron was given, y its output, thr its E-R threshold before the
+// tick and thr' after it. The firing step (y jumps when |s| crosses the
+// threshold or the gate) has no useful derivative, so it is replaced by a
+// triangular pseudo-derivative of half-width `width` times the threshold.
+// Habituation and the output clamp scale the sum's derivatives; spontaneous
+// firing counts as silence.
+struct Derivatives
+{
+    float dyds = 0.0f;      // dy / ds
+    float dydthr = 0.0f;    // dy / dthr (E-R)
+    float dthrdthr = 0.0f;  // dthr' / dthr (E-R)
+    float dthrds = 0.0f;    // dthr' / ds (E-R)
+};
+
 class neuron
 {
 public:
@@ -178,6 +196,9 @@ public:
     // One tick: takes this tick's weighted sum, clamps it, applies
     // habituation then E-R, updates the internal state and returns the output.
     float activate(float weightedSum);
+    // The same, and its local derivatives (see Derivatives); `width` > 0 is
+    // the pseudo-derivative's half-width relative to the threshold.
+    float activate(float weightedSum, float width, Derivatives& derivatives);
     float output() const { return output_; }
     void setOutput(float value) { output_ = value; }
 
@@ -249,6 +270,12 @@ public:
     // setting (LayerSpec::rectify), like the gate.
     bool rectified() const { return rectified_; }
     void setRectified(bool value) { rectified_ = value; }
+    // Without E-R: binary output. A sum that passes the gate gives its sign
+    // (+1 or -1; only +1 when rectified) instead of its value, so a
+    // rectified binary neuron is a classic perceptron (0 or 1). Ignored with
+    // E-R. A layer-level setting (LayerSpec::binary), like the gate.
+    bool binary() const { return binary_; }
+    void setBinary(bool value) { binary_ = value; }
     // How habituation suppresses a repeated input (see Habituation). A
     // layer-level setting (LayerSpec::habituationRule), like the gate.
     const Habituation& habituation() const { return habituation_; }
@@ -304,6 +331,7 @@ private:
     float learning_gain_ = default_learning_gain;
     float gate_ = 0.0f;
     bool rectified_ = false;
+    bool binary_ = false;
     Habituation habituation_;
     ThresholdGrowth growth_;
     Spontaneous spontaneous_;

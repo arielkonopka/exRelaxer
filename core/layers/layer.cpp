@@ -52,4 +52,22 @@ void layer::outputGrew(size_t oldSize)
         readers_[i].get().sourceGrew(*this, oldSize, output_.size() - oldSize);
 }
 
+bool layer::readersFollowShrinking() const
+{
+    return std::ranges::all_of(readers_, [](const layer& reader) { return reader.followsShrinkingSources(); });
+}
+
+void layer::outputShrank(std::span<const size_t> removed)
+{
+    if (removed.empty())
+        return;
+    for (size_t i = 0; i < readers_.size(); ++i)
+        readers_[i].get().sourceShrank(*this, removed);
+}
+
+void layer::sourceShrank(const layer&, std::span<const size_t>)
+{
+    throw std::logic_error("layer: this layer type cannot follow a source that loses outputs");
+}
+
 } // namespace exr

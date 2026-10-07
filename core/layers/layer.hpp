@@ -65,6 +65,13 @@ struct InputRange
     }
 };
 
+// How weights are drawn when wiring changes (see layer::setIncomingInit).
+// Saved in network files: never renumber.
+enum class WeightInit : std::uint8_t {
+    Random = 0,  // the library's weight streams (the default)
+    Zero = 1     // zeros: the new connection changes nothing until it learns
+};
+
 class layer
 {
 public:
@@ -102,6 +109,23 @@ public:
     // Feedback from this layer: `count` new neurons in `target` read it.
     void addFeedback(layer& target, size_t count) { target.addNeurons(count, *this); }
 
+    // How new weights are drawn. Incoming: the weights this layer creates
+    // when it is wired (join, attachInputs, addNeurons, growth). Outgoing:
+    // the weights its readers create for its new outputs when it grows
+    // (Zero: new neurons start without influence). Both default to Random;
+    // the network sets them around a call (connect, growLayer).
+    void setIncomingInit(WeightInit init) { incoming_init_ = init; }
+    WeightInit incomingInit() const { return incoming_init_; }
+    void setOutgoingInit(WeightInit init) { outgoing_init_ = init; }
+    WeightInit outgoingInit() const { return outgoing_init_; }
+
+    // --- Shrinking -------------------------------------------------------
+    // Whether this layer can follow a source that loses outputs (pruning;
+    // see sourceShrank): Dense only.
+    virtual bool followsShrinkingSources() const { return false; }
+    // Whether every reader of this layer can (so its outputs can be removed).
+    bool readersFollowShrinking() const;
+
     // --- Serialization --------------------------------------------------
     // The layer's own state; the wiring is not saved (network::save replays
     // the construction instead). `neuronFormat`: the NEURON_FORMAT_VERSION
@@ -124,10 +148,18 @@ protected:
     void outputGrew(size_t oldSize);
     // A source this layer reads grew by `count` entries at `offset`.
     virtual void sourceGrew(const layer& source, size_t offset, size_t count);
+    // Call after removing entries of output_: tells every reader which
+    // entries (sorted indices into the old output) are gone.
+    void outputShrank(std::span<const size_t> removed);
+    // A source this layer reads lost the entries `removed` (sorted indices
+    // into its old output). Default: throws std::logic_error.
+    virtual void sourceShrank(const layer& source, std::span<const size_t> removed);
 
     std::vector<float> output_;
 
 private:
+    WeightInit incoming_init_{};
+    WeightInit outgoing_init_{};
     std::vector<std::reference_wrapper<layer>> readers_;  // layers reading this one
     std::vector<std::reference_wrapper<layer>> sources_;  // layers this one reads (to unregister on destruction)
 };

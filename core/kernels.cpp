@@ -97,6 +97,142 @@ void weight_matrix::reshape(size_t rows, size_t cols)
     data_.assign(blocks() * cols * lanes, 0.0f);
 }
 
+void weight_matrix::copyColumn(size_t col, std::span<float> out) const
+{
+    assert(col < cols_ && out.size() == rows_);
+    for (size_t r = 0; r < rows_; ++r)
+        out[r] = data_[index(r, col)];
+}
+
+void weight_matrix::zero()
+{
+    std::fill(data_.begin(), data_.end(), 0.0f);
+}
+
+void weight_matrix::removeRows(std::span<const size_t> rows)
+{
+    if (rows.empty())
+        return;
+    std::vector<float> kept;
+    kept.reserve((rows_ - rows.size()) * cols_);
+    std::vector<float> row(cols_);
+    size_t next = 0;
+    for (size_t r = 0; r < rows_; ++r) {
+        if (next < rows.size() && rows[next] == r) {
+            ++next;
+            continue;
+        }
+        copyRow(r, row);
+        kept.insert(kept.end(), row.begin(), row.end());
+    }
+    *this = weight_matrix(rows_ - rows.size(), cols_, kept);
+}
+
+void weight_matrix::removeColumns(std::span<const size_t> cols)
+{
+    if (cols.empty())
+        return;
+    const size_t kept_cols = cols_ - cols.size();
+    std::vector<float> kept;
+    kept.reserve(rows_ * kept_cols);
+    for (size_t r = 0; r < rows_; ++r) {
+        size_t next = 0;
+        for (size_t c = 0; c < cols_; ++c) {
+            if (next < cols.size() && cols[next] == c) {
+                ++next;
+                continue;
+            }
+            kept.push_back(data_[index(r, c)]);
+        }
+    }
+    *this = weight_matrix(rows_, kept_cols, kept);
+}
+
+// The per-synapse kernels below loop over a block's lanes innermost: one
+// input's lanes are contiguous, so the compiler vectorises them.
+void weight_matrix::trace(std::span<const float> x, std::span<const float> post, float decay, size_t firstBlock,
+                          size_t lastBlock)
+{
+    assert(x.size() >= cols_ && post.size() >= lastBlock * lanes);
+    for (size_t b = firstBlock; b < lastBlock; ++b) {
+        const std::span<float> m = block(b);
+        const std::span<const float> p = post.subspan(b * lanes, lanes);
+        for (size_t c = 0; c < cols_; ++c) {
+            const float xc = x[c];
+            float* row = m.data() + c * lanes;
+            for (size_t l = 0; l < lanes; ++l)
+                row[l] = decay * row[l] + p[l] * xc;
+        }
+    }
+}
+
+void weight_matrix::eprop(weight_matrix& adapt, std::span<const float> x, std::span<const float> dyds,
+                          std::span<const float> dydthr, std::span<const float> dthrdthr,
+                          std::span<const float> dthrds, float decay, size_t firstBlock, size_t lastBlock)
+{
+    assert(adapt.rows_ == rows_ && adapt.cols_ == cols_ && x.size() >= cols_);
+    for (size_t b = firstBlock; b < lastBlock; ++b) {
+        const std::span<float> m = block(b), a = adapt.block(b);
+        const float* ys = dyds.data() + b * lanes;
+        const float* yt = dydthr.data() + b * lanes;
+        const float* tt = dthrdthr.data() + b * lanes;
+        const float* ts = dthrds.data() + b * lanes;
+        for (size_t c = 0; c < cols_; ++c) {
+            const float xc = x[c];
+            float* e = m.data() + c * lanes;
+            float* ad = a.data() + c * lanes;
+            for (size_t l = 0; l < lanes; ++l) {
+                const float now = ys[l] * xc + yt[l] * ad[l];
+                ad[l] = tt[l] * ad[l] + ts[l] * xc;
+                e[l] = decay * e[l] + now;
+            }
+        }
+    }
+}
+
+void weight_matrix::learnFrom(const weight_matrix& e, std::span<const float> delta, std::span<const float> keep,
+                              std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock)
+{
+    assert(e.rows_ == rows_ && e.cols_ == cols_);
+    for (size_t b = firstBlock; b < lastBlock; ++b) {
+        float d[lanes], k[lanes];
+        bool any = false;
+        for (size_t l = 0; l < lanes; ++l) {
+            const size_t r = b * lanes + l;
+            const bool on = r < rows_ && active[r] != 0;
+            d[l] = on ? delta[r] : 0.0f;
+            k[l] = on ? keep[r] : 1.0f;
+            any = any || on;
+        }
+        if (!any)
+            continue;
+        const std::span<float> w = block(b);
+        const std::span<const float> m = e.block(b);
+        for (size_t c = 0; c < cols_; ++c) {
+            float* wr = w.data() + c * lanes;
+            const float* mr = m.data() + c * lanes;
+            for (size_t l = 0; l < lanes; ++l)
+                wr[l] = std::min(std::max(wr[l] * k[l] + d[l] * mr[l], -limit), limit);
+        }
+    }
+}
+
+void weight_matrix::multiplyTransposed(std::span<const float> g, std::span<float> out) const
+{
+    assert(g.size() >= paddedRows() && out.size() >= cols_);
+    for (size_t b = 0; b < blocks(); ++b) {
+        const std::span<const float> w = block(b);
+        const float* gb = g.data() + b * lanes;
+        for (size_t c = 0; c < cols_; ++c) {
+            const float* wr = w.data() + c * lanes;
+            float s = 0.0f;
+            for (size_t l = 0; l < lanes; ++l)
+                s += wr[l] * gb[l];
+            out[c] += s;
+        }
+    }
+}
+
 #if defined(__GNUC__)
 // GCC / Clang vector extensions. A block's `lanes` rows are `per_block`
 // native vectors: one 8-float vector with AVX, two 4-float vectors without.

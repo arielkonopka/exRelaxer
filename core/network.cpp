@@ -72,13 +72,50 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to rectify");
         dynamic_cast<neuron_layer&>(*impl).setRectified(true);
     }
+    if (spec.binary) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to give a binary output");
+        dynamic_cast<neuron_layer&>(*impl).setBinary(true);
+    }
+    if (spec.bus && spec.type != LayerType::Dense)
+        throw std::invalid_argument("network: bus '" + name + "' must be a Dense layer");
     this->nodes.push_back({name, spec, std::move(impl)});
     this->ops_.push_back({OpKind::AddLayer, this->nodes.size() - 1, 0, 0});
     this->orderValid = false;
     return this->nodes.size() - 1;
 }
 
-void network::connect(LayerId from, LayerId to)
+namespace {
+
+// Sets a layer's incoming or outgoing weight init for one call.
+class InitScope
+{
+public:
+    InitScope(layer& target, WeightInit init, bool outgoing)
+        : target_(target), outgoing_(outgoing), old_(outgoing ? target.outgoingInit() : target.incomingInit())
+    {
+        set(init);
+    }
+    ~InitScope() { set(old_); }
+    InitScope(const InitScope&) = delete;
+    InitScope& operator=(const InitScope&) = delete;
+
+private:
+    void set(WeightInit init)
+    {
+        if (outgoing_)
+            target_.setOutgoingInit(init);
+        else
+            target_.setIncomingInit(init);
+    }
+    layer& target_;
+    bool outgoing_;
+    WeightInit old_;
+};
+
+} // namespace
+
+void network::connect(LayerId from, LayerId to, WeightInit init)
 {
     checkId(from);
     checkId(to);
@@ -87,10 +124,296 @@ void network::connect(LayerId from, LayerId to)
             throw std::logic_error("network: '" + this->nodes[from].name + "' -> '" +
                                    this->nodes[to].name + "' is already connected");
 
-    this->nodes[to].impl->join(*this->nodes[from].impl);
+    {
+        InitScope scope(*this->nodes[to].impl, init, false);
+        this->nodes[to].impl->join(*this->nodes[from].impl);
+    }
     this->edges_.push_back({from, to, EdgeKind::Forward, 0});
-    this->ops_.push_back({OpKind::Connect, from, to, 0});
+    this->ops_.push_back({OpKind::Connect, from, to, 0, init});
     this->orderValid = false;
+}
+
+// --- Buses ----------------------------------------------------------------------
+
+network::LayerId network::addBus(const std::string& name, LayerSpec spec, bool frozen)
+{
+    if (spec.type != LayerType::Dense)
+        throw std::invalid_argument("network: bus '" + name + "' must be a Dense layer");
+    spec.bus = true;
+    spec.frozen = frozen;
+    return addLayer(name, spec);
+}
+
+bool network::isBus(LayerId id) const
+{
+    checkId(id);
+    return this->nodes[id].spec.bus;
+}
+
+std::vector<network::LayerId> network::buses() const
+{
+    std::vector<LayerId> out;
+    for (LayerId id = 0; id < this->nodes.size(); ++id)
+        if (this->nodes[id].spec.bus)
+            out.push_back(id);
+    return out;
+}
+
+void network::writeBus(LayerId writer, LayerId bus, WeightInit init)
+{
+    if (!isBus(bus))
+        throw std::invalid_argument("network: layer '" + this->nodes[bus].name + "' is not a bus");
+    connect(writer, bus, init);
+}
+
+void network::subscribe(LayerId reader, LayerId bus, WeightInit init)
+{
+    if (!isBus(bus))
+        throw std::invalid_argument("network: layer '" + this->nodes[bus].name + "' is not a bus");
+    connect(bus, reader, init);
+}
+
+std::vector<network::LayerId> network::busWriters(LayerId bus) const
+{
+    checkId(bus);
+    std::vector<LayerId> out;
+    for (const Edge& e : this->edges_)
+        if (e.kind == EdgeKind::Forward && e.to == bus && e.from != bus)
+            out.push_back(e.from);
+    return out;
+}
+
+std::vector<network::LayerId> network::busReaders(LayerId bus) const
+{
+    checkId(bus);
+    std::vector<LayerId> out;
+    for (const Edge& e : this->edges_)
+        if (e.kind == EdgeKind::Forward && e.from == bus && e.to != bus)
+            out.push_back(e.to);
+    return out;
+}
+
+// --- Changing a running network -------------------------------------------------
+
+dense& network::denseLayer(LayerId id, const char* what)
+{
+    checkId(id);
+    auto* d = dynamic_cast<dense*>(this->nodes[id].impl.get());
+    if (!d)
+        throw std::invalid_argument(std::string("network::") + what + ": layer '" + this->nodes[id].name +
+                                    "' is not a Dense layer");
+    return *d;
+}
+
+void network::growLayer(LayerId id, size_t count, WeightInit outgoing, bool freezeExisting, size_t group)
+{
+    dense& target = denseLayer(id, "growLayer");
+    const size_t old_size = target.size();
+    {
+        InitScope scope(target, outgoing, true);
+        target.growNeurons(count, group);
+    }
+    if (freezeExisting)
+        target.setNeuronsFrozen(0, old_size, true);
+    BuildOp op{OpKind::Grow, id, group, count, outgoing};
+    this->ops_.push_back(std::move(op));
+    layerGrew(id, old_size, count);
+}
+
+void network::pruneNeurons(LayerId id, std::vector<size_t> indices)
+{
+    dense& target = denseLayer(id, "pruneNeurons");
+    std::ranges::sort(indices);
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    for (size_t i : indices)
+        if (i >= target.size())
+            throw std::out_of_range("network::pruneNeurons: layer '" + this->nodes[id].name + "' has no neuron " +
+                                    std::to_string(i));
+    if (indices.empty())
+        return;
+    target.removeNeurons(indices);
+    layerShrank(id, indices);
+    BuildOp op{OpKind::Prune, id, 0, 0};
+    op.indices = indices;
+    this->ops_.push_back(std::move(op));
+}
+
+void network::freezeNeurons(LayerId id, size_t first, size_t count, bool frozen)
+{
+    neuronLayer(id).setNeuronsFrozen(first, count, frozen);
+}
+
+void network::freezeInputs(LayerId id, LayerId source, bool frozen)
+{
+    dense& target = denseLayer(id, "freezeInputs");
+    checkId(source);
+    const layer& from = *this->nodes[source].impl;
+    target.setInputsFrozen(InputRange(from.outputBuffer()), frozen);
+}
+
+void network::freezeInputs(LayerId id, const std::string& inputSource, bool frozen)
+{
+    dense& target = denseLayer(id, "freezeInputs");
+    const InputSource& source = this->inputSource(inputSource);
+    target.setInputsFrozen(InputRange(this->inputs_, source.first, source.size()), frozen);
+}
+
+// --- Reinforcement signals ------------------------------------------------------
+
+std::vector<float> network::gather(const std::vector<LayerId>& layers, const std::vector<std::string>& inputs) const
+{
+    std::vector<float> values;
+    for (LayerId id : layers) {
+        const std::span<const float> out = this->nodes[id].impl->output();
+        values.insert(values.end(), out.begin(), out.end());
+    }
+    for (const std::string& name : inputs) {
+        const std::span<const float> in = this->inputs(name);
+        values.insert(values.end(), in.begin(), in.end());
+    }
+    return values;
+}
+
+std::vector<size_t> network::offsetsOf(const std::vector<LayerId>& layers, LayerId id) const
+{
+    std::vector<size_t> offsets;
+    size_t at = 0;
+    for (LayerId l : layers) {
+        if (l == id)
+            offsets.push_back(at);
+        at += this->nodes[l].impl->size();
+    }
+    return offsets;
+}
+
+void network::checkFeatures(const std::vector<LayerId>& layers, const std::vector<std::string>& inputs) const
+{
+    for (LayerId id : layers)
+        if (id >= this->nodes.size())
+            throw std::invalid_argument("network: no layer with id " + std::to_string(id));
+    for (const std::string& name : inputs)
+        if (std::ranges::none_of(this->sources_, [&](const InputSource& s) { return !name.empty() && s.name == name; }))
+            throw std::invalid_argument("network: no input source named '" + name + "'");
+}
+
+void network::layerGrew(LayerId id, size_t oldSize, size_t count)
+{
+    // offsetsOf() reads the grown sizes: an occurrence of the layer starts
+    // where it did once the occurrences before it have grown, which is what
+    // inserting them one after another reproduces. Its new outputs follow
+    // its old ones.
+    if (this->critic_)
+        for (size_t at : offsetsOf(this->critic_->spec().layers, id))
+            this->critic_->insertFeatures(at + oldSize, count);
+    if (this->curiosity_) {
+        for (size_t at : offsetsOf(this->curiosity_->spec().predictLayers, id))
+            this->curiosity_->insertTargets(at + oldSize, count);
+        for (size_t at : offsetsOf(this->curiosity_->spec().fromLayers, id))
+            this->curiosity_->insertInputs(at + oldSize, count);
+    }
+}
+
+void network::layerShrank(LayerId id, std::span<const size_t> removed)
+{
+    // offsetsOf() reads the shrunk sizes: the k-th occurrence started
+    // k * removed.size() entries later before.
+    const auto positions = [&](const std::vector<LayerId>& layers) {
+        std::vector<size_t> out;
+        size_t k = 0;
+        for (size_t at : offsetsOf(layers, id)) {
+            for (size_t i : removed)
+                out.push_back(at + k * removed.size() + i);
+            ++k;
+        }
+        return out;
+    };
+    if (this->critic_)
+        this->critic_->removeFeatures(positions(this->critic_->spec().layers));
+    if (this->curiosity_) {
+        this->curiosity_->removeTargets(positions(this->curiosity_->spec().predictLayers));
+        this->curiosity_->removeInputs(positions(this->curiosity_->spec().fromLayers));
+    }
+}
+
+void network::setCritic(const CriticSpec& spec)
+{
+    spec.validate();
+    checkFeatures(spec.layers, spec.inputs);
+    this->critic_.emplace(spec, gather(spec.layers, spec.inputs).size());
+}
+
+void network::removeCritic()
+{
+    this->critic_.reset();
+}
+
+const critic& network::getCritic() const
+{
+    if (!this->critic_)
+        throw std::logic_error("network: no critic (setCritic)");
+    return *this->critic_;
+}
+
+float network::criticValue() const
+{
+    const critic& c = getCritic();
+    return c.value(gather(c.spec().layers, c.spec().inputs));
+}
+
+float network::temporalDifference(float reward, bool terminal)
+{
+    if (!this->critic_)
+        throw std::logic_error("network: no critic (setCritic)");
+    return this->critic_->update(gather(this->critic_->spec().layers, this->critic_->spec().inputs), reward, terminal);
+}
+
+float network::applyRewardTD(float reward, float learningRate, bool terminal)
+{
+    const float delta = temporalDifference(reward, terminal);
+    applyReward(delta, learningRate);
+    return delta;
+}
+
+void network::resetCritic()
+{
+    if (this->critic_)
+        this->critic_->reset();
+}
+
+void network::setCuriosity(const CuriositySpec& spec)
+{
+    spec.validate();
+    checkFeatures(spec.predictLayers, spec.predictInputs);
+    checkFeatures(spec.fromLayers, spec.fromInputs);
+    this->curiosity_.emplace(spec, gather(spec.predictLayers, spec.predictInputs).size(),
+                             gather(spec.fromLayers, spec.fromInputs).size());
+}
+
+void network::removeCuriosity()
+{
+    this->curiosity_.reset();
+}
+
+const curiosity& network::getCuriosity() const
+{
+    if (!this->curiosity_)
+        throw std::logic_error("network: no curiosity model (setCuriosity)");
+    return *this->curiosity_;
+}
+
+float network::curiosityReward()
+{
+    if (!this->curiosity_)
+        throw std::logic_error("network: no curiosity model (setCuriosity)");
+    const CuriositySpec& spec = this->curiosity_->spec();
+    return this->curiosity_->update(gather(spec.predictLayers, spec.predictInputs),
+                                    gather(spec.fromLayers, spec.fromInputs));
+}
+
+void network::resetCuriosity()
+{
+    if (this->curiosity_)
+        this->curiosity_->reset();
 }
 
 void network::addFeedback(LayerId from, LayerId to, size_t width)
@@ -357,6 +680,7 @@ void network::applyError(std::span<const float> errors, float learningRate)
     float squared = 0.0f;
     for (float e : errors)
         squared += e * e;
+    backpropagateSurrogate(errors, learningRate);
 
     for (LayerId id = 0; id < this->nodes.size(); ++id) {
         Node& node = this->nodes[id];
@@ -364,6 +688,8 @@ void network::applyError(std::span<const float> errors, float learningRate)
             continue;
         auto& target = dynamic_cast<neuron_layer&>(*node.impl);
         const LearningRule& rule = target.learningRule();
+        if (rule.type == LearningRuleType::Surrogate)
+            continue;  // learned above
         if (rule.unsupervised()) {
             target.applyReward(0.0f, learningRate);
             continue;
@@ -384,9 +710,78 @@ void network::applyError(std::span<const float> errors, float learningRate)
         }
         if (is_output)
             target.applyModulators(errors.subspan(offset, target.size()), learningRate);
-        else if (rule.type == LearningRuleType::FeedbackAlignment)
+        else if (rule.type == LearningRuleType::FeedbackAlignment || rule.type == LearningRuleType::EProp)
             target.applyFeedback(errors, learningRate);
     }
+}
+
+void network::backpropagateSurrogate(std::span<const float> errors, float learningRate)
+{
+    // The Surrogate layers, latest in the update order first.
+    struct Slot
+    {
+        LayerId id;
+        dense* layer;
+        size_t position;               // in the update order
+        std::vector<float> gy, gy_prev, gthr;  // dL/dy at the tick being processed and the one before; dL/dthr
+    };
+    std::vector<Slot> slots;
+    for (LayerId id = 0; id < this->nodes.size(); ++id) {
+        auto* d = dynamic_cast<dense*>(this->nodes[id].impl.get());
+        if (d && d->learningRule().type == LearningRuleType::Surrogate)
+            slots.push_back({id, d, 0, {}, {}, {}});
+    }
+    if (slots.empty())
+        return;
+    const std::vector<LayerId>& order = updateOrder();
+    for (Slot& slot : slots) {
+        slot.position = static_cast<size_t>(std::ranges::find(order, slot.id) - order.begin());
+        const size_t n = slot.layer->size();
+        slot.gy.assign(n, 0.0f);
+        slot.gy_prev.assign(n, 0.0f);
+        slot.gthr.assign(n, 0.0f);
+    }
+    std::ranges::sort(slots, [](const Slot& a, const Slot& b) { return a.position > b.position; });
+
+    // The loss 0.5 * sum of squared errors, at the last tick, through the
+    // output layers that are Surrogate: dL/dy = -error.
+    size_t offset = 0;
+    for (LayerId out : this->outputs_) {
+        const size_t n = this->nodes[out].impl->size();
+        for (Slot& slot : slots)
+            if (slot.id == out)
+                for (size_t i = 0; i < n; ++i)
+                    slot.gy[i] -= errors[offset + i];
+        offset += n;
+    }
+
+    // Tick by tick back through time; within a tick, back through the update
+    // order. A source that ran earlier in the tick gave this tick's value;
+    // one that runs later (or the layer itself) gave the previous tick's.
+    size_t window = 0;
+    for (const Slot& slot : slots)
+        window = std::max(window, slot.layer->historyFrames());
+    for (size_t ago = 0; ago < window; ++ago) {
+        for (Slot& slot : slots) {
+            slot.layer->backpropagate(ago, slot.gy, slot.gthr, [&](const layer& source, size_t first, std::span<const float> g) {
+                for (Slot& to : slots) {
+                    if (!same(*to.layer, source))
+                        continue;
+                    std::vector<float>& target = to.position < slot.position ? to.gy : to.gy_prev;
+                    for (size_t j = 0; j < g.size() && first + j < target.size(); ++j)
+                        target[first + j] += g[j];
+                    return;
+                }
+            });
+        }
+        for (Slot& slot : slots) {
+            std::swap(slot.gy, slot.gy_prev);
+            std::fill(slot.gy_prev.begin(), slot.gy_prev.end(), 0.0f);
+        }
+    }
+    // Frozen layers pass gradients on but do not change (a step of 0 clears them).
+    for (Slot& slot : slots)
+        slot.layer->applyGradients(this->nodes[slot.id].spec.frozen ? 0.0f : learningRate);
 }
 
 std::vector<float> network::outputs() const
@@ -511,11 +906,16 @@ void network::describe(std::ostream& os) const
            << std::setw(6) << (node.impl->hasNeurons() && node.spec.hasHabituation ? "on" : "-")
            << std::setw(6) << (!node.impl->hasNeurons() ? std::string("-")
                                : node.spec.hasER   ? std::string("on")
+                               : node.spec.binary  ? (node.spec.rectify ? "1>" + describeNumber(node.spec.gate)
+                                                                        : std::string("sign"))
                                : node.spec.rectify ? (node.spec.gate > 0.0f ? ">" + describeNumber(node.spec.gate)
                                                                             : std::string("relu"))
                                : node.spec.gate > 0.0f ? "=" + describeNumber(node.spec.gate)
                                                        : std::string("-"))
-           << std::setw(8) << (!node.impl->learns() ? "-" : node.spec.frozen ? "frozen" : "yes");
+           << std::setw(8) << (!node.impl->learns() ? "-"
+                               : node.spec.frozen  ? "frozen"
+                               : dynamic_cast<const neuron_layer&>(*node.impl).frozenNeuronCount() > 0 ? "partly"
+                                                                                                         : "yes");
         if (!node.impl->hasNeurons()) {
             os << "\n";  // no neurons: no per-neuron dynamics
             continue;
@@ -550,6 +950,38 @@ void network::describe(std::ostream& os) const
                 os << "  (feedback, " << e.width << " new neurons)";
             os << "\n";
         }
+    }
+
+    for (LayerId bus : buses()) {
+        os << "  bus " << this->nodes[bus].name << ": writers";
+        const std::vector<LayerId> writers = busWriters(bus), readers = busReaders(bus);
+        for (const InputSource& source : this->sources_)
+            if (std::ranges::find(source.targets, bus) != source.targets.end())
+                os << " '" << (source.name.empty() ? std::string("inputs") : source.name) << "'";
+        for (LayerId w : writers)
+            os << " " << this->nodes[w].name;
+        os << "; readers";
+        for (LayerId r : readers)
+            os << " " << this->nodes[r].name;
+        os << "\n";
+    }
+    const auto names = [this](const std::vector<LayerId>& layers, const std::vector<std::string>& inputs) {
+        std::string text;
+        for (LayerId id : layers)
+            text += " " + this->nodes[id].name;
+        for (const std::string& name : inputs)
+            text += " '" + name + "'";
+        return text;
+    };
+    if (this->critic_) {
+        const CriticSpec& c = this->critic_->spec();
+        os << "  critic: TD(" << c.lambda << ") over" << names(c.layers, c.inputs) << ", gamma " << c.gamma
+           << ", rate " << c.rate << "\n";
+    }
+    if (this->curiosity_) {
+        const CuriositySpec& c = this->curiosity_->spec();
+        os << "  curiosity: predicts" << names(c.predictLayers, c.predictInputs) << " from"
+           << names(c.fromLayers, c.fromInputs) << ", rate " << c.rate << ", scale " << c.scale << "\n";
     }
 
     os << "  outputs:";
@@ -593,8 +1025,12 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //  15  + habituation fadeAfter; spontaneous firing (below, amplitude, rate) per layer
 //  16  + normalised weighted sum flag per layer
 //  17  + E-R resting threshold per layer
+//  18  + binary output and bus flags per layer; the weight init of each
+//        connect; growth and pruning in the history; neuron format 4
+//        (per-synapse rules, frozen neurons and inputs); critic and
+//        curiosity model
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 17;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 18;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -668,6 +1104,14 @@ void writeAudio(std::ostream& os, const LayerSpec& spec)
 void readAudio(std::istream& is, LayerSpec& spec);
 
 size_t readCount(std::istream& is, std::string_view what);
+
+WeightInit readInit(std::istream& is)
+{
+    const auto init = readValue<std::uint8_t>(is);
+    if (init > static_cast<std::uint8_t>(WeightInit::Zero))
+        throw std::runtime_error("network::load: unknown weight init " + std::to_string(init));
+    return static_cast<WeightInit>(init);
+}
 
 // Version 10: cochlea channels, resize and disparity.
 void writeMultimodal(std::ostream& os, const LayerSpec& spec)
@@ -842,11 +1286,26 @@ void network::save(std::ostream& os) const
             writeValue(os, node.spec.spontaneous.rate);
             writeValue<std::uint8_t>(os, node.spec.normalize);
             writeValue(os, node.spec.restingThreshold);
+            writeValue<std::uint8_t>(os, node.spec.binary);
+            writeValue<std::uint8_t>(os, node.spec.bus);
             break;
         }
         case OpKind::Connect:
             writeCount(os, op.a);
             writeCount(os, op.b);
+            writeValue(os, static_cast<std::uint8_t>(op.init));
+            break;
+        case OpKind::Grow:
+            writeCount(os, op.a);
+            writeCount(os, op.b);
+            writeCount(os, op.count);
+            writeValue(os, static_cast<std::uint8_t>(op.init));
+            break;
+        case OpKind::Prune:
+            writeCount(os, op.a);
+            writeCount(os, op.indices.size());
+            for (size_t i : op.indices)
+                writeCount(os, i);
             break;
         case OpKind::Feedback:
             writeCount(os, op.a);
@@ -892,6 +1351,14 @@ void network::save(std::ostream& os) const
     for (const Node& node : this->nodes)
         node.impl->serialize(os);
 
+    // 5. Reinforcement signals
+    writeValue<std::uint8_t>(os, this->critic_.has_value());
+    if (this->critic_)
+        this->critic_->serialize(os);
+    writeValue<std::uint8_t>(os, this->curiosity_.has_value());
+    if (this->curiosity_)
+        this->curiosity_->serialize(os);
+
     if (!os)
         throw std::runtime_error("network::save: write failed");
 }
@@ -911,7 +1378,7 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
     const bool legacy = version < FIRST_FULL_STATE_VERSION;
     if (legacy)
         mode = DeserializeMode::WeightsOnly;
-    const std::uint32_t neuron_format = version <= 2 ? 1 : version <= 8 ? 2 : 3;
+    const std::uint32_t neuron_format = version <= 2 ? 1 : version <= 8 ? 2 : version <= 17 ? 3 : 4;
 
     auto net = std::make_unique<network>(factory);
 
@@ -1003,13 +1470,38 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 if (!(spec.restingThreshold > 0.0f) || !(spec.restingThreshold <= max_output))
                     throw std::runtime_error("network::load: invalid resting threshold");
             }
+            if (version >= 18) {
+                spec.binary = readValue<std::uint8_t>(is) != 0;
+                spec.bus = readValue<std::uint8_t>(is) != 0;
+            }
             net->addLayer(name, spec);
             break;
         }
         case OpKind::Connect: {
             const size_t from = readCount(is, "layer id");
             const size_t to = readCount(is, "layer id");
-            net->connect(from, to);
+            const WeightInit init = version >= 18 ? readInit(is) : WeightInit::Random;
+            net->connect(from, to, init);
+            break;
+        }
+        case OpKind::Grow: {
+            if (version < 18)
+                throw std::runtime_error("network::load: unknown operation 5");
+            const size_t id = readCount(is, "layer id");
+            const size_t group = readCount(is, "wiring group");
+            const size_t count = readCount(is, "neuron count");
+            const WeightInit init = readInit(is);
+            net->growLayer(id, count, init, false, group);
+            break;
+        }
+        case OpKind::Prune: {
+            if (version < 18)
+                throw std::runtime_error("network::load: unknown operation 6");
+            const size_t id = readCount(is, "layer id");
+            std::vector<size_t> indices(readCount(is, "pruned neuron count"));
+            for (size_t& i : indices)
+                i = readCount(is, "neuron index");
+            net->pruneNeurons(id, std::move(indices));
             break;
         }
         case OpKind::Feedback: {
@@ -1096,6 +1588,29 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
             neurons.setRecoveryJitter(Jitter::none());
             neurons.setLearningJitter(Jitter::none());
             neurons.setAlphaJitter(Jitter::none());
+        }
+    }
+
+    // 5. Reinforcement signals
+    if (version >= 18) {
+        const bool full = mode == DeserializeMode::FullState;
+        if (readValue<std::uint8_t>(is) != 0) {
+            const CriticSpec spec = critic::readSpec(is);
+            try {
+                net->setCritic(spec);
+            } catch (const std::invalid_argument& e) {
+                throw std::runtime_error(std::string("network::load: ") + e.what());
+            }
+            net->critic_->deserialize(is, full);
+        }
+        if (readValue<std::uint8_t>(is) != 0) {
+            const CuriositySpec spec = curiosity::readSpec(is);
+            try {
+                net->setCuriosity(spec);
+            } catch (const std::invalid_argument& e) {
+                throw std::runtime_error(std::string("network::load: ") + e.what());
+            }
+            net->curiosity_->deserialize(is, full);
         }
     }
     return net;

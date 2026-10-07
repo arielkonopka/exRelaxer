@@ -47,6 +47,11 @@ public:
     // with E-R.
     void setRectified(bool rectified);
     bool rectified() const { return rectified_; }
+    // Neurons without E-R: binary output (see neuron::binary) for every
+    // neuron, now and later; with rectification, a classic perceptron.
+    // Throws std::invalid_argument on a layer with E-R.
+    void setBinary(bool binary);
+    bool binary() const { return binary_; }
     // How habituation suppresses repeated inputs (see Habituation) for
     // every neuron, now and later; used only by neurons with habituation.
     // Throws std::invalid_argument for an invalid rule.
@@ -83,13 +88,33 @@ public:
     // rule, or a rule other than Sign on a layer that does not learn.
     const LearningRule& learningRule() const { return rule_; }
     void setLearningRule(const LearningRule& rule);
-    // Zeroes the rule's traces (output, noise and input traces), e.g. between
+    // Zeroes the rule's traces (output, noise and input traces, per-synapse
+    // eligibility traces and the surrogate-gradient history), e.g. between
     // episodes; weights, bias, baselines and the feedback matrix are kept.
     void clearTraces();
+    // Whether this layer type can learn with a per-synapse rule
+    // (Eligibility, EProp, Surrogate; see learning.hpp): Dense only.
+    virtual bool supportsPerSynapse() const { return false; }
+
+    // --- Freezing single neurons ------------------------------------------
+    // A frozen neuron still runs but does not learn (its weights and bias
+    // stay), whatever the rule; e.g. the old neurons of a layer that grew.
+    // Neurons added later are not frozen. Saved with the layer.
+    void setNeuronsFrozen(size_t first, size_t count, bool frozen = true);
+    bool neuronFrozen(size_t index) const { return frozen_.at(index) != 0; }
+    size_t frozenNeuronCount() const;
 
     // Output trace P of a neuron after the last forward() (see learning.hpp;
     // 0 for the Sign rule, which keeps no traces). Read-only probe.
     float outputTrace(size_t index) const { return post_.empty() ? 0.0f : post_.at(index); }
+    // Local derivatives of a neuron's last forward() (EProp, Surrogate;
+    // zeros for other rules). Read-only probe.
+    Derivatives derivatives(size_t index) const
+    {
+        if (dyds_.empty())
+            return {};
+        return {dyds_.at(index), dydthr_.at(index), dthrdthr_.at(index), dthrds_.at(index)};
+    }
 
     // Learned bias of a neuron (0 when the rule has no bias).
     float bias(size_t index) const { return bias_.empty() ? 0.0f : bias_.at(index); }
@@ -196,6 +221,30 @@ protected:
     virtual void storeSharedWeights(std::span<const float>) {}
     // Called after deserialize() rebuilt an unwired layer with a new count.
     virtual void neuronsReplaced() {}
+    // Per-synapse rules: zero (or drop) the per-synapse state and history.
+    virtual void resetSynapseState() {}
+    // State saved after the learning state (network format 18 / neuron
+    // format 4): per-synapse traces, frozen inputs.
+    virtual void writeLayerExtras(std::ostream&) const {}
+    virtual void readLayerExtras(std::istream&, DeserializeMode) {}
+
+    // Removes neurons (sorted, unique, in range) from this class's per-neuron
+    // state; the derived layer removes its weights and wiring.
+    void eraseNeuronState(std::span<const size_t> indices);
+
+    // Per-neuron values the per-synapse rules use (size() entries each;
+    // empty when the rule does not need them): the local derivatives of the
+    // last forward(), and the cached 1 / |w| (1 when not normalised).
+    std::span<const float> derivativeDyds() const { return dyds_; }
+    std::span<const float> derivativeDydthr() const { return dydthr_; }
+    std::span<const float> derivativeDthrdthr() const { return dthrdthr_; }
+    std::span<const float> derivativeDthrds() const { return dthrds_; }
+    float normScale(size_t index) const { return normalized_ && index < inverse_norm_.size() ? inverse_norm_[index] : 1.0f; }
+    // Surrogate gradients: accumulated dL / dbias per neuron (rule.bias).
+    std::vector<float> bias_grad_;
+    // Applies -learningRate * gain * bias_grad_ to the bias (unfrozen
+    // neurons) and zeroes bias_grad_.
+    void applyBiasGradient(float learningRate);
     // Squared length of neuron `index`'s weight vector (normalised sums).
     // The default reads copyWeights(); layers sharing weights override it.
     virtual float squaredWeightNorm(size_t index) const;
@@ -219,7 +268,7 @@ private:
     // Sets the rule and clears its state (the noise generator is kept).
     void resetLearningState(const LearningRule& rule);
     void writeLearningState(std::ostream& os) const;
-    void readLearningState(std::istream& is, DeserializeMode mode);
+    void readLearningState(std::istream& is, DeserializeMode mode, std::uint32_t neuronFormat);
 
     bool has_habituation_, has_er_;  // for every neuron this layer creates, including later growth
     Jitter recovery_jitter_, learning_jitter_, alpha_jitter_;  // likewise
@@ -229,6 +278,8 @@ private:
     ThresholdGrowth growth_;                                     // likewise
     Spontaneous spontaneous_;                                    // likewise
     float resting_ = baseline_threshold;                         // likewise
+    bool binary_ = false;                                        // likewise
+    std::vector<std::uint8_t> frozen_;                           // per neuron: 1 = does not learn
 
     LearningRule rule_;
     bool normalized_ = false;         // likewise; see setNormalized
@@ -241,6 +292,9 @@ private:
     std::vector<float> noise_trace_;  // Perturbation: noise trace Z
     std::vector<float> baseline_;     // Trace, Perturbation: reward baseline b
     std::vector<float> theta_;        // BCM: sliding threshold
+    std::vector<float> dyds_, dydthr_, dthrdthr_, dthrds_;  // EProp, Surrogate: local derivatives of the last tick
+    std::vector<float> bias_elig_;    // Eligibility, EProp with bias: the bias's eligibility trace
+    std::vector<float> bias_adapt_;   // EProp with bias: the bias's threshold eligibility
     kernels::weight_matrix feedback_; // feedback alignment: neurons x errors
     std::vector<float> scratch_;      // applyFeedback: modulators
     std::uint64_t noise_state_ = 0x9E3779B97F4A7C15ull;  // Perturbation noise (xorshift64*); seeded from rng::learning()

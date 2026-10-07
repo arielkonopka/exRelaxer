@@ -42,6 +42,8 @@ struct LayerSpec
     float restingThreshold = baseline_threshold;  // E-R: resting threshold, eligibility boundary, half the floor after firing
     bool normalize = false;      // Dense, Conv2D, LocallyConnected2D: weighted sum / |w| (see neuron_layer::setNormalized);
                                  // their builders below turn it on
+    bool binary = false;         // neurons without E-R: output the sign of a sum that passes the gate (see neuron::binary)
+    bool bus = false;            // Dense: the layer is a bus (see network::addBus)
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina
@@ -53,6 +55,16 @@ struct LayerSpec
     {
         LayerSpec s{LayerType::Dense, size, hasHabituation, hasER};
         s.normalize = true;
+        return s;
+    }
+    // Classic perceptrons: no E-R, no habituation, output 1 when the
+    // weighted sum exceeds `threshold`, else 0 (rectified binary neurons).
+    static LayerSpec Perceptron(size_t size, float threshold = 0.0f)
+    {
+        LayerSpec s{LayerType::Dense, size, false, false};
+        s.gate = threshold;
+        s.rectify = true;
+        s.binary = true;
         return s;
     }
     static LayerSpec Conv2D(size_t channels, const Window2D& window, bool hasHabituation = true, bool hasER = true)
