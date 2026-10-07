@@ -13,6 +13,7 @@
 #include "layers/layer.hpp"
 #include "layers/layer_factory.hpp"
 #include "layers/neuron_layer.hpp"
+#include "development.hpp"
 #include "reinforcement.hpp"
 
 namespace exr {
@@ -158,6 +159,35 @@ public:
     // Neurons growLayer added (see neuron_layer::growthOrder), in index order;
     // the others are the layer's base neurons.
     std::vector<size_t> grownNeurons(LayerId id) const;
+    // LIFO pruning: removes up to `count` grown neurons, the most recently
+    // grown first, never going below the minimum size; base neurons are
+    // never removed. Returns the indices removed (as they were before).
+    std::vector<size_t> pruneNewest(LayerId id, size_t count = 1);
+
+    // Why a neuron may be unnecessary (flags; see pruneCandidates).
+    enum PruneReason : std::uint32_t
+    {
+        Invalid = 1,       // a weight, its bias, threshold or output is NaN or infinite
+        Disconnected = 2,  // reads nothing
+        ZeroIncoming = 4,  // every weight it reads with is 0
+        Unread = 8,        // nothing downstream reads it with a non-zero weight (not an output layer,
+                           // nor read by the critic or curiosity model); fresh neurons grown with
+                           // zero outgoing weights are Unread until their readers learn
+        Inactive = 16      // the activity monitor saw it go `inactiveAfter` ticks without firing on its
+                           // input (fatigued and habituated ticks not counted)
+    };
+    struct PruneCandidate
+    {
+        size_t index;
+        std::uint32_t reasons;  // PruneReason flags
+        bool operator==(const PruneCandidate&) const = default;
+    };
+    // Neurons of a Dense layer that may be unnecessary, with why, in index
+    // order. Nothing is removed: what to prune (and whether the minimum
+    // allows it) is the caller's choice. `activity`, when given, must watch
+    // this layer; Inactive needs it.
+    std::vector<PruneCandidate> pruneCandidates(LayerId id, const activity_monitor* activity = nullptr,
+                                                size_t inactiveAfter = 1000) const;
     // Freezes (or unfreezes) single neurons of a layer: they run but do not
     // learn (see neuron_layer::setNeuronsFrozen).
     void freezeNeurons(LayerId id, size_t first, size_t count, bool frozen = true);

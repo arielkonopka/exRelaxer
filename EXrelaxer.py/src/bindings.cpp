@@ -25,6 +25,7 @@
 
 #include "filters.hpp"
 #include "network.hpp"
+#include "development.hpp"
 #include "reinforcement.hpp"
 #include "neuron.hpp"
 #include "random.hpp"
@@ -609,6 +610,81 @@ NB_MODULE(_core, m)
         .def_rw("scale", &CuriositySpec::scale)
         .def("__eq__", [](const CuriositySpec& a, const CuriositySpec& b) { return a == b; });
 
+    // --- Development (development.hpp) ------------------------------------------
+    nb::class_<ActivitySpec>(m, "ActivitySpec",
+                             "How an ActivityMonitor reads a tick from the neurons' own E-R state.")
+        .def("__init__",
+             [](ActivitySpec* a, float inputEpsilon, float fatigueRatio, size_t window, float saturatedShare,
+                float blockedShare) {
+                 new (a) ActivitySpec{inputEpsilon, fatigueRatio, window, saturatedShare, blockedShare};
+                 a->validate();
+             },
+             nb::kw_only(), "input_epsilon"_a = 1e-3f, "fatigue_ratio"_a = 1.0f, "window"_a = 100,
+             "saturated_share"_a = 0.9f, "blocked_share"_a = 0.5f)
+        .def_rw("input_epsilon", &ActivitySpec::inputEpsilon, "|raw sum| at or below this is no input.")
+        .def_rw("fatigue_ratio", &ActivitySpec::fatigueRatio,
+                "A threshold above fatigue_ratio * resting threshold is raised (fatigue).")
+        .def_rw("window", &ActivitySpec::window, "Saturation is judged over the last `window` ticks.")
+        .def_rw("saturated_share", &ActivitySpec::saturatedShare,
+                "Saturated: at least this share of the window's ticks were saturated.")
+        .def_rw("blocked_share", &ActivitySpec::blockedShare,
+                "A tick is saturated when nobody fired on its input and at least this share was fatigued.");
+
+    nb::enum_<TickState>(m, "TickState", "What one neuron did on one tick (ActivityMonitor.state).")
+        .value("Fired", TickState::Fired)
+        .value("Spontaneous", TickState::Spontaneous)
+        .value("Fatigued", TickState::Fatigued)
+        .value("Habituated", TickState::Habituated)
+        .value("Weak", TickState::Weak)
+        .value("NoInput", TickState::NoInput);
+
+    nb::class_<activity_monitor>(m, "ActivityMonitor",
+                                 "Watches one layer tick by tick (observe after every step): per neuron, ticks without\n"
+                                 "firing on its input (fatigue and habituation not counted); per population, the share\n"
+                                 "of saturated ticks (silent, input present, thresholds raised) in a sliding window.\n"
+                                 "Starts again when the layer's size changes. See doc/development.md.")
+        .def(nb::init<const ActivitySpec&>(), "spec"_a = ActivitySpec{})
+        .def_prop_ro("spec", &activity_monitor::spec)
+        .def(
+            "observe", [](activity_monitor& a, network& net, LayerId id) { a.observe(neuronLayer(net, id)); },
+            "network"_a, "layer"_a, "Reads the layer's last tick; call after every step.")
+        .def("reset", &activity_monitor::reset)
+        .def_prop_ro("size", &activity_monitor::size)
+        .def_prop_ro("ticks", &activity_monitor::ticks, "Ticks observed since the last reset.")
+        .def("state", &activity_monitor::state, "neuron"_a)
+        .def(
+            "states",
+            [](const activity_monitor& a) {
+                std::vector<TickState> out;
+                for (size_t i = 0; i < a.size(); ++i)
+                    out.push_back(a.state(i));
+                return out;
+            },
+            "Every neuron's TickState on the last tick.")
+        .def(
+            "inactive_ticks",
+            [](const activity_monitor& a) {
+                std::vector<size_t> out;
+                for (size_t i = 0; i < a.size(); ++i)
+                    out.push_back(a.inactiveTicks(i));
+                return out;
+            },
+            "Per neuron: ticks without firing on its input since its last such firing or the reset.")
+        .def(
+            "firings",
+            [](const activity_monitor& a) {
+                std::vector<size_t> out;
+                for (size_t i = 0; i < a.size(); ++i)
+                    out.push_back(a.firings(i));
+                return out;
+            },
+            "Per neuron: firings on its input since the reset.")
+        .def_prop_ro("saturated_tick", &activity_monitor::saturatedTick, "Whether the last tick was saturated.")
+        .def_prop_ro("saturated_ticks", &activity_monitor::saturatedTicks, "Saturated ticks in the window.")
+        .def_prop_ro("saturation", &activity_monitor::saturation, "Share of the window's ticks that were saturated.")
+        .def_prop_ro("saturated", &activity_monitor::saturated,
+                     "The window is full and at least saturated_share of it was saturated.");
+
     // --- Network -------------------------------------------------------------
     nb::class_<network::Edge>(m, "Edge")
         .def_ro("source", &network::Edge::from)
@@ -680,6 +756,30 @@ NB_MODULE(_core, m)
         .def("set_minimum_size", &network::setMinimumSize, "layer"_a, "minimum"_a,
              "The protected core of a Dense layer: pruning never leaves fewer than `minimum` neurons (0: no floor).")
         .def("minimum_size", &network::minimumSize, "layer"_a)
+        .def("prune_newest", &network::pruneNewest, "layer"_a, "count"_a = 1,
+             "LIFO pruning: removes up to `count` grown neurons, newest first, never below the minimum size\n"
+             "and never a base neuron. Returns the indices removed.")
+        .def(
+            "prune_candidates",
+            [](const network& net, LayerId id, const activity_monitor* activity, size_t inactiveAfter) {
+                nb::list out;
+                for (const network::PruneCandidate& c : net.pruneCandidates(id, activity, inactiveAfter)) {
+                    nb::list reasons;
+                    for (auto [flag, name] : {std::pair{network::Invalid, "invalid"},
+                                              {network::Disconnected, "disconnected"},
+                                              {network::ZeroIncoming, "zero_incoming"},
+                                              {network::Unread, "unread"},
+                                              {network::Inactive, "inactive"}})
+                        if (c.reasons & flag)
+                            reasons.append(name);
+                    out.append(nb::make_tuple(c.index, reasons));
+                }
+                return out;
+            },
+            "layer"_a, "activity"_a = nb::none(), "inactive_after"_a = 1000,
+            "Neurons of a Dense layer that may be unnecessary, as (index, [reasons]): invalid (NaN or inf),\n"
+            "disconnected, zero_incoming, unread (no reader weight), inactive (with an ActivityMonitor).\n"
+            "Nothing is removed.")
         .def("grown_neurons", &network::grownNeurons, "layer"_a,
              "Indices of the neurons grow_layer added; the others are the layer's base neurons.")
         .def(
@@ -926,9 +1026,12 @@ NB_MODULE(_core, m)
                 // Read-only: nothing here feeds back into the network.
                 const neuron_layer& l = neuronLayer(net, id);
                 const auto neurons = l.neurons();
-                std::vector<float> output, threshold, resting, eligibility, trace, streak, previous;
+                std::vector<float> output, threshold, resting, eligibility, trace, streak, previous, sum, start, spont;
                 for (size_t i = 0; i < neurons.size(); ++i) {
                     const neuron& n = neurons[i];
+                    sum.push_back(n.lastSum());
+                    start.push_back(n.lastThreshold());
+                    spont.push_back(n.lastFiring() == neuron::Firing::Spontaneous ? 1.0f : 0.0f);
                     output.push_back(n.output());
                     threshold.push_back(n.threshold());
                     resting.push_back(n.restingThreshold());
@@ -945,12 +1048,17 @@ NB_MODULE(_core, m)
                 d["output_trace"] = toNumpy(std::move(trace));
                 d["habituation_streak"] = toNumpy(std::move(streak));
                 d["previous_input"] = toNumpy(std::move(previous));
+                d["last_sum"] = toNumpy(std::move(sum));
+                d["last_threshold"] = toNumpy(std::move(start));
+                d["spontaneous"] = toNumpy(std::move(spont));
                 return d;
             },
             "layer"_a,
             "Experimental read-only probe of each neuron's state after the last step (copies): output,\n"
             "E-R threshold, resting (baseline) threshold, Sign-rule eligibility, output trace P (0 for Sign),\n"
-            "habituation streak and the previous raw sum habituation compares against. See doc/model.md.")
+            "habituation streak and the previous raw sum habituation compares against; and of the last tick:\n"
+            "the clamped raw sum (last_sum), the threshold it started with (last_threshold) and whether the\n"
+            "neuron fired spontaneously (1) or not (0). See doc/model.md.")
         .def(
             "last_inputs", [](network& net, LayerId id, size_t index) {
                 return toNumpy(layerAs<dense>(net, id, "Dense").lastInputs(index));

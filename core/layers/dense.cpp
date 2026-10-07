@@ -543,6 +543,27 @@ size_t dense::setInputsFrozen(const InputRange& inputs, bool frozen)
     return changed;
 }
 
+float dense::maxAbsWeightFrom(const InputRange& inputs) const
+{
+    float best = 0.0f;
+    for (const Group& group : groups_) {
+        size_t col = 0;
+        for (const InputRange& range : group.inputs) {
+            if (range.sameBuffer(inputs)) {
+                for (size_t k = 0; k < range.count; ++k) {
+                    const size_t index = range.offset + k;
+                    if (index < inputs.offset || index >= inputs.offset + inputs.count)
+                        continue;
+                    for (size_t r = 0; r < group.weights.rows(); ++r)
+                        best = std::max(best, std::abs(group.weights.at(r, col + k)));
+                }
+            }
+            col += range.count;
+        }
+    }
+    return best;
+}
+
 size_t dense::frozenInputCount() const
 {
     size_t count = 0;

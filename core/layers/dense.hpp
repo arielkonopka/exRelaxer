@@ -79,6 +79,10 @@ public:
     size_t setInputsFrozen(const InputRange& inputs, bool frozen = true);
     // Frozen weight columns over all groups.
     size_t frozenInputCount() const;
+    // The largest |weight| with which any neuron reads `inputs` (entries of
+    // a layer's output buffer or of the sensors); 0 when none reads them.
+    // E.g. whether a neuron of another layer still influences this one.
+    float maxAbsWeightFrom(const InputRange& inputs) const;
 
     // --- Per-synapse rules (see learning.hpp) -------------------------------
     // Neuron `index`'s eligibility trace E, in pool order (Eligibility,
