@@ -5,8 +5,10 @@ A C++20 library, with Python bindings, for building and studying
 Instead of backpropagation, neurons adapt through two local mechanisms,
 **excitation–relaxation** and **habituation**, and each layer learns by a
 local rule of its choice: reward-modulated Hebbian learning, eligibility
-traces, feedback alignment, node perturbation, or the unsupervised Oja and
-BCM rules.
+traces, per-synapse eligibility, e-prop, feedback alignment, node
+perturbation, the unsupervised Oja and BCM rules, or (as a non-local
+reference) surrogate gradients through time. A TD critic and a curiosity
+reward turn a game's reward into a learning signal.
 
 Networks are graphs of layers that can grow at runtime and be wired with
 arbitrary feedback (recurrent) connections. Vision layers (retina,
@@ -57,8 +59,15 @@ experiment so far.
 - **Learning rules per layer** – besides that sign rule, each layer can learn
   with a graded trace rule, feedback alignment (per-neuron credit for hidden
   layers from an error vector, `applyError`), node perturbation, or the
-  unsupervised Oja and BCM rules, with an optional learned bias and weight
-  decay; one network can mix them (see [doc/learning.md](doc/learning.md)).
+  unsupervised Oja and BCM rules, per-synapse eligibility, e-prop or
+  truncated surrogate gradients, with an optional learned bias and weight
+  decay; one network can mix them, and a TD(λ) critic (`applyRewardTD`) and
+  a curiosity reward can drive them (see [doc/learning.md](doc/learning.md)).
+- **Changing a running network** – grow a layer (new neurons start with zero
+  outgoing weights, so the network behaves as before), add layers, prune
+  neurons, freeze neurons or the inputs from one source, and share buses:
+  named groups of neurons of their own type (e.g. perceptrons) written by
+  some layers and read by others ([doc/network.md](doc/network.md)).
 - **Networks** – `network` owns a graph of layers with forward and feedback
   edges, input sensors and output layers, runs them in a well-defined order,
   and can freeze individual layers.

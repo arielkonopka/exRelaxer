@@ -52,8 +52,12 @@ def build(p):
     spec.normalize = False
     if p["rule"] == "trace":
         spec.learning_rule = exr.LearningRule.traced(p["trace"], 0.0)
+    elif p["rule"] == "eligibility":
+        spec.learning_rule = exr.LearningRule.eligibility(p["trace"], 0.0)
+    elif p["rule"] == "eprop":
+        spec.learning_rule = exr.LearningRule.eprop(p["trace"])
     elif p["rule"] != "sign":
-        raise ValueError("rule must be sign or trace")
+        raise ValueError("rule must be sign, trace, eligibility or eprop")
     if p["neuron"] == "er" and p["recovery"] != exr.constants.recovery_factor:
         spec.recovery_jitter = exr.Jitter.uniform(1e-7).around(p["recovery"])
     if p["neuron"] not in ("er", "linear"):
@@ -128,8 +132,8 @@ def episode(net, n, reset, p, cue, rng):
     description="one neuron, a cue, `delay` distractor ticks, then a reward: does the cue's synapse get the credit?",
     tags=["temporal", "learning"],
     params={
-        "rule": ("trace", "sign or trace (library rules, unchanged)"),
-        "trace": (0.9, "trace rule: trace decay lambda"),
+        "rule": ("trace", "sign, trace, eligibility or eprop (library rules, unchanged)"),
+        "trace": (0.9, "trace, eligibility: trace decay lambda; eprop: eligibility filter kappa"),
         "neuron": ("er", "er or linear"),
         "recovery": (0.9, "E-R recovery (threshold decay per silent tick)"),
         "delay": (4, "ticks between the cue (t0) and the reward (t0 + delay)"),

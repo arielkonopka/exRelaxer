@@ -19,7 +19,7 @@ nnt::Register experiment({
         {"n", "1000", "neurons in each of the two layers"},
         {"er", "true", "E-R in the layers"},
         {"iterations", "200", "steps per timed repeat"},
-        {"rule", "sign", "learning rule of both layers: sign, trace, fa, perturbation, oja, bcm"},
+        {"rule", "sign", "learning rule of both layers: sign, trace, fa, perturbation, oja, bcm, eligibility, eprop, surrogate"},
     },
     .trials = 3,
     .run = [](nnt::Trial& t) {
@@ -34,6 +34,9 @@ nnt::Register experiment({
         else if (name == "perturbation") rule = LearningRule::perturbation();
         else if (name == "oja") rule = LearningRule::oja();
         else if (name == "bcm") rule = LearningRule::bcm();
+        else if (name == "eligibility") rule = LearningRule::eligibility();
+        else if (name == "eprop") rule = LearningRule::eprop(0.5f);
+        else if (name == "surrogate") rule = LearningRule::surrogate(8);
         else if (name != "sign") throw std::invalid_argument("unknown rule " + name);
         LayerSpec spec = LayerSpec::Dense(n, false, er);
         spec.learningRule = rule;

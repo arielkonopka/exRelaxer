@@ -44,7 +44,7 @@ the network hands out references to its layers. Use
 | Method | Effect |
 |--------|--------|
 | `LayerId addLayer(const std::string& name, const LayerSpec& spec)` | create a layer through the factory. Names must be unique and non-empty. Ids are consecutive from 0. |
-| `void connect(LayerId from, LayerId to)` | `to` reads `from`'s output (`to.join(from)`): a **forward edge**. Every neuron `to` has now reads `from`, in addition to what it already reads (one weighted sum over all its sources); neurons added later by feedback are not wired. Each pair once. `connect(x, x)` makes every neuron of x read x (recurrence). |
+| `void connect(LayerId from, LayerId to, WeightInit init = Random)` | `to` reads `from`'s output (`to.join(from)`): a **forward edge**. Every neuron `to` has now reads `from`, in addition to what it already reads (one weighted sum over all its sources); neurons added later by feedback are not wired. Each pair once. `connect(x, x)` makes every neuron of x read x (recurrence). `WeightInit::Zero`: the new weights start at 0, so the connection changes nothing until it learns. |
 | `void addFeedback(LayerId from, LayerId to, size_t width)` | add `width` new neurons to `to`, reading `from`: a **feedback edge**. Layers already reading `to` are extended automatically. |
 | `size_t addInputs(LayerId target, size_t count, const std::string& name = "")` | create `count` sensors (owned by the network, initially 0) and attach them to `target`. Returns the index of the first new sensor. With a `name` they are a [named input source](#input-sources). |
 | `size_t addInputs(LayerId target, const Shape& image, const std::string& name = "")` | the same for an image (`image.size()` sensors, channel after channel, row after row), e.g. for a [retina](spatial.md#retina); the source keeps the shape |
@@ -152,6 +152,87 @@ layer, so they cannot be frozen separately from that layer's other neurons;
 to freeze a feedback path on its own, route it into a dedicated layer.
 Calling `applyReward` on a layer object directly bypasses freezing.
 
+### Freezing parts of a layer
+
+```cpp
+void freezeNeurons(LayerId id, size_t first, size_t count, bool frozen = true);
+void freezeInputs(LayerId id, LayerId source, bool frozen = true);            // Dense
+void freezeInputs(LayerId id, const std::string& inputSource, bool frozen = true);
+```
+
+A frozen neuron runs but its weights and bias stay, whatever the learning
+rule (`neuron_layer::setNeuronsFrozen`). Frozen inputs are weight columns: a
+Dense layer stops learning the weights with which it reads `source`, in
+every wiring group (`dense::setInputsFrozen`); inputs added later learn. A
+readout that keeps what it learned from old layers while it learns to read
+a new one freezes its inputs from the old layers. Both are saved with the
+layer.
+
+## Buses
+
+```cpp
+LayerId addBus(const std::string& name, LayerSpec spec, bool frozen = true);
+void writeBus(LayerId writer, LayerId bus, WeightInit init = Random);   // connect(writer, bus)
+void subscribe(LayerId reader, LayerId bus, WeightInit init = Random);  // connect(bus, reader)
+bool isBus(LayerId id) const;
+std::vector<LayerId> buses() const, busWriters(LayerId bus) const, busReaders(LayerId bus) const;
+```
+
+A bus is a named group of neurons that some layers write into and any
+number of later layers read from. Growing a network then means subscribing
+a new layer to the buses it needs, without rewiring anything else. A bus is
+a Dense layer (`LayerSpec::bus` set) and has its **own neuron type**,
+whatever the layers around it use: E-R without habituation
+(`LayerSpec::Dense(n, false, true)`), linear, ReLU, or classic perceptrons
+(`LayerSpec::Perceptron(n, threshold)`: output 1 when the weighted sum
+exceeds the threshold, else 0). Buses start frozen (the weights from the
+writers do not learn); `unfreeze(bus)` lets them learn. Sensors can write
+into a bus too (`connectInputs`), e.g. a fixed vision bus that every new
+column reads:
+
+```cpp
+const auto vision = net.addBus("vision", LayerSpec::Dense(28, false, true));
+net.connectInputs("eye", vision);
+const auto column = net.addLayer("c3", LayerSpec::Dense(32, true, true));
+net.subscribe(column, vision);
+net.connect(column, readout, WeightInit::Zero);   // joins the readout without changing it
+net.freezeInputs(readout, old_column);            // the readout keeps what it learned
+```
+
+`describe()` lists each bus with its writers and readers.
+
+## Changing a running network
+
+```cpp
+void growLayer(LayerId id, size_t count, WeightInit outgoing = Zero, bool freezeExisting = false,
+               size_t group = 0);
+void pruneNeurons(LayerId id, std::vector<size_t> indices);
+```
+
+Between two steps the network can grow and shrink; everything else keeps
+its state, and `save` records the change, so a loaded network has the same
+structure.
+
+- **Width** (`growLayer`, Dense): `count` new neurons reading the same
+  inputs as the layer's wiring group `group` (0: the neurons it was built
+  with; a group reading the layer itself makes the new neurons read their
+  own outputs too). Their incoming weights are drawn as usual. Every layer
+  reading the grown one gets the new outputs with `outgoing` weights:
+  `Zero` (the default) means the network behaves exactly as before until
+  the new weights learn. `freezeExisting` freezes the layer's old neurons,
+  so only the new ones learn.
+- **Depth**: `addLayer` and `connect` work on a running network; a new
+  layer joins its readers with `connect(new, reader, WeightInit::Zero)`.
+- **Pruning** (`pruneNeurons`, Dense): the neurons' weights, state and
+  outputs go, and every layer reading the layer drops the matching inputs
+  (those readers must be Dense; anything else throws `std::logic_error`
+  before changing anything). Indices may come in any order.
+- **Learning rules** change with `setLearningRule`, freezing with
+  `freeze`, `freezeNeurons` and `freezeInputs`, and the
+  [critic and curiosity model](learning.md#actor-critic-and-curiosity) can
+  be set, replaced or removed at any time; they follow growth and pruning of
+  the layers they read.
+
 ## Per-neuron dynamics
 
 ```cpp
@@ -231,7 +312,7 @@ static std::unique_ptr<network> load(std::istream& is,
 ```
 
 The network records every successful `addLayer`, `connect`, `addFeedback`,
-`addInputs` and `connectInputs` call. `save` writes that history, then the rest of the
+`addInputs`, `connectInputs`, `growLayer` and `pruneNeurons` call. `save` writes that history, then the rest of the
 state; `load` **replays the history** on a new network, which reproduces the
 exact wiring (groups, feedback neurons, sensor attachment), then restores each
 layer's state in place.
@@ -258,7 +339,7 @@ the building methods' exceptions.
 Binary, native endianness (not portable across platforms). Counts and ids
 are `uint64`.
 
-1. Magic `EXRN`, format version `uint32` (currently **15**).
+1. Magic `EXRN`, format version `uint32` (currently **18**).
 2. Operation count, then each operation: kind (`uint8`) and fields:
    - AddLayer: name length + bytes, `LayerType` (`uint8`), size,
      hasHabituation, hasER, frozen (`uint8` each; frozen is the state at save
@@ -278,17 +359,25 @@ are `uint64`.
      steps (`uint32`), tolerance, decay (`float`); (version 14) threshold growth
      rule (`uint8`), amount (`float`); (version 15) habituation fadeAfter
      (`uint32`), spontaneous below, amplitude, rate (`float`); (version 16)
-     normalize (`uint8`); (version 17) resting threshold (`float`)
-   - Connect: from, to
+     normalize (`uint8`); (version 17) resting threshold (`float`);
+     (version 18) binary, bus (`uint8`). Version 18 rules also carry
+     width (`float`) and window (`uint32`) in the layer data.
+   - Connect: from, to; (version 18) weight init (`uint8`)
    - Feedback: from, to, width
    - Inputs: target, count; then (version 10) name length + name, shape
      channels, height, width
    - ConnectInputs (version 10): source index, target
+   - Grow (version 18): layer, wiring group, count, outgoing weight init (`uint8`)
+   - Prune (version 18): layer, index count, indices
 3. Output count + ids; custom-order flag (`uint8`), and if set, count + ids.
 4. Input count + values (`float`).
 5. Each layer's `serialize()` output, in id order. Layers of neurons end
    theirs with the learning rule and its state (neuron format 3, see
-   [learning](learning.md#serialization)).
+   [learning](learning.md#serialization)); from version 18 (neuron format
+   4) also the per-synapse rules' state, frozen neurons and, for Dense,
+   frozen inputs.
+6. (version 18) Critic flag (`uint8`) and, if set, its spec and weights,
+   traces and last state; the same for the curiosity model.
 
 | Version | Added |
 |---------|-------|
@@ -309,6 +398,7 @@ are `uint64`.
 | 15 | habituation fadeAfter and spontaneous firing (below, amplitude, rate) per layer; older files load with `fadeAfter = steps` in fade mode and the original spontaneous firing |
 | 16 | normalised weighted sum (`normalize`) per layer; older files load without it |
 | 17 | E-R resting threshold per layer; older files load with 0.2 |
+| 18 | binary output and bus flag per layer; weight init per connect; growth and pruning; neuron format 4 (Eligibility, EProp, Surrogate state; frozen neurons and inputs); critic and curiosity model |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.
