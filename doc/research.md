@@ -2016,6 +2016,29 @@ spent small is the untested suspect. Slow recovery (0.99) saturates more, grows 
 and plays worse: saturation measures silence, not usefulness. Every run reproduces exactly for its
 seed.
 
+## 31. How big does a growing Snake network get?
+
+Start from ER(16) and let it play until its size stops changing (10,000 games without a change;
+`results/snake-growth-long/`, `NNtesting/experiments/snake_growth/long_run.py`), 3 seeds, last 500
+games scored:
+
+| setup | end sizes | apples/game |
+|---|---|---|
+| ER(16) fixed | [16] | 8.2 (7.6–8.9) |
+| + growth, snake_growth caps (16 wide, 2 deep) | [16, 6] every seed | 8.4 (7.9–9.0) |
+| + growth, caps lifted (4,096 wide, 64 deep) | [16,6,6] [16,4,4] [16,6,6,4]: 24–32 | 8.3 (7.9–8.9) |
+| ER(16) fixed, recovery 0.99 | [16] | 2.2 (2.1–2.3) |
+| + growth, caps lifted, recovery 0.99 | [20,10,4] [20,10,4] [18,14]: 32–34 | 3.9 (3.8–4.0) |
+
+**Growth stops by itself, at about twice the starting size.** With the caps lifted the largest
+network ever seen was 36 neurons, and every run's size stopped changing by game 10,700 (most by
+game 2,000-4,000). Two brakes: a 16-neuron population is almost never saturated at recovery 0.9, so
+the first layer never widens; depth growth needs the best score to beat the previous best by 0.5
+apples, and the score levels off near 8-9. Undo and pruning barely matter (3 undos in 15 runs, no
+pruning). At recovery 0.9 the extra layers add nothing over a fixed ER(16); at 0.99, where the
+fixed network plays badly, growth recovers part of the loss (2.2 → 3.9), still far below
+recovery 0.9.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
