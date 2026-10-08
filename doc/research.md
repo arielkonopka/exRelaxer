@@ -1981,6 +1981,41 @@ Data: [`results/learning-rules-v2/delayed_credit/`](../results/learning-rules-v2
 (`*_097` at λ 0.97); command:
 `NNtesting/nntest.py run delayed_credit --trials 10 --set rule=eligibility --set trace=0.9 --set delay=0,2,4,8,16,32`.
 
+## 30. Structural development: growing from one neuron
+
+New in the library ([development](development.md)): a protected minimum size per layer, a growth
+order per neuron (base vs grown), pruning candidates (invalid, disconnected, zero incoming, unread,
+inactive), LIFO pruning of grown neurons, an `ActivityMonitor` that reads saturation from each
+neuron's own E-R state (silent, input present, threshold raised above it, over a window), and
+Python policies for width growth, pruning, a score plateau and depth growth. Guide and API manual:
+[snake_growth_guide](snake_growth_guide.md); raw runs: `results/snake-growth/`.
+
+**Saturation is real and self-limiting.** On Snake (untrained network, 30 games), the share of
+ticks on which the whole E-R population was saturated falls with its size: 75 / 38 / 19 / 0 / 0%
+for ER(1 / 2 / 4 / 8 / 16) at recovery 0.9, and 90 / 76 / 65 / 39 / 11% at 0.99. Growth makes
+saturation rarer, so width growth stops on its own; where it stops depends on the trigger share
+and on recovery.
+
+**Snake, learning always on** (1,500 games, feedback alignment in the E-R layers, error-driven
+readouts, 3 seeds, final = last 150 games):
+
+| setup | final apples/game | end sizes |
+|---|---|---|
+| ER(1) fixed | 0.2 | [1] |
+| ER(1) + growth | 4.5 (3.6–5.5) | [5] + [4] every seed |
+| ER(1) + growth, old neurons plastic | 4.0 (2.5–5.5) | [3–7] + [4] |
+| ER(1) + growth, recovery 0.99 | 2.5 (1.4–3.1) | [11–16] + [10–16] |
+| ER(4) fixed | 5.1 (4.9–5.5) | [4] |
+| ER(4) + growth | 5.8 (5.0–6.6) | [4–6] (+ [4–6]) |
+| ER(8) fixed | 7.0 (6.8–7.2) | [8] |
+
+Growth rescues a population too small to learn (one neuron: 0.2 → 4.5) and adds a little from
+four (5.1 → 5.8, within the spread), but a grown network ends below one built at the right size
+(7.0). Leaving the old neurons plastic does not close the gap, so freezing is not the cost; time
+spent small is the untested suspect. Slow recovery (0.99) saturates more, grows three times larger
+and plays worse: saturation measures silence, not usefulness. Every run reproduces exactly for its
+seed.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.

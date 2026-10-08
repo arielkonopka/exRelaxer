@@ -25,6 +25,8 @@ of known limitations, see the [project README](../README.md).
 | [activity](activity.md) | experiments on E-R activity without a penalty: sparsity, path choice, fatigue, history; the fixed-threshold control `gate` |
 | [kernels](kernels.md) | weight layout, SIMD kernels, determinism, parallelism, performance, random streams |
 | [layer_factory](layer_factory.md) | `layer_factory`, `LayerSpec`: creating layers by type, registering new types |
+| [development](development.md) | Experimental structural development: E-R saturation (`ActivityMonitor`), width growth, protected minimum size, grown neurons and LIFO pruning, pruning candidates, depth growth on a score plateau, buses; Python policies in `exrelaxer.development` |
+| [snake_growth_guide](snake_growth_guide.md) | A practical guide and Python API manual: Snake learned always-on by a network that grows from one neuron (or four), with results |
 | [network](network.md) | `network`: layer graph, inputs/outputs, update order, freezing, buses, growing and pruning a running network, save/load |
 | [pattern_benchmark](pattern_benchmark.md) | Task support (`NNtesting/tasks/pattern_benchmark.hpp`): gapped-pattern benchmark, frozen value detectors, delay window |
 | [NNtesting](../NNtesting/README.md) | The `nntest` benchmark harness: experiments, parameter sweeps, result files, comparisons |
