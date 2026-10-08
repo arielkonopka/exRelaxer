@@ -30,6 +30,9 @@ SETUPS = {
     "s16_open_rec05": dict(OPEN, start=16, recovery=0.5),
     "s16_fixed_rec075": {"start": 16, "grow": False, "recovery": 0.75},
     "s16_open_rec075": dict(OPEN, start=16, recovery=0.75),
+    "s16_open_rec05_freeze4": dict(OPEN, start=16, recovery=0.5, freeze_from=4),
+    "s16_open_rec075_freeze4": dict(OPEN, start=16, recovery=0.75, freeze_from=4),
+    "s16_open_freeze4": dict(OPEN, start=16, freeze_from=4),
     "s16_open_rec099_noundo": dict(OPEN, start=16, recovery=0.99, undo=0),
 }
 

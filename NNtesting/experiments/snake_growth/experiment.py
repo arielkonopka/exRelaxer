@@ -50,6 +50,8 @@ DEFAULTS = {
     "margin": 0.5,                      # the best must beat the baseline by this many apples
     "max_depth": 2,                     # adaptive E-R layers at most
     "deep_size": 4,                     # neurons of a layer added by depth growth
+    "freeze_from": 2,                   # adding adaptive layer number >= this freezes every older
+                                        # layer; earlier depth growth leaves them learning
     "undo": 3,                          # evaluations after a width growth before an unhelpful one is
                                         # undone (LIFO); 0: never undo
     "lr": 0.03, "explore": 0.05,
@@ -166,11 +168,16 @@ class Agent:
         self.evaluation += 1
 
     def deepen(self):
-        """Depth growth: a new adaptive layer behind the newest, which is frozen."""
+        """Depth growth: a new adaptive layer behind the newest. From layer `freeze_from` on, every
+        older layer is frozen; before it they keep learning."""
         before = self.sizes()
+        freeze = len(self.layers) + 1 >= self.p["freeze_from"]
         deep = grow_depth(self.net, self.newest, readers=self.readouts,
                           spec=self.adaptive_spec(self.p["deep_size"]),
-                          name=f"er{len(self.layers) + 1}")
+                          name=f"er{len(self.layers) + 1}", freeze_previous=freeze)
+        if freeze:
+            for layer in self.layers[:-1]:
+                self.net.freeze_neurons(layer, 0, self.net.layer_size(layer))
         self.net.set_minimum_size(deep, self.p["deep_size"])
         self.tune(deep)
         self.layers.append(deep)
