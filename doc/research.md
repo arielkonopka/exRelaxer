@@ -2055,6 +2055,14 @@ unchanged (24-32 neurons), scores rise: 9.0 → 9.4 (8.9–9.9) at recovery 0.5 
 (9.3–9.8) at 0.75, against 9.7 for the fixed ER(16); at 0.9 nothing changes (8.2, = fixed). So the
 early freeze was most of the cost of depth growth, and growth still does not beat the right size.
 
+**Wide depth growth** (user's proposal): a new layer starts as wide as the one it grows behind
+(16), may shrink to the 3 outputs by pruning, freezing from the 4th layer as above. Pruning never
+fired (fast recovery: no neuron stays silent for 5,000 ticks), so the networks end at 4-5 layers of
+16 (64-80 neurons). Scores: 9.8 (9.2–10.4) at recovery 0.5 and 9.7 (9.5–9.8) at 0.75, level with
+the fixed ER(16) (9.7) and above 4-neuron depth growth (9.4, 9.5); at 0.9 it is worse, 7.7
+(7.6–7.8) against 8.2. So a full-width layer removes the remaining cost of depth growth at fast
+recovery but adds nothing beyond the fixed network, at four to five times the neurons.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.

@@ -33,6 +33,9 @@ SETUPS = {
     "s16_open_rec05_freeze4": dict(OPEN, start=16, recovery=0.5, freeze_from=4),
     "s16_open_rec075_freeze4": dict(OPEN, start=16, recovery=0.75, freeze_from=4),
     "s16_open_freeze4": dict(OPEN, start=16, freeze_from=4),
+    "s16_open_rec05_freeze4_wide": dict(OPEN, start=16, freeze_from=4, deep_size=0, deep_minimum=3, prune_base=True, recovery=0.5),
+    "s16_open_rec075_freeze4_wide": dict(OPEN, start=16, freeze_from=4, deep_size=0, deep_minimum=3, prune_base=True, recovery=0.75),
+    "s16_open_freeze4_wide": dict(OPEN, start=16, freeze_from=4, deep_size=0, deep_minimum=3, prune_base=True),
     "s16_open_rec099_noundo": dict(OPEN, start=16, recovery=0.99, undo=0),
 }
 
