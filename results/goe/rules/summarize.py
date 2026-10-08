@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tables of the online-learning comparison (NNtesting/experiments/goe_rl/online.py).
 
-    python3 results/goe/rules/summarize.py SWEEP.jsonl FINAL.jsonl [ES.jsonl] > results/goe/rules/summary.md
+    cd results/goe/rules && python3 summarize.py sweep.jsonl.gz final.jsonl.gz final_online.jsonl.gz > summary.md
 
 Final test: 200 mazes and 100 rooms (the G3 fresh worlds among them), every world from a fresh
 network with the learned weights. Per technique: the mean over its seeds of the mean reward per
@@ -10,6 +10,7 @@ reward averaged over seeds, minus the start's on the same world) with a bootstra
 and the G3 subset (the 30 mazes of the earlier test).
 """
 import collections
+import gzip
 import json
 import sys
 
@@ -26,9 +27,13 @@ def boot(d, n=4000, seed=1):
     return np.percentile(m, 5), np.percentile(m, 95)
 
 
+def read(path):
+    with (gzip.open(path, "rt") if path.endswith(".gz") else open(path)) as f:
+        return [json.loads(l) for l in f]
+
+
 def main():
-    sweep = [json.loads(l) for l in open(sys.argv[1])]
-    final = [json.loads(l) for l in open(sys.argv[2])]
+    sweep, final = read(sys.argv[1]), read(sys.argv[2])
     print("## Rate sweep (validation: 40 mazes, 50 rooms; one training stream of 300 worlds)\n")
     rates = sorted({l["rate"] for l in sweep if l["technique"] != "frozen"})
     print("| technique | " + " | ".join(f"{r:g}" for r in rates) + " |")
@@ -39,8 +44,11 @@ def main():
     for t, d in by.items():
         cells = []
         for r in rates:
-            if t == "frozen":
+            if t == "frozen":  # no rate: the start, in the first column
                 l = d[0.0]
+                if r != rates[0]:
+                    cells.append("")
+                    continue
             elif r not in d:
                 cells.append("")
                 continue
@@ -74,6 +82,14 @@ def main():
     print("|---|---|---|---|---|---|---|---|---|")
     for w, t, rate, m, r, g, d, lo, hi, seeds, drift in sorted(rows, reverse=True):
         print(f"| {t} | {rate:g} | {m:.1f} | {r:.2f} | {w:.2f} | {d:+.2f} ({lo:+.2f}, {hi:+.2f}) | {g:.1f} | {seeds} | {drift:.3g} |")
+    if len(sys.argv) > 3:
+        print("\n## Learning on inside each test world (each world starts from the trained weights)\n")
+        print("| technique | seed | off: maze / room / world | on: maze / room / world | on - off per world |")
+        print("|---|---|---|---|---|")
+        for l in sorted(read(sys.argv[3]), key=lambda l: (l["technique"], l["seed"])):
+            a, b = np.array(l["test"]["rewards"]), np.array(l["test_online"]["rewards"])
+            print(f"| {l['technique']} | {l['seed']} | {a[maze].mean():.1f} / {a[~maze].mean():.2f} / {a.mean():.2f} | "
+                  f"{b[maze].mean():.1f} / {b[~maze].mean():.2f} / {b.mean():.2f} | {(b - a).mean():+.2f} |")
 
 
 if __name__ == "__main__":

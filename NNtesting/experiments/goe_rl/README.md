@@ -31,6 +31,19 @@ python3 NNtesting/experiments/goe_rl/grow.py --check
 python3 NNtesting/experiments/goe_rl/grow.py --out results/goe-grow/grow --workers 4 --generations 400
 ```
 
+## Online learning rules on the grown network
+
+`online.py` trains an exported agent further with the library's learning rules
+while it plays (every game step, learning always on) or with continued ES, and
+tests every technique on the same fresh worlds; see
+[doc/goe.md](../../../doc/goe.md) (G4).
+
+```bash
+python3 NNtesting/experiments/goe_rl/online.py sweep --agent results/goe/columns/grow --out OUT       # rates
+python3 NNtesting/experiments/goe_rl/online.py final --agent results/goe/columns/grow --sweep OUT/sweep.jsonl --out OUT
+python3 NNtesting/experiments/goe_rl/online.py es --agent results/goe/columns/grow --out OUT/es --generations 40
+```
+
 ## Senses and network
 
 ```

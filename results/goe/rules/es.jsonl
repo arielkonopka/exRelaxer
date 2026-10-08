@@ -1,0 +1,40 @@
+{"generation": 1, "population_mean": 8.138542071760943, "steps_at_most": 14400, "seconds": 16.237216472625732}
+{"generation": 2, "population_mean": 19.209375530015677, "steps_at_most": 43200, "seconds": 23.81362771987915}
+{"generation": 3, "population_mean": 15.484375657591348, "steps_at_most": 72000, "seconds": 23.269973516464233}
+{"generation": 4, "population_mean": 8.91354233872456, "steps_at_most": 100800, "seconds": 20.092302560806274}
+{"generation": 5, "population_mean": 25.440625401446596, "steps_at_most": 115200, "seconds": 13.386327743530273}
+{"generation": 6, "population_mean": -4.080207928316668, "steps_at_most": 129600, "seconds": 11.681235551834106}
+{"generation": 7, "population_mean": 50.30000099043051, "steps_at_most": 172800, "seconds": 37.980019092559814}
+{"generation": 8, "population_mean": 27.705208990645286, "steps_at_most": 201600, "seconds": 25.79605793952942}
+{"generation": 9, "population_mean": 35.22083420865238, "steps_at_most": 230400, "seconds": 25.966327905654907}
+{"generation": 10, "population_mean": 37.19791738394027, "steps_at_most": 259200, "seconds": 24.651719570159912, "valid": {"maze": 60.27000129986554, "rooms": 12.642000451236964, "explore": 18.720000528544187, "collect": 26.050000374764203, "doors": 19.66000031456351, "avatar": 23.63000061288476, "mines": -24.849999574571846, "mean": 33.81000082840522}}
+{"generation": 11, "population_mean": 22.112500462525833, "steps_at_most": 288000, "seconds": 24.914478540420532}
+{"generation": 12, "population_mean": 41.631250627494104, "steps_at_most": 316800, "seconds": 27.22749423980713}
+{"generation": 13, "population_mean": 8.207292129208023, "steps_at_most": 360000, "seconds": 34.72351694107056}
+{"generation": 14, "population_mean": 34.11458416593572, "steps_at_most": 403200, "seconds": 29.76596689224243}
+{"generation": 15, "population_mean": 17.209375446196645, "steps_at_most": 417600, "seconds": 13.291876077651978}
+{"generation": 16, "population_mean": 46.99166782254664, "steps_at_most": 460800, "seconds": 38.527543783187866}
+{"generation": 17, "population_mean": 44.26770905405283, "steps_at_most": 518400, "seconds": 40.80417346954346}
+{"generation": 18, "population_mean": -0.487499604622523, "steps_at_most": 532800, "seconds": 12.391552686691284}
+{"generation": 19, "population_mean": 22.792708806150284, "steps_at_most": 547200, "seconds": 13.970638036727905}
+{"generation": 20, "population_mean": 23.59479224930207, "steps_at_most": 576000, "seconds": 25.235913276672363, "valid": {"maze": 56.05500104930252, "rooms": 10.778000451028348, "explore": 19.120000574737787, "collect": 25.630000464618206, "doors": 19.97000037059188, "avatar": 25.4700006082654, "mines": -36.29999976307154, "mean": 30.901111828039088}}
+{"generation": 21, "population_mean": 33.33645912539214, "steps_at_most": 604800, "seconds": 25.29563069343567}
+{"generation": 22, "population_mean": 21.472917151714984, "steps_at_most": 619200, "seconds": 13.821054458618164}
+{"generation": 23, "population_mean": 12.493750457729524, "steps_at_most": 633600, "seconds": 13.222389221191406}
+{"generation": 24, "population_mean": 4.947917108501618, "steps_at_most": 662400, "seconds": 22.895662307739258}
+{"generation": 25, "population_mean": 44.431250936739765, "steps_at_most": 705600, "seconds": 40.72801971435547}
+{"generation": 26, "population_mean": 50.278125880441316, "steps_at_most": 748800, "seconds": 38.42814493179321}
+{"generation": 27, "population_mean": 5.727083759459977, "steps_at_most": 763200, "seconds": 12.920365333557129}
+{"generation": 28, "population_mean": 56.5239595087866, "steps_at_most": 820800, "seconds": 50.100786447525024}
+{"generation": 29, "population_mean": -2.994791229488328, "steps_at_most": 849600, "seconds": 22.32697367668152}
+{"generation": 30, "population_mean": 18.786458944591384, "steps_at_most": 878400, "seconds": 26.67170548439026, "valid": {"maze": 73.37000138331204, "rooms": 12.88800045579672, "explore": 17.190000501275062, "collect": 26.840000300109388, "doors": 21.290000439435243, "avatar": 25.50000066384673, "mines": -26.37999962568283, "mean": 39.76888975691464}}
+{"generation": 31, "population_mean": 38.150000761573516, "steps_at_most": 907200, "seconds": 29.217233419418335}
+{"generation": 32, "population_mean": 48.42916767353503, "steps_at_most": 964800, "seconds": 52.521355628967285}
+{"generation": 33, "population_mean": 24.33854209367807, "steps_at_most": 993600, "seconds": 24.8146071434021}
+{"generation": 34, "population_mean": 33.93229239899665, "steps_at_most": 1022400, "seconds": 29.172163248062134}
+{"generation": 35, "population_mean": 18.305208987090737, "steps_at_most": 1051200, "seconds": 26.948750972747803}
+{"generation": 36, "population_mean": 37.19375070882961, "steps_at_most": 1080000, "seconds": 26.64267659187317}
+{"generation": 37, "population_mean": 15.478125432583814, "steps_at_most": 1108800, "seconds": 27.341586112976074}
+{"generation": 38, "population_mean": 15.09062548719036, "steps_at_most": 1123200, "seconds": 13.65367579460144}
+{"generation": 39, "population_mean": 11.886458995363986, "steps_at_most": 1152000, "seconds": 21.294249534606934}
+{"generation": 40, "population_mean": 17.407292339252308, "steps_at_most": 1180800, "seconds": 26.434498071670532, "valid": {"maze": 72.07500142790377, "rooms": 13.27800046339631, "explore": 17.570000484585762, "collect": 28.96000041663647, "doors": 22.220000394433736, "avatar": 24.260000627487898, "mines": -26.61999960616231, "mean": 39.41000089206629}}
