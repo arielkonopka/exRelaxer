@@ -446,6 +446,110 @@ Data: `results/goe/columns/`: `grow/` and `control/` (exported agents:
 and `fresh.py`. `goe_rl/agent.py` loads them (`load`, `load_exr`) and checks that
 they play as exported.
 
+### G4. The grown network trained further by online learning rules (2026-10-07)
+
+**Question.** Starting from the grown 4-column network of G3, which learning
+technique improves it most? The new rules of [learning](learning.md) learn on
+every game step while the network plays (no separate training phase), against
+continued ES, the way the network was made.
+
+**Setup.** `goe_rl/online.py`. Every technique starts from the exported agent
+(`reports/goe-grow/grow`, the same as `results/goe/columns/grow`) and plays one
+stream of 300 training worlds (25 % mazes, the rest the five skill rooms),
+learning after every step, epsilon-greedy (0.05). The weights carry from world
+to world; the E-R state starts fresh in each. What learns: the readouts and the
+newest column's E-R layer h4 (as when the network grew), or with `_ro` only the
+readouts. Convolutions and older columns stay frozen.
+
+- Learning signal: the step's reward × 0.1, or the TD error of a critic
+  (`set_critic`, TD(λ), γ 0.95, λ 0.8) over the frozen columns and the body,
+  clipped to ±5.
+- Reward-driven rules (Sign, Trace 0.8, Eligibility 0.9, e-prop κ 0.8,
+  Perturbation) give the signal to the chosen action's readout only
+  (`apply_reward_to`) and to h4. Error-driven rules (feedback alignment 0.8,
+  e-prop with random feedback, Surrogate window 8) get an error vector: the
+  signal for the chosen action, 0 for the others (`apply_error`).
+- `eligibility_curious` adds the curiosity reward (a forward model of the eye
+  from the hidden layers and the body).
+- Rates: each technique at 1e-5 … 1e-2 (Sign also 1e-1) on validation worlds
+  (40 mazes, 50 rooms); the best rate then trained with 3 seeds (3 training
+  streams) and tested on 200 mazes (the 30 G3 mazes among them) and 100 rooms
+  (the 50 G3 rooms among them), learning off, every world from a fresh network.
+- Controls: the frozen start, and `jitter`: the readouts and h4 moved by random
+  noise of 0.3 % of their RMS (3 draws).
+- Continued ES: 40 generations of `grow.py`'s ES (12 pairs, 4 worlds, the same
+  world mix) on the readouts, c4 and h4.
+
+The game here includes Gardens-of-Eris PR #306 (monsters roam when idle), merged
+after G3, so the same seeds play differently: the frozen network scores 65.1 on
+the 30 G3 mazes (57.8 in G3). Every technique below ran on the same game.
+
+**Result.** Final test (mean over 3 seeds; "vs start" is the paired change per
+world against the frozen network, with a bootstrap 90 % interval):
+
+| Technique | Rate | Per maze | Per room | Per world | vs start |
+|---|---|---:|---:|---:|---|
+| continued ES (1 run) | | **58.3** | 12.0 | **42.9** | **+6.0 (+0.9, +10.9)** |
+| Eligibility, readouts only | 1e-5 | 54.1 | 11.7 | 40.0 | +3.1 (−1.2, +7.4) |
+| Trace, readouts only | 1e-5 | 52.8 | 12.1 | 39.3 | +2.4 (−2.0, +6.6) |
+| *jitter 0.3 % (control)* | | 52.2 | 12.9 | 39.1 | +2.3 (−2.2, +6.4) |
+| e-prop, readouts only | 1e-4 | 51.3 | **14.4** | 39.0 | +2.2 (−2.3, +6.4) |
+| feedback alignment, readouts only | 1e-4 | 51.3 | **14.4** | 39.0 | +2.1 (−2.1, +6.1) |
+| feedback alignment | 1e-5 | 51.0 | 11.4 | 37.8 | +0.9 (−3.0, +5.1) |
+| Surrogate, readouts only | 1e-5 | 50.7 | 11.6 | 37.6 | +0.8 (−2.5, +4.0) |
+| Surrogate | 1e-5 | 49.9 | 12.8 | 37.6 | +0.7 (−3.5, +4.7) |
+| *frozen start* | | 48.9 | 12.8 | 36.9 | 0 |
+| Eligibility + curiosity | 1e-5 | 45.3 | 10.6 | 33.7 | −3.1 (−7.3, +0.9) |
+| Eligibility | 1e-5 | 42.8 | 10.0 | 31.9 | −5.0 (−9.6, −0.8) |
+| Sign + TD | 1e-5 | 41.1 | 11.0 | 31.1 | −5.8 (−10.3, −1.7) |
+| e-prop + TD | 1e-2 | 33.8 | 8.8 | 25.5 | −11.4 (−15.7, −7.3) |
+| Perturbation + TD | 1e-5 | 34.2 | 7.6 | 25.3 | −11.5 (−16.1, −7.3) |
+| e-prop, random feedback | 1e-3 | 30.9 | 9.3 | 23.7 | −13.2 (−17.5, −9.1) |
+| Sign, raw reward | 1e-1 | 12.5 | 2.7 | 9.2 | −27.6 (−32.2, −23.5) |
+
+With learning left on inside each test world (each starting from the trained
+weights), the readouts-only rules changed nothing: +0.05 per world for
+Eligibility, +1.1 for e-prop and −1.4 for feedback alignment (means of 3 seeds,
+each within ±4).
+
+**Conclusion.**
+- **No online rule beat random noise of the same size.** The readouts-only
+  rules end where the jitter control does (+2 to +3 per world, intervals
+  spanning 0). The validation winners (Surrogate at 1e-5: 70 per maze on 40
+  mazes) moved their weights by 0.05 % and fell back to the start on 200
+  mazes: they were the luck of a small change.
+- **The maze score is chaotic in the weights.** 0.3 % of noise moved a
+  20-maze mean between 30 and 59: a small change flips the argmax at a few
+  junctions, and one death is −50. A rate sweep on tens of mazes chooses noise;
+  results need hundreds of mazes and a noise control.
+- **Changing the newest column hurts, and every rule that did lost.** h4's
+  ES-made features are fragile, and a local rule driven by one noisy scalar
+  damages them faster than it teaches: −5 (Eligibility) to −13 (e-prop with
+  random feedback) per world. Error-driven rules on the readouts are the
+  gentlest; Hebbian ones (Trace, Eligibility on the raw reward, Sign) grow
+  their weights with themselves (output × input) and drift most.
+- **A hint, in the rooms.** e-prop and feedback alignment on the readouts lifted
+  the rooms from 12.8 to 14.4 in all 3 seeds (and again in a rerun); the maze
+  score did not follow.
+- **The critic must not read what is learning.** With h4 in its features, the
+  critic chased them: TD errors swung harder each step and every rule went to
+  NaN within ~110 worlds, even at rate 1e-5. Reading only frozen columns it was
+  stable (`old` runs: `sweep_critic_reads_h4.jsonl.gz`).
+- **Continued ES still improves** (+6.0, interval above 0), with ~13× the game
+  steps (1.2 M against ~90 k for one pass of 300 worlds) and a 14 % weight
+  change. Per step of experience, nothing here learns; ES learns, slowly.
+- What this suggests for learning that stays on: credit for one action from
+  one scalar per step is too weak for argmax readouts that ES tuned to a
+  knife edge. Candidates: a softmax policy (a smooth target for gradient
+  rules), learning in a fresh column (new neurons, zero readout lines) instead
+  of the tuned ones, and more experience per update.
+
+Data: `results/goe/rules/`: `summary.md` (all tables, `summarize.py`),
+`sweep.jsonl.gz`, `final.jsonl.gz`, `final_online.jsonl.gz`, `es.jsonl` and
+`es_final.npz` (the ES-trained weights, `online.build(agent, weights)`), and the
+diverged critic runs. The trained weights of every final run are in the
+project's `reports/goe-rules/final/`.
+
 ## Open questions
 
 - **Does evolution get past standing still?** Run the three designed

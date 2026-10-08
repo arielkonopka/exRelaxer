@@ -290,6 +290,7 @@ class Net:
                         self.spikes[k] += np.count_nonzero(np.abs(self.net.layer_output(layer)) > 1e-6)
                 self.ticks_seen += 1
         y = total if self.p["readout"] == "sum" else np.asarray(self.net.outputs())
+        y = np.where(np.isnan(y), -np.inf, y)  # a network whose weights diverged (online learning)
         if self.p["ties"] == "random":
             best = np.flatnonzero(y >= y.max() - 1e-9)
             return int(best[0] if len(best) == 1 else self.rng.choice(best))
