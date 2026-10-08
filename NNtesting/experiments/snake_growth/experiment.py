@@ -49,7 +49,11 @@ DEFAULTS = {
     "patience": 4,                      # evaluations without a new best before a plateau
     "margin": 0.5,                      # the best must beat the baseline by this many apples
     "max_depth": 2,                     # adaptive E-R layers at most
-    "deep_size": 4,                     # neurons of a layer added by depth growth
+    "deep_size": 4,                     # neurons of a layer added by depth growth; 0: as many as
+                                        # the layer it grows behind
+    "deep_minimum": 0,                  # protected size of such a layer; 0: deep_size
+    "prune_base": False,                # pruning may also remove a layer's original neurons (never
+                                        # below its minimum), not only grown ones
     "freeze_from": 2,                   # adding adaptive layer number >= this freezes every older
                                         # layer; earlier depth growth leaves them learning
     "undo": 3,                          # evaluations after a width growth before an unhelpful one is
@@ -83,7 +87,8 @@ class Agent:
         self.monitor = self.new_monitor()
         self.width = WidthGrowth(increment=p["increment"], max_size=p["max_width"],
                                  freeze_existing=p["freeze_old"])
-        self.pruning = Pruning(reasons=("invalid", "inactive"), inactive_after=5000, only_grown=True)
+        self.pruning = Pruning(reasons=("invalid", "inactive"), inactive_after=5000,
+                               only_grown=not p["prune_base"])
         self.depth_events, self.undo_events = [], []
         self.pending = None       # the last width growth: (evaluation, neurons added, score before,
                                   # neurons frozen before)
@@ -172,13 +177,14 @@ class Agent:
         older layer is frozen; before it they keep learning."""
         before = self.sizes()
         freeze = len(self.layers) + 1 >= self.p["freeze_from"]
+        size = self.p["deep_size"] or self.net.layer_size(self.newest)
         deep = grow_depth(self.net, self.newest, readers=self.readouts,
-                          spec=self.adaptive_spec(self.p["deep_size"]),
+                          spec=self.adaptive_spec(size),
                           name=f"er{len(self.layers) + 1}", freeze_previous=freeze)
         if freeze:
             for layer in self.layers[:-1]:
                 self.net.freeze_neurons(layer, 0, self.net.layer_size(layer))
-        self.net.set_minimum_size(deep, self.p["deep_size"])
+        self.net.set_minimum_size(deep, min(self.p["deep_minimum"] or size, size))
         self.tune(deep)
         self.layers.append(deep)
         self.monitor = self.new_monitor()
