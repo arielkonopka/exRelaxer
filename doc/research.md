@@ -2049,6 +2049,12 @@ The fixed ER(16) at 0.5 or 0.75 is the best Snake player so far (9.7), and growt
 apples there. Likely cause (not tested): the first depth growth, at game 500-650, freezes the
 16-neuron layer, which the fixed network keeps training for 12,000 games.
 
+**Freezing only from the 4th layer closes most of that gap.** With `freeze_from=4` the first three
+adaptive layers keep learning through depth growth (the 4th freezes all older ones). Sizes are
+unchanged (24-32 neurons), scores rise: 9.0 → 9.4 (8.9–9.9) at recovery 0.5 and 8.9 → 9.5
+(9.3–9.8) at 0.75, against 9.7 for the fixed ER(16); at 0.9 nothing changes (8.2, = fixed). So the
+early freeze was most of the cost of depth growth, and growth still does not beat the right size.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
