@@ -163,6 +163,7 @@ NB_MODULE(_core, m)
     constants.attr("habituation_steps") = habituation_steps;
     constants.attr("habituation_epsilon") = habituation_epsilon;
     constants.attr("recovery_factor") = recovery_factor;
+    constants.attr("legacy_recovery_factor") = legacy_recovery_factor;
     constants.attr("min_threshold") = min_threshold;
     constants.attr("spontaneous_min_amplitude") = spontaneous_min_amplitude;
     constants.attr("firing_epsilon") = firing_epsilon;

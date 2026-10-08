@@ -55,7 +55,7 @@ void neuron::randomizeRecovery(const Jitter& jitter)
     // so they stay symmetric and valid.
     recovery_ = jitter.enabled()
         ? drawJitter(jitter, recovery_factor, 0.01f, 0.999f, [](float c) { return 1.0f - c; })
-        : recovery_factor;
+        : std::clamp(jitter.mean.value_or(recovery_factor), 0.01f, 0.999f);
 }
 
 void neuron::randomizeLearningGain(const Jitter& jitter)
@@ -63,7 +63,7 @@ void neuron::randomizeLearningGain(const Jitter& jitter)
     learning_gain_ = jitter.enabled()
         ? drawJitter(jitter, default_learning_gain, 0.0f, std::numeric_limits<float>::infinity(),
                      [](float c) { return std::abs(c); })
-        : default_learning_gain;
+        : std::max(jitter.mean.value_or(default_learning_gain), 0.0f);
 }
 
 void neuron::randomizeAlpha(const Jitter& jitter)
@@ -71,7 +71,7 @@ void neuron::randomizeAlpha(const Jitter& jitter)
     alpha_ = jitter.enabled()
         ? drawJitter(jitter, default_alpha, 0.0f, std::numeric_limits<float>::infinity(),
                      [](float c) { return std::abs(c); })
-        : default_alpha;
+        : std::max(jitter.mean.value_or(default_alpha), 0.0f);
 }
 
 void neuron::randomizeDynamics(const Jitter& recovery, const Jitter& learning, const Jitter& alpha)

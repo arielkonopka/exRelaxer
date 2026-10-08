@@ -23,7 +23,7 @@ trace formulas by `tests/traces.cpp`.
 | y_i(*t*) | neuron *i*'s **output** at *t*: the value readers see |
 | θ_i(*t*) | E-R **threshold** after tick *t* |
 | ρ | resting (**baseline**) threshold, `LayerSpec::restingThreshold`, default 0.2 |
-| r | E-R recovery, per neuron, default 0.9 |
+| r | E-R recovery, per neuron, default 0.5 (0.9 before 2026-10-08) |
 | c_i(*t*), p_i(*t*) | habituation streak and the previous raw sum it compares against |
 | P_i(*t*), X_ij(*t*) | **eligibility traces**: output trace and input trace |
 | e_i(*t*) | the Sign rule's **eligibility** (from θ, see below) |

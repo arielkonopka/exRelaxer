@@ -46,6 +46,12 @@ from exrelaxer import harness as nnt
 EPS = exr.constants.firing_epsilon
 
 
+def recovery_jitter(r):
+    """Every neuron gets recovery r: 0.9 (the library default when this was
+    written) exactly, anything else via a jitter of negligible width."""
+    return (exr.Jitter.uniform(1e-7) if r != 0.9 else exr.Jitter.none()).around(r)
+
+
 def build(p):
     """Returns the network, the learner, and the layers reset per episode."""
     spec = exr.LayerSpec.dense(1, False, p["neuron"] == "er")
@@ -58,8 +64,8 @@ def build(p):
         spec.learning_rule = exr.LearningRule.eprop(p["trace"])
     elif p["rule"] != "sign":
         raise ValueError("rule must be sign, trace, eligibility or eprop")
-    if p["neuron"] == "er" and p["recovery"] != exr.constants.recovery_factor:
-        spec.recovery_jitter = exr.Jitter.uniform(1e-7).around(p["recovery"])
+    if p["neuron"] == "er":
+        spec.recovery_jitter = recovery_jitter(p["recovery"])
     if p["neuron"] not in ("er", "linear"):
         raise ValueError("neuron must be er or linear")
     net = exr.Network()
@@ -74,8 +80,7 @@ def build(p):
     rspec = exr.LayerSpec.dense(size, False, True)
     rspec.normalize = False
     rspec.frozen = True
-    if p["relay_recovery"] != exr.constants.recovery_factor:
-        rspec.recovery_jitter = exr.Jitter.uniform(1e-7).around(p["relay_recovery"])
+    rspec.recovery_jitter = recovery_jitter(p["relay_recovery"])
     relay = net.add_layer("relay", rspec)
     tap = net.add_layer("relay_state", exr.LayerSpec.state(output=False, threshold=True, habituation=False))
     n = net.add_layer("n", spec)

@@ -420,6 +420,22 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-08: default E-R recovery 0.5
+
+- `recovery_factor` 0.5 (was 0.9): a silent E-R neuron's threshold halves
+  each tick. On Snake a fixed 16-neuron E-R net scored 9.7 apples per game
+  at 0.5 against 8.2 at 0.9 (research log §31).
+- Networks saved before (format 19 or older) keep 0.9: their neurons load
+  the recovery they were saved with, and neurons they grow or reset get 0.9
+  (`legacy_recovery_factor`, Python `constants.legacy_recovery_factor`).
+- A disabled jitter with a centre, `Jitter::none().around(x)` (Python
+  `Jitter.none().around(x)`), gives every neuron exactly x.
+- Experiments with a `recovery` parameter keep 0.9 as their default, so
+  their documented results still reproduce; the rest (Doom, GoE, examples)
+  now run at 0.5. Tests that measure E-R memory over several ticks are
+  pinned to 0.9: at 0.5 the sequence-order test drops from 100 to 31 of
+  100 and the 3-number sequence detection falls to chance.
+
 ### 2026-10-01: Gardens of Eris: designed networks, growing sight, build
 
 - `./build.sh --goe` clones [Gardens of Eris](https://github.com/arielkonopka/Gardens-of-Eris)

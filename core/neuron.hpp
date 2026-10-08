@@ -37,7 +37,8 @@ enum class DeserializeMode {
 // --- Tunable constants shared by every neuron ---------------------------
 inline constexpr float habituation_epsilon = 0.0000000001f; // max |sum - previous_input| still counted as "the same signal"
 inline constexpr int habituation_steps = 100;               // consecutive "same signal" steps before it's zeroed out
-inline constexpr float recovery_factor = 0.9f;              // default per-step multiplicative threshold decay while not firing (0 < b < 1)
+inline constexpr float recovery_factor = 0.5f;              // default per-step multiplicative threshold decay while not firing (0 < b < 1)
+inline constexpr float legacy_recovery_factor = 0.9f;       // the default before 2026-10-08 (files older than format 20 keep it)
 inline constexpr float min_threshold = 0.0000000001f;       // threshold floor; at/below this, spontaneous firing kicks in
 inline constexpr float spontaneous_min_amplitude = 0.1f;    // default +/- amplitude of spontaneous (dormant) firing
 inline constexpr float legacy_spontaneous_amplitude = 0.01f; // the amplitude before 2026-09-28 (files older than format 15)
@@ -68,6 +69,7 @@ inline constexpr std::uint64_t max_serialized_weights = std::uint64_t{1} << 26;
 //   Jitter::uniform(0.3f).within(0.5f, 2.0f)   draws outside [0.5, 2.0] redrawn
 //   Jitter::uniformRelative()                  +-50% of the parameter's scale
 //   Jitter::normalRelative(0.2f)               sd = 20% of the scale
+//   Jitter::none().around(0.9f)                no variation: every neuron gets 0.9
 //
 // Relative spreads are a fraction of the parameter's scale: for the learning
 // gain and alpha their centre value (gain 2 +-50% = 1..3, alpha 2 +-50% =
@@ -229,7 +231,8 @@ public:
     // learning gain: multiplies weight updates, >= 0, default default_learning_gain.
     // alpha: E-R threshold growth rate of the Log rule, >= 0, default default_alpha.
     // randomize* draws the value from `jitter` using the jitter random
-    // stream; a disabled jitter sets the default and draws nothing.
+    // stream; a disabled jitter sets its centre (the default if unset) and
+    // draws nothing.
     void randomizeRecovery(const Jitter& jitter);
     void randomizeLearningGain(const Jitter& jitter);
     void randomizeAlpha(const Jitter& jitter);

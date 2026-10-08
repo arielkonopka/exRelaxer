@@ -248,7 +248,7 @@ design.
 
 See `TopologyComparison` for the current ranking (20 trials each). Error-driven
 reward unless noted. Trials: 50, or 10 for screening runs. Unless a row says
-otherwise, results were measured with recovery 0.9 (the current default;
+otherwise, results were measured with recovery 0.9 (the default until 2026-10-08, now 0.5;
 it was 0.8 for a while, which mainly moves E-R results: the test comments
 give both where measured), baseline threshold 0.1 and the log threshold
 growth rule (now 0.2 and linear). Learning gain: 1.5 for the test results,

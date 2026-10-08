@@ -672,6 +672,10 @@ struct SequenceNet
         taps.setWeights(0, {1.0f});
         taps.setWeights(1, {1.0f});
         delay.setWeights(0, {1.0f, 0.0f}); // reads taps[0], ignores taps[1]
+
+        // Measured at recovery 0.9 (the default before network format 20).
+        for (dense* layer : {&taps, &delay, &hidden, &out})
+            layer->setRecoveryJitter(Jitter::none().around(legacy_recovery_factor));
     }
 
     // One time step. delay steps before taps, so it still sees the previous tick's taps[0].
@@ -828,8 +832,9 @@ TEST(DenseLayerTest, SequenceOrderLearningWithAndWithoutER)
     }
     std::cout << "==========================================\n";
 
-    // Measured (3 rest ticks between presentations), recovery_factor 0.8
-    // (0.9 in brackets):
+    // Measured (3 rest ticks between presentations), recovery 0.8 (0.9 in
+    // brackets; the test runs at 0.9). At recovery 0.5 thresholds relax too
+    // far in the rest ticks: hidden+out 16/100, all layers 31/100.
     //   E-R off             99/100 correct, control 5
     //   E-R on hidden+out   43/100 (29), control 1
     //   E-R on all layers   87/100 (100), control 0
