@@ -27,6 +27,8 @@ doc/ folder); this package binds them with nanobind.
     ys = net.run(np.zeros((100, 2), np.float32))   # 100 ticks in one call: 100 x 1
 """
 from ._core import (  # noqa: F401
+    ActivityMonitor,
+    ActivitySpec,
     CochleaSpec,
     Compression,
     CriticSpec,
@@ -52,6 +54,7 @@ from ._core import (  # noqa: F401
     Shape,
     Spontaneous,
     ThresholdGrowth,
+    TickState,
     WeightInit,
     Window2D,
     build_info,

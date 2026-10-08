@@ -167,3 +167,178 @@ TEST(MinimumSizeTest, StartsFromOneNeuron)
     p.net.pruneNeurons(p.h, {1, 2, 3});
     EXPECT_EQ(p.net.getLayer(p.h).size(), 1u);
 }
+
+namespace {
+
+// x (one sensor) -> h (E-R, plain weighted sums, weights 1) -> out
+struct Watched
+{
+    network net;
+    network::LayerId h, out;
+
+    explicit Watched(size_t size = 4, float recovery = recovery_factor)
+    {
+        reseed(9);
+        LayerSpec spec = LayerSpec::Dense(size, false, true);
+        spec.normalize = false;
+        h = net.addLayer("h", spec);
+        out = net.addLayer("out", LayerSpec::Dense(2, false, false));
+        net.addInputs(h, 1, "x");
+        net.connect(h, out);
+        net.addOutput(out);
+        auto& layer = net.layerAs<dense>(h);
+        for (size_t i = 0; i < size; ++i) {
+            layer.setWeights(i, {1.0f});
+            layer.neurons()[i].setRecovery(recovery);
+        }
+    }
+    dense& layer() { return net.layerAs<dense>(h); }
+    void tick(activity_monitor& m, float x)
+    {
+        net.setInputs("x", std::vector<float>{x});
+        net.step();
+        m.observe(layer());
+    }
+};
+
+bool has(const std::vector<network::PruneCandidate>& c, size_t index, std::uint32_t reason)
+{
+    for (const auto& k : c)
+        if (k.index == index)
+            return (k.reasons & reason) != 0;
+    return false;
+}
+
+} // namespace
+
+TEST(PruneCandidatesTest, InvalidZeroDisconnectedAndUnread)
+{
+    Watched w(4);
+    w.layer().setWeights(1, {std::nanf("")});
+    w.layer().setWeights(2, {0.0f});
+    auto c = w.net.pruneCandidates(w.h);
+    EXPECT_TRUE(has(c, 1, network::Invalid));
+    EXPECT_TRUE(has(c, 2, network::ZeroIncoming));
+    EXPECT_FALSE(has(c, 0, network::Invalid | network::ZeroIncoming | network::Unread));
+    EXPECT_FALSE(has(c, 3, network::Invalid | network::ZeroIncoming | network::Unread));
+
+    // Grown with zero outgoing weights: nothing reads them yet.
+    w.net.growLayer(w.h, 2);
+    c = w.net.pruneCandidates(w.h);
+    EXPECT_TRUE(has(c, 4, network::Unread));
+    EXPECT_TRUE(has(c, 5, network::Unread));
+    EXPECT_FALSE(has(c, 0, network::Unread));
+    // The readout learns to read neuron 4: no longer a candidate for that.
+    auto& out = w.net.layerAs<dense>(w.out);
+    std::vector<float> row = out.weights(0);
+    row[4] = 0.5f;
+    out.setWeights(0, row);
+    EXPECT_FALSE(has(w.net.pruneCandidates(w.h), 4, network::Unread));
+
+    // A layer that reads nothing; an output layer is always read.
+    const auto lonely = w.net.addLayer("lonely", LayerSpec::Dense(2, false, true));
+    w.net.addOutput(lonely);
+    c = w.net.pruneCandidates(lonely);
+    ASSERT_EQ(c.size(), 2u);
+    EXPECT_EQ(c[0].reasons, network::Disconnected);
+    // Nothing is removed by asking.
+    EXPECT_EQ(w.layer().size(), 6u);
+}
+
+TEST(PruneCandidatesTest, PersistentInactivityButNotFatigue)
+{
+    // Neuron 0 gets no input (weight 0); neuron 1 is fatigued by a strong
+    // pulse and recovers slowly; neurons 2, 3 also fatigued.
+    Watched w(4, 0.999f);
+    w.layer().setWeights(0, {0.0f});
+    activity_monitor m;
+    for (int t = 0; t < 3; ++t)
+        w.tick(m, 5.0f);
+    for (int t = 0; t < 300; ++t)
+        w.tick(m, 0.5f);
+    EXPECT_EQ(m.state(0), TickState::NoInput);
+    EXPECT_EQ(m.state(1), TickState::Fatigued);
+    EXPECT_GE(m.inactiveTicks(0), 300u);
+    EXPECT_EQ(m.inactiveTicks(1), 0u);  // silent for 300 ticks, but only fatigued
+    const auto c = w.net.pruneCandidates(w.h, &m, 200);
+    EXPECT_TRUE(has(c, 0, network::Inactive));
+    EXPECT_FALSE(has(c, 1, network::Inactive));
+}
+
+TEST(LifoPruningTest, NewestGrownNeuronGoesFirst)
+{
+    Watched w(4);
+    w.net.setMinimumSize(w.h, 4);
+    w.net.growLayer(w.h, 1);  // A: index 4
+    w.net.growLayer(w.h, 1);  // B: index 5
+    w.net.growLayer(w.h, 1);  // C: index 6
+    auto& h = w.layer();
+    const std::vector<float> a = h.weights(4), b = h.weights(5);
+    w.layer().setWeights(4, {0.25f});
+    w.layer().setWeights(5, {0.5f});
+
+    EXPECT_EQ(w.net.pruneNewest(w.h), (std::vector<size_t>{6}));  // C
+    EXPECT_EQ(h.size(), 6u);
+    EXPECT_EQ(h.weights(4), std::vector<float>{0.25f});  // A remains
+    EXPECT_EQ(h.weights(5), std::vector<float>{0.5f});   // B remains
+    EXPECT_EQ(w.net.pruneNewest(w.h), (std::vector<size_t>{5}));  // B
+    EXPECT_EQ(h.weights(4), std::vector<float>{0.25f});
+    // Asking for more than there is: only grown neurons, never below the minimum.
+    EXPECT_EQ(w.net.pruneNewest(w.h, 10), (std::vector<size_t>{4}));
+    EXPECT_TRUE(w.net.pruneNewest(w.h, 10).empty());
+    EXPECT_EQ(h.size(), 4u);
+
+    // A floor below the base size.
+    Watched v(4);
+    v.net.setMinimumSize(v.net.findLayer("h"), 3);
+    v.net.growLayer(v.h, 3);
+    EXPECT_EQ(v.net.pruneNewest(v.h, 10), (std::vector<size_t>{6, 5, 4}));
+    EXPECT_EQ(v.layer().size(), 4u);  // the floor (3) would allow one more, but LIFO never takes base neurons
+}
+
+TEST(SaturationTest, TemporaryFatigueIsNotSaturation)
+{
+    Watched w(4);  // default recovery 0.9: thresholds come back down within ~20 ticks
+    activity_monitor m({.window = 100});
+    for (int t = 0; t < 3; ++t)
+        w.tick(m, 5.0f);
+    w.tick(m, 0.5f);
+    EXPECT_TRUE(m.saturatedTick());  // a silent, fatigued tick...
+    EXPECT_FALSE(m.saturated());     // ...is not saturation
+    for (int t = 0; t < 300; ++t)
+        w.tick(m, 0.5f);
+    EXPECT_FALSE(m.saturated());
+    EXPECT_LT(m.saturation(), 0.9f);
+}
+
+TEST(SaturationTest, PersistentSilenceWithRaisedThresholdsAndInput)
+{
+    Watched w(4, 0.999f);  // slow recovery: thresholds stay above the input
+    activity_monitor m({.window = 100});
+    for (int t = 0; t < 3; ++t)
+        w.tick(m, 5.0f);
+    for (int t = 0; t < 50; ++t)
+        w.tick(m, 0.5f);
+    EXPECT_FALSE(m.saturated());  // window not full yet
+    for (int t = 0; t < 100; ++t)
+        w.tick(m, 0.5f);
+    EXPECT_TRUE(m.saturated());
+    EXPECT_FLOAT_EQ(m.saturation(), 1.0f);
+
+    // Without input the population is silent too, but that is not saturation.
+    activity_monitor quiet({.window = 100});
+    Watched v(4, 0.999f);
+    for (int t = 0; t < 3; ++t)
+        v.tick(quiet, 5.0f);
+    for (int t = 0; t < 200; ++t)
+        v.tick(quiet, 0.0f);
+    EXPECT_FALSE(quiet.saturated());
+
+    // Growth resets the monitor: new neurons are judged from their first tick.
+    w.net.growLayer(w.h, 2);
+    w.layer().setWeights(4, {1.0f});
+    w.tick(m, 0.5f);
+    EXPECT_EQ(m.ticks(), 1u);
+    EXPECT_FALSE(m.saturated());
+    EXPECT_EQ(m.state(4), TickState::Fired);  // fresh threshold: the input fires it
+}

@@ -272,6 +272,74 @@ std::vector<size_t> network::grownNeurons(LayerId id) const
     return out;
 }
 
+std::vector<size_t> network::pruneNewest(LayerId id, size_t count)
+{
+    const dense& target = denseLayer(id, "pruneNewest");
+    const size_t floor = this->nodes[id].spec.minimumSize;
+    const size_t room = target.size() > floor ? target.size() - floor : 0;
+    std::vector<size_t> grown = grownNeurons(id);
+    std::ranges::sort(grown, [&](size_t a, size_t b) { return target.growthOrder(a) > target.growthOrder(b); });
+    grown.resize(std::min({count, room, grown.size()}));
+    std::vector<size_t> removed = grown;
+    pruneNeurons(id, std::move(grown));
+    return removed;
+}
+
+std::vector<network::PruneCandidate> network::pruneCandidates(LayerId id, const activity_monitor* activity,
+                                                              size_t inactiveAfter) const
+{
+    checkId(id);
+    const auto* target = dynamic_cast<const dense*>(this->nodes[id].impl.get());
+    if (!target)
+        throw std::invalid_argument("network::pruneCandidates: layer '" + this->nodes[id].name + "' is not a Dense layer");
+    if (activity && activity->size() != target->size() && activity->ticks() > 0)
+        throw std::invalid_argument("network::pruneCandidates: the activity monitor watches a layer of another size");
+
+    // Read as a whole: an output layer, or a feature of the critic or the curiosity model.
+    const auto listed = [id](const std::vector<LayerId>& layers) { return std::ranges::find(layers, id) != layers.end(); };
+    bool read_whole = listed(this->outputs_) ||
+                      (this->critic_ && listed(this->critic_->spec().layers)) ||
+                      (this->curiosity_ && (listed(this->curiosity_->spec().fromLayers) ||
+                                            listed(this->curiosity_->spec().predictLayers)));
+    std::vector<const dense*> readers;
+    for (const Edge& e : this->edges_) {
+        if (e.from != id)
+            continue;
+        const auto* reader = dynamic_cast<const dense*>(this->nodes[e.to].impl.get());
+        if (!reader)
+            read_whole = true;  // a reader without per-input weights (e.g. State): counts as reading
+        else if (std::ranges::find(readers, reader) == readers.end())
+            readers.push_back(reader);
+    }
+
+    std::vector<PruneCandidate> out;
+    const auto neurons = target->neurons();
+    for (size_t i = 0; i < target->size(); ++i) {
+        std::uint32_t reasons = 0;
+        const std::vector<float> w = target->weights(i);
+        const neuron& n = neurons[i];
+        const bool finite = std::ranges::all_of(w, [](float v) { return std::isfinite(v); }) &&
+                            std::isfinite(target->bias(i)) && std::isfinite(n.threshold()) &&
+                            std::isfinite(n.output());
+        if (!finite)
+            reasons |= Invalid;
+        if (w.empty())
+            reasons |= Disconnected;
+        else if (std::ranges::all_of(w, [](float v) { return v == 0.0f; }))
+            reasons |= ZeroIncoming;
+        if (!read_whole) {
+            const InputRange me(target->outputBuffer(), i, 1);
+            if (std::ranges::none_of(readers, [&](const dense* r) { return r->maxAbsWeightFrom(me) > 0.0f; }))
+                reasons |= Unread;
+        }
+        if (activity && activity->size() == target->size() && activity->inactiveTicks(i) >= inactiveAfter)
+            reasons |= Inactive;
+        if (reasons != 0)
+            out.push_back({i, reasons});
+    }
+    return out;
+}
+
 void network::freezeNeurons(LayerId id, size_t first, size_t count, bool frozen)
 {
     neuronLayer(id).setNeuronsFrozen(first, count, frozen);

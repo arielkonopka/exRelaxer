@@ -86,6 +86,8 @@ float neuron::activate(float weightedSum)
     // Bounded before habituation and E-R see it, so recurrent loops can't
     // run away and the threshold (grown from this value) stays finite.
     float sum = std::clamp(weightedSum, -max_output, max_output);
+    last_sum_ = sum;
+    last_threshold_ = threshold_;
 
     if (has_habituation_) {
         // Branchless habituation update:
@@ -111,8 +113,10 @@ float neuron::activate(float weightedSum)
         // inputs and outputs can be negative, the threshold is always positive.
         if (std::abs(sum) > threshold_) {
             excite(sum);
+            last_firing_ = Firing::Fired;
         } else {
             output_ = 0.0f;
+            last_firing_ = Firing::Silent;
             threshold_ *= recovery_;
             // Draws only when a rate is set, so the default keeps the
             // generator's sequence.
@@ -125,13 +129,16 @@ float neuron::activate(float weightedSum)
                 // fires spontaneously, which re-excites the threshold through
                 // excite().
                 excite(spontaneousOutput());
+                last_firing_ = Firing::Spontaneous;
             }
         }
+        return output_;
     } else if (rectified_ ? sum <= gate_ : gate_ > 0.0f && std::abs(sum) <= gate_) {
         output_ = 0.0f;  // fixed threshold (one-sided when rectified): all-or-nothing, without adaptation
     } else if (binary_) {
         output_ = kernels::sign(sum);  // a perceptron: whether it passed, not by how much
     }
+    last_firing_ = output_ != 0.0f ? Firing::Fired : Firing::Silent;
     return output_;
 }
 

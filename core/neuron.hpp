@@ -258,6 +258,15 @@ public:
     // (clamped, pre-habituation) sum of the last tick it compares against.
     int habituationStreak() const { return habituation_counter_; }
     float previousInput() const { return previous_input_; }
+    // The last tick, for activity monitors (development.hpp): the clamped
+    // raw sum before habituation, the E-R threshold the tick started with,
+    // and whether the neuron fired on its input, fired spontaneously, or
+    // stayed silent. Not saved (a loaded neuron reports a silent tick with
+    // sum 0 until it steps).
+    enum class Firing : std::uint8_t { Silent, Fired, Spontaneous };
+    float lastSum() const { return last_sum_; }
+    float lastThreshold() const { return last_threshold_; }
+    Firing lastFiring() const { return last_firing_; }
     // Without E-R: a fixed firing threshold. An effective sum with
     // |sum| <= gate gives output 0, a larger one passes unchanged. 0 (the
     // default) keeps the neuron linear. Ignored with E-R, whose threshold
@@ -326,6 +335,9 @@ private:
     bool has_habituation_;
     bool has_er_;
     float output_ = 0.0f;
+    float last_sum_ = 0.0f;        // probe: the last tick's clamped raw sum
+    float last_threshold_ = 0.0f;  // probe: the threshold the last tick started with
+    Firing last_firing_ = Firing::Silent;  // probe
     float alpha_;
     float recovery_ = recovery_factor;
     float learning_gain_ = default_learning_gain;
