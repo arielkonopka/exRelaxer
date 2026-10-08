@@ -5,6 +5,7 @@
 #include <array>
 #include <functional>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <queue>
 #include <stdexcept>
@@ -285,16 +286,12 @@ std::vector<size_t> network::pruneNewest(LayerId id, size_t count)
     return removed;
 }
 
-std::vector<network::PruneCandidate> network::pruneCandidates(LayerId id, const activity_monitor* activity,
-                                                              size_t inactiveAfter) const
+std::vector<float> network::readStrength(LayerId id) const
 {
     checkId(id);
     const auto* target = dynamic_cast<const dense*>(this->nodes[id].impl.get());
     if (!target)
-        throw std::invalid_argument("network::pruneCandidates: layer '" + this->nodes[id].name + "' is not a Dense layer");
-    if (activity && activity->size() != target->size() && activity->ticks() > 0)
-        throw std::invalid_argument("network::pruneCandidates: the activity monitor watches a layer of another size");
-
+        throw std::invalid_argument("network::readStrength: layer '" + this->nodes[id].name + "' is not a Dense layer");
     // Read as a whole: an output layer, or a feature of the critic or the curiosity model.
     const auto listed = [id](const std::vector<LayerId>& layers) { return std::ranges::find(layers, id) != layers.end(); };
     bool read_whole = listed(this->outputs_) ||
@@ -312,6 +309,30 @@ std::vector<network::PruneCandidate> network::pruneCandidates(LayerId id, const 
             readers.push_back(reader);
     }
 
+    std::vector<float> out(target->size(), std::numeric_limits<float>::infinity());
+    if (read_whole)
+        return out;
+    for (size_t i = 0; i < target->size(); ++i) {
+        const InputRange me(target->outputBuffer(), i, 1);
+        float strength = 0.0f;
+        for (const dense* r : readers)
+            strength = std::max(strength, r->maxAbsWeightFrom(me));
+        out[i] = strength;
+    }
+    return out;
+}
+
+std::vector<network::PruneCandidate> network::pruneCandidates(LayerId id, const activity_monitor* activity,
+                                                              size_t inactiveAfter) const
+{
+    checkId(id);
+    const auto* target = dynamic_cast<const dense*>(this->nodes[id].impl.get());
+    if (!target)
+        throw std::invalid_argument("network::pruneCandidates: layer '" + this->nodes[id].name + "' is not a Dense layer");
+    if (activity && activity->size() != target->size() && activity->ticks() > 0)
+        throw std::invalid_argument("network::pruneCandidates: the activity monitor watches a layer of another size");
+
+    const std::vector<float> read = readStrength(id);
     std::vector<PruneCandidate> out;
     const auto neurons = target->neurons();
     for (size_t i = 0; i < target->size(); ++i) {
@@ -327,11 +348,8 @@ std::vector<network::PruneCandidate> network::pruneCandidates(LayerId id, const 
             reasons |= Disconnected;
         else if (std::ranges::all_of(w, [](float v) { return v == 0.0f; }))
             reasons |= ZeroIncoming;
-        if (!read_whole) {
-            const InputRange me(target->outputBuffer(), i, 1);
-            if (std::ranges::none_of(readers, [&](const dense* r) { return r->maxAbsWeightFrom(me) > 0.0f; }))
-                reasons |= Unread;
-        }
+        if (!(read[i] > 0.0f))
+            reasons |= Unread;
         if (activity && activity->size() == target->size() && activity->inactiveTicks(i) >= inactiveAfter)
             reasons |= Inactive;
         if (reasons != 0)

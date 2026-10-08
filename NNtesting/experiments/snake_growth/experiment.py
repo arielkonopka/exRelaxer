@@ -54,6 +54,10 @@ DEFAULTS = {
     "deep_minimum": 0,                  # protected size of such a layer; 0: deep_size
     "prune_base": False,                # pruning may also remove a layer's original neurons (never
                                         # below its minimum), not only grown ones
+    "prune_weak": False,                # also prune neurons the next layers barely read (Pruning
+                                        # "weak": read strength < weak_fraction x the layer mean,
+                                        # judged after weak_after ticks)
+    "weak_fraction": 0.2, "weak_after": 20000,
     "freeze_from": 2,                   # adding adaptive layer number >= this freezes every older
                                         # layer; earlier depth growth leaves them learning
     "undo": 3,                          # evaluations after a width growth before an unhelpful one is
@@ -87,8 +91,9 @@ class Agent:
         self.monitor = self.new_monitor()
         self.width = WidthGrowth(increment=p["increment"], max_size=p["max_width"],
                                  freeze_existing=p["freeze_old"])
-        self.pruning = Pruning(reasons=("invalid", "inactive"), inactive_after=5000,
-                               only_grown=not p["prune_base"])
+        self.pruning = Pruning(reasons=("invalid", "inactive") + (("weak",) if p["prune_weak"] else ()),
+                               inactive_after=5000, only_grown=not p["prune_base"],
+                               weak_fraction=p["weak_fraction"], weak_after=p["weak_after"])
         self.depth_events, self.undo_events = [], []
         self.pending = None       # the last width growth: (evaluation, neurons added, score before,
                                   # neurons frozen before)

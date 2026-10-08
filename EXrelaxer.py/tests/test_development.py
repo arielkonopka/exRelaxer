@@ -154,6 +154,21 @@ def test_pruning_policy_respects_minimum_and_prefers_newest():
     assert prune.update(net, h) == []  # at the minimum: base neurons stay, even invalid ones
 
 
+def test_read_strength_and_weak_pruning():
+    net, h, out = watched(4)
+    assert np.all(np.isinf(net.read_strength(out)))  # an output layer is read as a whole
+    for j, w in enumerate(([0.5, 0.01, -0.6, 0.0], [0.4, 0.02, 0.1, 0.0])):
+        net.set_weights(out, j, w)
+    assert np.allclose(net.read_strength(h), [0.5, 0.02, 0.6, 0.0])
+    assert [i for i, why in net.prune_candidates(h) if "unread" in why] == [3]
+    prune = Pruning(reasons=("weak",), weak_fraction=0.2, weak_after=10)
+    assert prune.candidates(net, h, tick=0) == []      # too young to judge
+    assert prune.candidates(net, h, tick=9) == []
+    assert prune.candidates(net, h, tick=10) == [3, 1]  # below 0.2 x mean 0.28
+    net.set_minimum_size(h, 3)
+    assert prune.update(net, h, tick=10) == [3]         # the minimum leaves room for one
+
+
 def test_plateau_needs_improvement_then_a_plateau():
     p = Plateau(baseline=0.40, patience=3)
     assert not any(p.update(s) for s in [0.40, 0.38, 0.39, 0.40, 0.37, 0.40, 0.40])  # never better

@@ -188,6 +188,11 @@ public:
     // this layer; Inactive needs it.
     std::vector<PruneCandidate> pruneCandidates(LayerId id, const activity_monitor* activity = nullptr,
                                                 size_t inactiveAfter = 1000) const;
+    // How strongly each neuron of a Dense layer is read: the largest |weight|
+    // any Dense reader gives it (0: unread). A layer read as a whole (an
+    // output, a critic or curiosity feature, a reader without per-input
+    // weights) reads every neuron fully: +infinity.
+    std::vector<float> readStrength(LayerId id) const;
     // Freezes (or unfreezes) single neurons of a layer: they run but do not
     // learn (see neuron_layer::setNeuronsFrozen).
     void freezeNeurons(LayerId id, size_t first, size_t count, bool frozen = true);

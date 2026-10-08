@@ -2063,6 +2063,14 @@ the fixed ER(16) (9.7) and above 4-neuron depth growth (9.4, 9.5); at 0.9 it is 
 (7.6–7.8) against 8.2. So a full-width layer removes the remaining cost of depth growth at fast
 recovery but adds nothing beyond the fixed network, at four to five times the neurons.
 
+**Pruning what nobody reads** (`Network.read_strength`, Pruning reason "weak": read strength below
+0.2 x the layer's mean, judged 20,000 ticks after the layer appears). Wide depth growth plus weak
+pruning ends at 31-37 neurons instead of 64-80; the newest layer always shrinks to its minimum (3),
+older ones to 3-11. Scores: 9.4 (9.2–9.6) at recovery 0.5 (wide unpruned 9.8), 9.7 (9.6–9.9) at
+0.75 (= fixed ER(16) and wide unpruned, at half the neurons of the latter), 8.2 (7.8–8.5) at 0.9 (=
+fixed; wide unpruned 7.7). At 0.9 a 3-neuron layer saturates, so width growth and pruning churn
+(39 widenings, 78 prunings over 3 seeds) before the size settles.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
