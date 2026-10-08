@@ -780,6 +780,11 @@ NB_MODULE(_core, m)
             "Neurons of a Dense layer that may be unnecessary, as (index, [reasons]): invalid (NaN or inf),\n"
             "disconnected, zero_incoming, unread (no reader weight), inactive (with an ActivityMonitor).\n"
             "Nothing is removed.")
+        .def(
+            "read_strength",
+            [](const network& net, LayerId id) { return toNumpy(net.readStrength(id)); }, "layer"_a,
+            "Per neuron of a Dense layer: the largest |weight| any Dense reader gives it (0: unread;\n"
+            "inf: the layer is read as a whole, e.g. an output layer).")
         .def("grown_neurons", &network::grownNeurons, "layer"_a,
              "Indices of the neurons grow_layer added; the others are the layer's base neurons.")
         .def(

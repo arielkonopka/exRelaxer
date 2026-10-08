@@ -26,6 +26,8 @@ each usable without the other.
 """
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from ._core import LayerSpec, WeightInit
 
 
@@ -75,6 +77,11 @@ class Pruning:
                     with zero outgoing weights are unread until their readers learn.
     inactive_after  ticks without firing on input (fatigue not counted) before "inactive"
     only_grown      only grown neurons are removed (the base population is kept whole)
+    weak_fraction   the "weak" reason (off unless listed in reasons): a neuron its readers barely
+                    read, whose read strength (Network.read_strength: largest reader |weight|) is
+                    below weak_fraction x the layer's mean read strength
+    weak_after      ticks a layer is watched (update calls with a tick) before "weak" applies to it,
+                    so readers that start at zero (grow_depth) can learn first
 
     `events` lists (tick, [removed indices], size after) per pruning.
     """
@@ -82,20 +89,39 @@ class Pruning:
     reasons: tuple = ("invalid", "inactive")
     inactive_after: int = 2000
     only_grown: bool = False
+    weak_fraction: float = 0.2
+    weak_after: int = 20000
     events: list = field(default_factory=list)
+    first_seen: dict = field(default_factory=dict)
 
-    def candidates(self, net, layer, monitor=None):
+    def weak(self, net, layer, tick=None):
+        """Indices whose read strength is below weak_fraction x the layer mean (none before the layer
+        has been watched for weak_after ticks, or when the layer is read as a whole)."""
+        if tick is not None:
+            start = self.first_seen.setdefault(layer, tick)
+            if tick - start < self.weak_after:
+                return []
+        strength = np.asarray(net.read_strength(layer), dtype=np.float64)
+        if strength.size == 0 or not np.all(np.isfinite(strength)):
+            return []
+        limit = self.weak_fraction * strength.mean()
+        return [int(i) for i in np.flatnonzero(strength < limit)]
+
+    def candidates(self, net, layer, monitor=None, tick=None):
         """The indices that would be removed now, newest grown first."""
         order = net.growth_order(layer)
-        found = [i for i, why in net.prune_candidates(layer, monitor, self.inactive_after)
-                 if any(r in self.reasons for r in why) and (order[i] > 0 or not self.only_grown)]
+        found = {i for i, why in net.prune_candidates(layer, monitor, self.inactive_after)
+                 if any(r in self.reasons for r in why)}
+        if "weak" in self.reasons:
+            found.update(self.weak(net, layer, tick))
+        found = [i for i in found if order[i] > 0 or not self.only_grown]
         found.sort(key=lambda i: (order[i], i), reverse=True)
         room = net.layer_size(layer) - net.minimum_size(layer)
         return found[:max(room, 0)]
 
     def update(self, net, layer, monitor=None, tick=None):
         """Removes the candidates; returns their indices (as they were before)."""
-        chosen = self.candidates(net, layer, monitor)
+        chosen = self.candidates(net, layer, monitor, tick)
         if chosen:
             net.prune_neurons(layer, chosen)
             if monitor is not None:

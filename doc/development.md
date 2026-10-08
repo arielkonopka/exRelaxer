@@ -189,6 +189,14 @@ has relaxed below it, so in practice `inactive` means "receives no input". The `
 removes the chosen candidates newest grown first, within the minimum size (`only_grown=True` keeps
 the base population whole).
 
+`Network.read_strength(layer)` gives, per neuron, the largest |weight| any Dense reader gives it (0:
+unread; infinity: the layer is read as a whole). The `Pruning` policy's optional `weak` reason uses
+it: a neuron whose read strength is below `weak_fraction` x the layer's mean is one its readers
+barely use. A layer is judged only after `weak_after` ticks of `update` calls with a tick, so readers
+that start at zero (depth growth) can learn first. On Snake, wide depth growth plus `weak` pruning
+shrinks each new layer from 16 towards its minimum and plays as well as twice as many neurons
+(research log §31).
+
 ## 7. Buses
 
 Growth does not rewire: a new population subscribes to the buses that already exist.
@@ -284,6 +292,7 @@ net.growth_order(h); net.grown_neurons(h); net.prune_newest(h, 2); net.prune_can
 monitor = exr.ActivityMonitor(exr.ActivitySpec(window=200, saturated_share=0.5))
 WidthGrowth(increment=2, max_size=16).update(net, h, monitor)
 Pruning(reasons=("invalid", "inactive")).update(net, h, monitor)
+net.read_strength(h); Pruning(reasons=("weak",), weak_fraction=0.2, weak_after=20000).update(net, h, tick=t)
 Plateau(baseline=b, patience=4).update(score); grow_depth(net, h, readers=[out])
 ```
 
