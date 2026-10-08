@@ -187,6 +187,27 @@ settings) run with the benchmark harness `nntest`; see
 NNtesting/tools/compare.py results.jsonl
 ```
 
+### Continuous integration and Debian packages
+
+GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs
+on every pull request and push to `main`: it builds everything on Ubuntu
+24.04 (amd64), runs the whole CTest suite (unit tests, quick experiments,
+pytest), and builds two Debian packages, which it installs and smoke-tests:
+
+| Package | Contents |
+|---------|----------|
+| `libexrelaxer-dev` | `libexrelaxer_core.a`, headers in `/usr/include/exrelaxer`, the CMake package (`find_package(exrelaxer)`), `nntest` |
+| `python3-exrelaxer` | `import exrelaxer` for the system `python3` (3.12 on Ubuntu 24.04), and `exr-nntest` |
+
+The `.deb` files are the run's `debs-amd64` artifact; a `v1.2.3` tag also
+attaches them to a GitHub release. To build them locally from a build
+configured with `-DCMAKE_INSTALL_PREFIX=/usr -DEXRELAXER_BUILD_PYTHON=ON`:
+
+```bash
+packaging/build-debs.sh build dist     # needs dpkg-dev
+sudo apt install ./dist/*.deb
+```
+
 ## Python
 
 `EXrelaxer.py/` is the Python package `exrelaxer` (nanobind bindings): build
@@ -362,6 +383,8 @@ tests/
   filters.cpp                    filter banks, and bar-orientation learning with frozen Gabor features
   er_scales.hpp                  test inputs and timings relative to the E-R constants
 build.sh                         one command: build everything, run the tests, install
+packaging/build-debs.sh          Debian packages (libexrelaxer-dev, python3-exrelaxer) from a build
+.github/workflows/ci.yml         CI: build, all tests, Debian packages
 cmake/                           package config template, the installed-package test
 examples/consumer/               a separate program using the installed library (find_package)
 examples/doom_agent/             loads an evolved Doom agent (best.exr) in C++ and runs one game step
