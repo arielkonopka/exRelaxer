@@ -179,6 +179,7 @@ void dense::growNeurons(size_t count, size_t group)
         newNeuron();
         group_of_.push_back(no_group);
     }
+    markGrown(count);
     addGroup(std::move(grown));
     history_.clear();
     // Readers (this layer too, when the group reads it) get the new outputs.

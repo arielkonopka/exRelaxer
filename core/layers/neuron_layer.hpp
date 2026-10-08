@@ -104,6 +104,17 @@ public:
     bool neuronFrozen(size_t index) const { return frozen_.at(index) != 0; }
     size_t frozenNeuronCount() const;
 
+    // --- Grown neurons ------------------------------------------------------
+    // Which neurons were added by growth (dense::growNeurons) rather than
+    // built with the layer (construction, feedback): 0 for those, else the
+    // neuron's place in the order growth added them (1 = the first grown
+    // neuron ever, counting on across later growth even after pruning), so
+    // the newest grown neuron has the largest value. Not saved: replaying the
+    // network's history (see network::load) rebuilds it.
+    std::uint32_t growthOrder(size_t index) const { return growth_order_.at(index); }
+    bool neuronGrown(size_t index) const { return growthOrder(index) != 0; }
+    size_t grownNeuronCount() const;
+
     // Output trace P of a neuron after the last forward() (see learning.hpp;
     // 0 for the Sign rule, which keeps no traces). Read-only probe.
     float outputTrace(size_t index) const { return post_.empty() ? 0.0f : post_.at(index); }
@@ -231,6 +242,8 @@ protected:
     // Removes neurons (sorted, unique, in range) from this class's per-neuron
     // state; the derived layer removes its weights and wiring.
     void eraseNeuronState(std::span<const size_t> indices);
+    // Marks the last `count` neurons as grown, in index order (see growthOrder).
+    void markGrown(size_t count);
 
     // Per-neuron values the per-synapse rules use (size() entries each;
     // empty when the rule does not need them): the local derivatives of the
@@ -280,6 +293,8 @@ private:
     float resting_ = baseline_threshold;                         // likewise
     bool binary_ = false;                                        // likewise
     std::vector<std::uint8_t> frozen_;                           // per neuron: 1 = does not learn
+    std::vector<std::uint32_t> growth_order_;                    // per neuron: 0 = built with the layer, else see growthOrder
+    std::uint32_t grown_so_far_ = 0;                             // neurons growth has added, ever
 
     LearningRule rule_;
     bool normalized_ = false;         // likewise; see setNormalized

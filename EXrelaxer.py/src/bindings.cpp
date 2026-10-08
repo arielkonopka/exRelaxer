@@ -460,6 +460,9 @@ NB_MODULE(_core, m)
         .def_rw("binary", &LayerSpec::binary,
                 "Neurons without E-R: output the sign of a sum that passes the gate (1 / 0 with rectify).")
         .def_ro("bus", &LayerSpec::bus, "The layer is a bus (Network.add_bus).")
+        .def_rw("minimum_size", &LayerSpec::minimumSize,
+                "Dense: pruning never leaves fewer neurons (Network.set_minimum_size); 0 = no floor.")
+        .def_rw("grown", &LayerSpec::grown, "A tag: the layer was added by structural growth (doc/development.md).")
         .def_rw("window", &LayerSpec::window)
         .def_rw("pool", &LayerSpec::pool)
         .def_rw("retina_spec", &LayerSpec::retina)
@@ -674,6 +677,21 @@ NB_MODULE(_core, m)
         .def(
             "frozen_input_count", [](network& net, LayerId id) { return layerAs<dense>(net, id, "Dense").frozenInputCount(); },
             "layer"_a, "Frozen weight columns of a Dense layer.")
+        .def("set_minimum_size", &network::setMinimumSize, "layer"_a, "minimum"_a,
+             "The protected core of a Dense layer: pruning never leaves fewer than `minimum` neurons (0: no floor).")
+        .def("minimum_size", &network::minimumSize, "layer"_a)
+        .def("grown_neurons", &network::grownNeurons, "layer"_a,
+             "Indices of the neurons grow_layer added; the others are the layer's base neurons.")
+        .def(
+            "growth_order",
+            [](network& net, LayerId id) {
+                const neuron_layer& l = neuronLayer(net, id);
+                std::vector<std::uint32_t> order;
+                for (size_t i = 0; i < l.size(); ++i)
+                    order.push_back(l.growthOrder(i));
+                return order;
+            },
+            "layer"_a, "Per neuron: 0 for base neurons, else the order growth added it (newest = largest).")
 
         // Reinforcement signals
         .def("set_critic", &network::setCritic, "spec"_a)
