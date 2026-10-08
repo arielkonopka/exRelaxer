@@ -200,7 +200,8 @@ pytest), and builds two Debian packages, which it installs and smoke-tests:
 | `python3-exrelaxer` | `import exrelaxer` for the system `python3` (3.12 on Ubuntu 24.04), and `exr-nntest` |
 
 The `.deb` files are the run's `debs-amd64` artifact; a `v1.2.3` tag also
-attaches them to a GitHub release. To build them locally from a build
+attaches them to its GitHub release (made then, or
+already made on github.com). To build them locally from a build
 configured with `-DCMAKE_INSTALL_PREFIX=/usr -DEXRELAXER_BUILD_PYTHON=ON`:
 
 ```bash
