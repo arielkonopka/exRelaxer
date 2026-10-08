@@ -2027,6 +2027,10 @@ games scored:
 | ER(16) fixed | [16] | 8.2 (7.6–8.9) |
 | + growth, snake_growth caps (16 wide, 2 deep) | [16, 6] every seed | 8.4 (7.9–9.0) |
 | + growth, caps lifted (4,096 wide, 64 deep) | [16,6,6] [16,4,4] [16,6,6,4]: 24–32 | 8.3 (7.9–8.9) |
+| ER(16) fixed, recovery 0.5 | [16] | 9.7 (8.9–10.4) |
+| + growth, caps lifted, recovery 0.5 | [16,4,4,4] [16,4,4] [16,4,4,4]: 24–28 | 9.0 (8.8–9.2) |
+| ER(16) fixed, recovery 0.75 | [16] | 9.7 (9.3–10.1) |
+| + growth, caps lifted, recovery 0.75 | [16,4,6] [16,4,4,4] [16,4,4,4]: 26–28 | 8.9 (8.3–9.5) |
 | ER(16) fixed, recovery 0.99 | [16] | 2.2 (2.1–2.3) |
 | + growth, caps lifted, recovery 0.99 | [20,10,4] [20,10,4] [18,14]: 32–34 | 3.9 (3.8–4.0) |
 
@@ -2038,6 +2042,12 @@ apples, and the score levels off near 8-9. Undo and pruning barely matter (3 und
 pruning). At recovery 0.9 the extra layers add nothing over a fixed ER(16); at 0.99, where the
 fixed network plays badly, growth recovers part of the loss (2.2 → 3.9), still far below
 recovery 0.9.
+
+**Faster recovery plays better and grows only in depth.** At 0.5 and 0.75 no neuron of the first
+layer ever widens (it never saturates), and growth is 2-3 new 4-neuron layers on score plateaus.
+The fixed ER(16) at 0.5 or 0.75 is the best Snake player so far (9.7), and growth costs about 0.7
+apples there. Likely cause (not tested): the first depth growth, at game 500-650, freezes the
+16-neuron layer, which the fixed network keeps training for 12,000 games.
 
 ## Conclusions
 
