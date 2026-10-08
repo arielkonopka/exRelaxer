@@ -264,6 +264,7 @@ net.addLayer("res", {LayerType::Dense, 100, false, true, true,
                      {},                           // learning gain: none
                      Jitter::uniformRelative()});  // alpha ±50%
 net.setRecoveryJitter(res, Jitter::none());   // back to recovery_factor for every neuron
+net.setRecoveryJitter(res, Jitter::none().around(0.9f));  // exactly 0.9 for every neuron
 ```
 
 The current settings are in `layerSpec(id)`, shown by `describe()` and saved
@@ -399,6 +400,8 @@ are `uint64`.
 | 16 | normalised weighted sum (`normalize`) per layer; older files load without it |
 | 17 | E-R resting threshold per layer; older files load with 0.2 |
 | 18 | binary output and bus flag per layer; weight init per connect; growth and pruning; neuron format 4 (Eligibility, EProp, Surrogate state; frozen neurons and inputs); critic and curiosity model |
+| 19 | minimum size and the grown-layer tag per layer |
+| 20 | no new data: the default recovery became 0.5; older files keep 0.9 for the neurons they grow or reset (their recovery jitter is centred on 0.9) |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.

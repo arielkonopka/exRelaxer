@@ -75,8 +75,9 @@ def build(p, inputs, trainable=False):
     width = p["width"]
 
     def spec():
-        # recovery other than the library's 0.9: a jitter of negligible width around it
-        rj = exr.Jitter.uniform(1e-6).around(p["recovery"]) if p["recovery"] != 0.9 else exr.Jitter.none()
+        # recovery other than 0.9 (the library default when this was written):
+        # a jitter of negligible width around it
+        rj = (exr.Jitter.uniform(1e-6) if p["recovery"] != 0.9 else exr.Jitter.none()).around(p["recovery"])
         s = exr.LayerSpec.dense(width, False, er, frozen=not trainable, recovery_jitter=rj)
         if trainable or p["hidden_rule"] == "fa":
             s.learning_rule = exr.LearningRule.feedback_alignment().with_bias()

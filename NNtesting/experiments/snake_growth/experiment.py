@@ -106,8 +106,11 @@ class Agent:
                                    learning_rule=exr.LearningRule.feedback_alignment())
 
     def tune(self, layer):
-        if abs(self.p["recovery"] - exr.constants.recovery_factor) > 1e-6:
-            self.net.set_recovery_jitter(layer, exr.Jitter.uniform(1e-7).around(self.p["recovery"]))
+        r = self.p["recovery"]
+        if abs(r - exr.constants.legacy_recovery_factor) > 1e-6:  # as before the default became 0.5
+            self.net.set_recovery_jitter(layer, exr.Jitter.uniform(1e-7).around(r))
+        else:
+            self.net.set_recovery_jitter(layer, exr.Jitter.none().around(r))
 
     def new_monitor(self):
         return exr.ActivityMonitor(exr.ActivitySpec(window=self.p["window"],

@@ -124,7 +124,7 @@ Derived classes decide how neurons are wired and own the weights.
 | `hasHabituation()`, `hasER()` | flags of every neuron the layer creates, including later growth |
 | `neurons()` | span over the neurons' dynamics state (threshold, recovery, gain, alpha, ...); invalidated by growth |
 | `setOutput(i, value)` | drive an output by hand, e.g. a layer used as a fixed source; the next `forward()` overwrites wired neurons |
-| `setRecoveryJitter(j)`, `setLearningJitter(j)`, `setAlphaJitter(j)` | redraw that parameter for every existing neuron, in neuron order (disabled: reset to the default), and keep `j` for later growth |
+| `setRecoveryJitter(j)`, `setLearningJitter(j)`, `setAlphaJitter(j)` | redraw that parameter for every existing neuron, in neuron order (disabled: set to its centre, or the default if it has none), and keep `j` for later growth |
 | `recoveryJitter()`, `learningJitter()`, `alphaJitter()` | the current settings |
 | `setGate(g)` / `gate()`, `setRectified(b)` / `rectified()` | neurons without E-R: a fixed firing threshold, and ReLU ([neuron](neuron.md#one-tick-activate)), for every neuron now and later; `std::invalid_argument` for a negative or non-finite gate, or a non-zero gate / rectification on a layer with E-R |
 | `setHabituationRule(h)` / `habituationRule()` | the [habituation](neuron.md#one-tick-activate) rule of every neuron, now and later; `std::invalid_argument` for an invalid rule |

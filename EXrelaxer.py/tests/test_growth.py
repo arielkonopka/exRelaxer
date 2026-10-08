@@ -100,6 +100,9 @@ def test_bus_of_perceptrons():
 
 def test_critic_and_curiosity():
     net, h, out = small()
+    # Recovery 0.9 (the default before 0.5): at 0.5 the prediction error
+    # falls too, but only after ~500 ticks.
+    net.set_recovery_jitter(h, exr.Jitter.none().around(exr.constants.legacy_recovery_factor))
     net.set_critic(layers=[h], inputs=["x"], gamma=0.9, lambda_=0.8, rate=0.05)
     net.set_curiosity(predict_inputs=["x"], from_layers=[h], from_inputs=["x"], rate=0.2)
     assert net.has_critic and net.has_curiosity

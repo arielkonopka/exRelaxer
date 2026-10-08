@@ -73,7 +73,7 @@ sequence detector has to beat.
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `recovery_factor` | 0.9 | per-tick threshold decay while silent |
+| `recovery_factor` | 0.9 (0.5 since 2026-10-08) | per-tick threshold decay while silent |
 | `baseline_threshold` | 0.2 | resting threshold, eligibility boundary |
 | `default_alpha` | 1.2 (2.0 since 2026-09-28) | threshold growth on firing (log rule only) |
 | `default_learning_gain` | 2.0 | multiplies every weight update |

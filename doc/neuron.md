@@ -96,7 +96,8 @@ baseline below means this value.
      threshold is raised (see [E-R](#excitationrelaxation-e-r));
    - otherwise output = 0 and the threshold **relaxes**:
      `threshold ×= recovery`, the neuron's own recovery factor (default
-     `recovery_factor`, 0.9; see [per-neuron dynamics](#per-neuron-dynamics)). If it falls to the
+     `recovery_factor`, 0.5 since 2026-10-08, 0.9 before; files older than
+     format 20 keep 0.9; see [per-neuron dynamics](#per-neuron-dynamics)). If it falls to the
      spontaneous-firing level (`min_threshold` by default) or below, or a
      random chance comes up, the neuron fires **spontaneously** with a
      random value in `[-amplitude, +amplitude]`
@@ -107,8 +108,8 @@ before; files older than format 15 keep 0.01), which raises the
      set per layer through `LayerSpec::spontaneous` or with
      `neuron::setSpontaneous`, holds the three settings:
      - `below`: the threshold at or below which a silent neuron fires.
-       Default `min_threshold`, 1e-10: about 200 silent ticks at recovery
-       0.9. A higher level gives faster cycles: roughly
+       Default `min_threshold`, 1e-10: about 30 silent ticks at recovery
+       0.5, 200 at 0.9. A higher level gives faster cycles: roughly
        `ln(0.4 / below) / ln(1 / recovery)` ticks between firings.
      - `amplitude`: the range of the random output. Default 0.01, too weak
        to drive other neurons; around the resting threshold (0.2) and above,
@@ -232,7 +233,7 @@ jitter:
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| recovery (`recovery()` / `setRecovery`) | `recovery_factor` (0.9) | per-tick E-R threshold decay while silent; larger means slower relaxation, i.e. a longer memory of past firing |
+| recovery (`recovery()` / `setRecovery`) | `recovery_factor` (0.5; 0.9 before 2026-10-08) | per-tick E-R threshold decay while silent; larger means slower relaxation, i.e. a longer memory of past firing |
 | learning gain (`learningGain()` / `setLearningGain`) | `default_learning_gain` (2.0) | multiplies this neuron's weight updates |
 | alpha (`alpha()` / `setAlpha`) | `default_alpha` (2.0; 1.2 before 2026-09-28, saved per neuron) | E-R threshold growth on firing with the `Log` rule (ignored by the others); larger means a longer refractory period and a longer memory trace, ≥ 0 |
 
@@ -264,7 +265,7 @@ jitter keeps its meaning when the default changes:
 |-----------|-------|---------------------------------------------|
 | learning gain | the value itself | 2 → 1 … 3 |
 | alpha | the value itself | 2 → 1 … 3 |
-| recovery | its distance from 1 (the relaxation speed) | 0.9 → 0.85 … 0.95 |
+| recovery | its distance from 1 (the relaxation speed) | 0.5 → 0.25 … 0.75 (0.9 → 0.85 … 0.95) |
 
 Recovery uses the distance from 1 because it must stay below 1: ±50% of the
 value itself (0.45 … 1.35) would be mostly invalid and lopsided.
@@ -378,7 +379,7 @@ Constants in `neuron.hpp` (`inline constexpr`), shared by all neurons:
 |----------|-------|---------|
 | `habituation_epsilon` | 1e-10 | max change in the sum still counted as "the same signal" (the floor of the habituation tolerance) |
 | `habituation_steps` | 100 | default `Habituation::steps`: identical steps before the input is suppressed |
-| `recovery_factor` | 0.9 | default per-tick threshold decay while not firing (per-neuron value: recovery) |
+| `recovery_factor` | 0.5 | default per-tick threshold decay while not firing (per-neuron value: recovery; 0.9 before 2026-10-08: `legacy_recovery_factor`, kept by files older than format 20) |
 | `min_threshold` | 1e-10 | threshold at or below which spontaneous firing starts |
 | `spontaneous_min_amplitude` | 0.1 | default amplitude of spontaneous firing (0.01 before 2026-09-28: `legacy_spontaneous_amplitude`) |
 | `firing_epsilon` | 1e-6 | output magnitude counted as "fired" (neurons without E-R) |

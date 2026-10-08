@@ -54,14 +54,20 @@ LAMBDAS = (1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0)
 READOUTS = ("output", "state", "output_state", "eligibility", "state_before", "habituation", "output_tap")
 
 
+def recovery_jitter(r):
+    """Every neuron gets recovery r: 0.9 (the library default when this was
+    written) exactly, anything else via a jitter of negligible width."""
+    return (exr.Jitter.uniform(1e-7) if r != 0.9 else exr.Jitter.none()).around(r)
+
+
 def build(p):
     er = p["model"] in ("er", "reset")
     spec = exr.LayerSpec.dense(p["width"], bool(p["habituation"]), er, frozen=True)
     spec.normalize = False
     if p["habituation"]:
         spec.habituation_rule = exr.Habituation(steps=p["hab_steps"], tolerance=p["hab_tolerance"])
-    if er and p["recovery"] != exr.constants.recovery_factor:
-        spec.recovery_jitter = exr.Jitter.uniform(1e-7).around(p["recovery"])
+    if er:
+        spec.recovery_jitter = recovery_jitter(p["recovery"])
     if not er:
         spec.rectify = True
     net = exr.Network()

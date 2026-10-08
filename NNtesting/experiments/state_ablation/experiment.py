@@ -104,7 +104,7 @@ class Recorder:
     def __init__(self, p):
         self.ticks, self.width = p["ticks"], p["width"]
         self.net = exr.Network()
-        rj = exr.Jitter.uniform(1e-6).around(p["recovery"]) if p["recovery"] != 0.9 else exr.Jitter.none()
+        rj = (exr.Jitter.uniform(1e-6) if p["recovery"] != 0.9 else exr.Jitter.none()).around(p["recovery"])
         spec = exr.LayerSpec.dense(self.width, True, True, frozen=True, recovery_jitter=rj)
         spec.normalize = p["normalize"]
         spec.resting_threshold = p["resting_threshold"]

@@ -158,8 +158,8 @@ public:
                                                            p.getDouble("spontaneous_rate"));
             }
             const float recovery = static_cast<float>(p.getDouble("recovery"));
-            if (model == "er" && recovery != recovery_factor)  // a spread too small to matter: every neuron gets it
-                spec.recoveryJitter = Jitter::uniform(1e-7f).around(recovery);
+            if (model == "er")  // other than 0.9 (the default before format 20): a spread too small to matter
+                spec.recoveryJitter = (recovery != legacy_recovery_factor ? Jitter::uniform(1e-7f) : Jitter::none()).around(recovery);
             if (fa)
                 spec.learningRule = LearningRule::feedbackAlignment();
             spec.frozen = !fa;

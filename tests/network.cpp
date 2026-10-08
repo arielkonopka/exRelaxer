@@ -620,11 +620,12 @@ TEST(NetworkSerializationTest, OlderFormatsLoadAsWeightsOnly)
         for (const dense& layer : {std::cref(a), std::cref(bl)})
             for (const neuron& n : layer.neurons()) {
                 EXPECT_EQ(n.output(), 0.0f);                      // state not restored
-                EXPECT_EQ(n.recovery(), recovery_factor);      // dynamics not restored
+                EXPECT_EQ(n.recovery(), legacy_recovery_factor); // dynamics not restored: the default of the time
                 EXPECT_EQ(n.learningGain(), default_learning_gain);
             }
         EXPECT_EQ(net->inputs()[0], 0.0f);                        // input value not restored
         EXPECT_FALSE(net->layerSpec(0).recoveryJitter.enabled()); // jitter settings not restored
+        EXPECT_EQ(net->layerSpec(0).recoveryJitter.mean, legacy_recovery_factor);
         EXPECT_FALSE(net->layerSpec(0).learningJitter.enabled());
         EXPECT_EQ(dynamic_cast<const dense&>(net->getLayer(0)).neurons()[0].alpha(), default_alpha);
     }
@@ -641,6 +642,40 @@ TEST(NetworkSerializationTest, RejectsUnknownFormatVersions)
         bytes[4] = version;
         std::stringstream s(bytes);
         EXPECT_THROW(network::load(s), std::runtime_error);
+    }
+}
+
+TEST(NetworkSerializationTest, FilesBeforeFormat20KeepRecovery09)
+{
+    // Format 20 changed the default recovery from 0.9 to 0.5 without new data:
+    // a file marked 19 grows (and resets) neurons at 0.9, its saved neurons
+    // keep their saved values.
+    network net;
+    const auto a = net.addLayer("a", {LayerType::Dense, 2, false, true});
+    const auto pinned = net.addLayer("pinned", {LayerType::Dense, 2, false, true, false,
+                                                Jitter::none().around(0.7f)});
+    net.addInputs(a, 1);
+    net.connect(a, pinned);
+    for (const neuron& n : dynamic_cast<const dense&>(net.getLayer(a)).neurons())
+        EXPECT_EQ(n.recovery(), recovery_factor);
+    for (const neuron& n : dynamic_cast<const dense&>(net.getLayer(pinned)).neurons())
+        EXPECT_EQ(n.recovery(), 0.7f);  // a disabled jitter with a centre sets that value
+    std::stringstream ss;
+    net.save(ss);
+
+    for (char version : {19, 20}) {
+        SCOPED_TRACE("format version " + std::to_string(version));
+        std::string bytes = ss.str();
+        bytes[4] = version;
+        std::stringstream s(bytes);
+        const auto loaded = network::load(s);
+        loaded->growLayer(a, 1);
+        loaded->growLayer(pinned, 1);
+        const auto& grown = dynamic_cast<const dense&>(loaded->getLayer(a)).neurons();
+        ASSERT_EQ(grown.size(), 3u);
+        EXPECT_EQ(grown[0].recovery(), recovery_factor);  // saved
+        EXPECT_EQ(grown[2].recovery(), version < 20 ? legacy_recovery_factor : recovery_factor);
+        EXPECT_EQ(dynamic_cast<const dense&>(loaded->getLayer(pinned)).neurons()[2].recovery(), 0.7f);
     }
 }
 
@@ -1301,7 +1336,10 @@ std::unique_ptr<network> buildSequenceNetwork(const Jitter& alphaJitter)
     for (const auto& seq : SEQUENCES) symbols.insert(symbols.end(), std::begin(seq), std::end(seq));
     auto net = std::make_unique<network>();
     const ValueDetectors d = addSymbolDetectors(*net, symbols, SEQ_BAND);
-    const auto memory = addReservoir(*net, d.bands, symbols.size() + 1, 100, 0, 3.0f, 0.0f, true, {}, alphaJitter);
+    // Recovery 0.9 (the default before network format 20): at 0.5 the
+    // reservoir forgets the trigger and learning stays at chance (0.53).
+    const auto memory = addReservoir(*net, d.bands, symbols.size() + 1, 100, 0, 3.0f, 0.0f, true,
+                                     Jitter::none().around(legacy_recovery_factor), alphaJitter);
     const auto out = net->addLayer("out", {LayerType::Dense, 1, false, false});
     net->connect(memory, out);
     net->addOutput(out);
@@ -1588,10 +1626,11 @@ TEST(HabituationTest, FasterFadingAndTolerantRules)
 
 TEST(SpontaneousTest, TriggerLevelRateAndAmplitude)
 {
-    // Default: silent for about 200 ticks (0.2 * 0.9^t reaches 1e-10), then
-    // a small spontaneous firing.
+    // Recovery 0.9: silent for about 200 ticks (0.2 * 0.9^t reaches 1e-10),
+    // then a small spontaneous firing.
     auto firstFiring = [](Spontaneous s, float* amplitude = nullptr) {
         neuron n(false, true);
+        n.setRecovery(legacy_recovery_factor);
         n.setSpontaneous(s);
         for (int t = 1; t < 10000; ++t) {
             const float y = n.activate(0.0f);

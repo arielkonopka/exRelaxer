@@ -1158,8 +1158,10 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //        (per-synapse rules, frozen neurons and inputs); critic and
 //        curiosity model
 //  19  + minimum size and the grown-layer tag per layer
+//  20  no new data: the default E-R recovery became 0.5; older files keep
+//      0.9 (legacy_recovery_factor) for neurons they grow or reset
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 19;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 20;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -1613,6 +1615,8 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 minimum_sizes.back() = readCount(is, "minimum size");
                 spec.grown = readValue<std::uint8_t>(is) != 0;
             }
+            if (version < 20 && !spec.recoveryJitter.mean)
+                spec.recoveryJitter.mean = legacy_recovery_factor;  // the default these files were saved under
             net->addLayer(name, spec);
             break;
         }
@@ -1731,9 +1735,10 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
             throw std::runtime_error("network::load: layer '" + node.name + "' does not match its saved state");
         if (legacy && node.impl->hasNeurons()) {
             // Version 3 layer data carries per-neuron recovery / gain: reset
-            // them to the defaults, like the (unrestored) jitter settings.
+            // them to the defaults of the time, like the (unrestored) jitter
+            // settings.
             auto& neurons = dynamic_cast<neuron_layer&>(*node.impl);
-            neurons.setRecoveryJitter(Jitter::none());
+            neurons.setRecoveryJitter(Jitter::none().around(legacy_recovery_factor));
             neurons.setLearningJitter(Jitter::none());
             neurons.setAlphaJitter(Jitter::none());
         }
