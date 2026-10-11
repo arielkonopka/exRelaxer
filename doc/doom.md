@@ -473,6 +473,78 @@ Data: `results/dynamic/es_d13_map01_explore.jsonl.gz`,
 `results/dynamic/es_d13_map01_exit.jsonl.gz`, agent and test in
 `results/dynamic/doom_agent/map01_exit_d1/`.
 
+### D14. Growing the D12 agent layer by layer, with and without threshold readouts (2026-09-29 to 10-06)
+
+**Question.** Does training a small network first and adding an E-R layer
+each time it has learned (the "biological" schedule) give a better agent
+than the one-layer D12 agent? Do deeper layers give a longer memory, and
+does it help to let the readouts read each neuron's E-R threshold, where
+its history is kept?
+
+**Setup.** Both runs start from the D12 agent (1 E-R layer with
+habituation, 128 neurons, every weight evolving) on `defend_the_center`,
+games until death or 30 minutes, D12's reward. `es.py --grow-rule
+plateau --grow-to 5 --grow-window 30 --grow-margin 0.5`: the first network
+grows once its 30-generation validation mean stops gaining 0.5; each grown
+network grows again once its mean beats the level at its own growth by
+0.5. A new layer's readout weights start at zero, so play is unchanged when
+it is added. 12 antithetic pairs, 3 games per candidate, 5 validation
+games, σ 0.05, lr 0.02.
+- Without thresholds: grew to 2 layers at generation 60 and to 3 at 193;
+  stopped by hand at generation 289 (last 20 generations: validation 14.7).
+- With `readout_thresholds` (the readouts also read every hidden neuron's
+  threshold; zero weights at the start, so the D12 agent plays identically):
+  grew to 2 layers at generation 60, 3 at 90, 4 at 266; ran to generation
+  688. With 4 layers, validation stayed at 13 to 14 for 420 generations
+  and never reached the 16.3 needed for a fifth layer.
+
+Tested on D12's 30 fresh games (seed 4242, until death or 30 minutes).
+
+| Agent | Layers | Reward | Kills | Deaths per game | Survives (mean) | Spikes per step |
+|-------|--------|--------|-------|-----------------|-----------------|-----------------|
+| D12 agent (start of both runs) | 1 | **+16.6** | **19.8** | 0.50 | **21 min** | **157** |
+| grown, no thresholds, generation 289 | 3 | +13.5 | 17.7 | 0.67 | 17 min | 406 |
+| grown, thresholds, best validation (gen 264) | 3 | +11.5 | 15.7 | 0.67 | 18 min | 404 |
+| grown, thresholds, generation 688 | 4 | +12.5 | 16.9 | 0.70 | 16 min | 538 |
+
+How far back each layer remembers (`memprobe.py`, 12 fresh games of 3
+minutes): a ridge readout from a layer's state now predicts the screen k
+steps ago; the table gives the gain in R² over the network's current input
+alone.
+
+| Source | k = 1 | k = 16 (about 2 s) |
+|--------|-------|--------------------|
+| D12 agent, outputs | +0.024 | +0.015 |
+| D12 agent, thresholds | +0.006 | +0.015 |
+| 3 layers (no thresholds, gen 289), layer 1 outputs | +0.025 | +0.027 |
+| same, layer 2 outputs | +0.011 | +0.016 |
+| same, layer 3 outputs | +0.003 | +0.010 |
+| same, layer 1 thresholds | +0.005 | +0.030 |
+
+Past actions are recoverable 1 to 2 steps back from any source (72 % with
+outputs and thresholds together against 65 % with outputs, 45 to 48 %
+majority), and at chance from 4 steps back.
+
+**Conclusion.**
+- **Growing did not beat the one-layer agent.** Every grown network scores
+  below the D12 agent it started from (+11.5 to +13.5 against +16.6), dies
+  more often and fires 2.6 to 3.4 times more spikes. Per unit of activity
+  it is far worse. Validation (5 games) made the grown networks look as
+  good as D12 at times; the 30 fresh games do not.
+- **Deeper layers do not remember longer.** Each further layer carries less
+  of the current screen (R² 0.65, 0.36, 0.20 for layers 1 to 3) and less of
+  the past. The trace of the past in any layer is weak (a few hundredths of
+  R²) and does not grow with depth.
+- **Thresholds hold the same short trace as the outputs.** Reading them
+  made the network grow faster (3 layers at generation 90 against 193) but
+  did not raise its score.
+- With 12 pairs and noisy until-death games, evolution of 78 000 to 100 000
+  weights may simply be too slow to use the extra layers; one seed per run.
+
+Data: `results/dynamic/es_d14_grow.jsonl.gz`,
+`results/dynamic/es_d14_grow_thresholds.jsonl.gz`, agents, tests and probes
+in `results/dynamic/doom_agent/grow_d14/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
