@@ -22,7 +22,7 @@ state, so parallel players are separate processes.
 |---|---|
 | Senses: eye | the cells around the player, (2r + 1)² of them, in 8 channels: wall, free, enemy, collectible, danger, door, apple, moving; optionally a 9th, `seen` (the cell is in sight) |
 | Senses: body | energy / max energy, ammo (up to 10), spare avatars (up to 3) |
-| Actions | 14 readouts: move, shoot and interact × up, down, left, right; next gun; use. The largest is played |
+| Actions | `directions` 8 (default since G5): 22 readouts: move and shoot × 8 directions (the diagonals of Gardens-of-Eris PR #316), interact × up, down, left, right; next gun; use. `directions` 4 (G1 to G4): the 14 without the diagonals. The largest is played |
 | Time | one game step is one move (8 game ticks, 50 ticks a second); the network runs `ticks` (3) ticks on each step's view |
 | Reward | `reward` events (default since Gardens-of-Eris PR #289): the game's events weighed by `w_*`: +5 per item, +20 per golden apple, +2 per use, +10 per door opened, +5 per teleport, +10 per monster killed, +5 per mine set off, −0.2 per energy point lost, −`w_death` (50) per avatar lost, +0.1 per score point. `reward` score (G1): the game's score gained in the step (+1 per new cell visited, +1 per item, + the energy of what the player kills), −`w_death` (50) per avatar lost |
 | Episode | `episode_ticks` (6000: 2 minutes, 750 moves) unless the last avatar dies first |
@@ -200,7 +200,7 @@ eye: 13 x 13 cells x 12 channels -+-> retina: one E-R neuron per cell and channe
 column k   c<k>  Conv2D, 8 kernels 3 x 3 over retina + raw (shared weights)  <------+
            p<k>  max pool 3 x 3, stride 2 (8 x 7 x 7)
            h<k>  64 E-R neurons, fading habituation: read p<k>, the body, h<k-1>, themselves
-readouts   14 actions, reading h1 .. h<k> (a new column's lines start at zero)
+readouts   one per action (22, or 14 with directions 4), reading h1 .. h<k> (a new column's lines start at zero)
 ```
 
 **Senses.** The 8 channels of goe_rl, plus `avatar` (a spare avatar), `in_sight`,

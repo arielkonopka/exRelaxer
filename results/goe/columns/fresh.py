@@ -27,11 +27,11 @@ def main():
     import exrelaxer as exr
     exr.set_threads(1)
     out, agents = sys.argv[1], sys.argv[2:]
-    p = C.defaults() | json.load(open(os.path.join(agents[0], "agent.json")))["params"]
+    p = C.defaults() | C.saved_params(json.load(open(os.path.join(agents[0], "agent.json")))["params"])
     game = C.make_game(p)
     players = {os.path.basename(os.path.normpath(a)): (lambda a=a: A.load(a)) for a in agents}
     players["untrained"] = lambda: C.Net(p, 1, net_seed=0)  # where both runs started
-    players["random"] = C.RandomPlayer
+    players["random"] = lambda: C.RandomPlayer(p)
     g2 = {k: p["w_" + k] for k in C.EVENTS} | {"explore": 0.0, "avatar": 0.0}
     result = {}
     for name, make in players.items():
