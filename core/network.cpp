@@ -78,6 +78,11 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to give a binary output");
         dynamic_cast<neuron_layer&>(*impl).setBinary(true);
     }
+    if (spec.precision != Precision{}) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a number format");
+        dynamic_cast<neuron_layer&>(*impl).setPrecision(spec.precision);
+    }
     if (spec.bus && spec.type != LayerType::Dense)
         throw std::invalid_argument("network: bus '" + name + "' must be a Dense layer");
     if (spec.minimumSize > 0 && (spec.type != LayerType::Dense || spec.minimumSize > impl->size()))
@@ -1160,8 +1165,11 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //  19  + minimum size and the grown-layer tag per layer
 //  20  no new data: the default E-R recovery became 0.5; older files keep
 //      0.9 (legacy_recovery_factor) for neurons they grow or reset
+//  21  + number formats (8-bit weights, 8-bit values, value step) per
+//        layer; a layer with 8-bit weights ends its learning state with
+//        its rounding generator
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 20;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 21;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -1421,6 +1429,9 @@ void network::save(std::ostream& os) const
             writeValue<std::uint8_t>(os, node.spec.bus);
             writeCount(os, node.spec.minimumSize);  // current setting, like frozen
             writeValue<std::uint8_t>(os, node.spec.grown);
+            writeValue<std::uint8_t>(os, node.spec.precision.int8Weights);
+            writeValue<std::uint8_t>(os, node.spec.precision.int8Values);
+            writeValue(os, node.spec.precision.valueStep);
             break;
         }
         case OpKind::Connect:
@@ -1614,6 +1625,13 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 minimum_sizes.resize(net->nodes.size() + 1, 0);
                 minimum_sizes.back() = readCount(is, "minimum size");
                 spec.grown = readValue<std::uint8_t>(is) != 0;
+            }
+            if (version >= 21) {
+                spec.precision.int8Weights = readValue<std::uint8_t>(is) != 0;
+                spec.precision.int8Values = readValue<std::uint8_t>(is) != 0;
+                spec.precision.valueStep = readValue<float>(is);
+                if (!spec.precision.valid())
+                    throw std::runtime_error("network::load: invalid number format");
             }
             if (version < 20 && !spec.recoveryJitter.mean)
                 spec.recoveryJitter.mean = legacy_recovery_factor;  // the default these files were saved under

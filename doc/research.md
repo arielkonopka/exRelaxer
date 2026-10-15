@@ -2071,6 +2071,40 @@ older ones to 3-11. Scores: 9.4 (9.2–9.6) at recovery 0.5 (wide unpruned 9.8),
 fixed; wide unpruned 7.7). At 0.9 a 3-neuron layer saturates, so width growth and pruning churn
 (39 widenings, 78 prunings over 3 seeds) before the size settles.
 
+## 32. 8-bit weights and values
+
+Question (user, 2026-10-15): does an E-R network still learn when its weights and outputs are 8-bit
+(the 4x memory-bandwidth saving that matters for large layers and small hardware)? The format
+(doc/precision.md): codes in [-127, 127] times a power-of-two step, a step per weight row,
+stochastic rounding of every learning update, outputs at step 1/16. Raw data and commands in
+`results/precision/`.
+
+**nl_static** (feedback alignment with bias, depth 2, width 16 and 32, tasks l0-l2, 5 seeds, the
+best of lr 0.001-0.03 per setting by validation): E-R hidden layers are unaffected; every format
+is within seed noise of float (l1 width 32: 0.066 float, 0.066 int8, 0.069 int8 weights, 0.069
+int8 outputs), and E-R solves none of these static tasks in any format, as in §14. ReLU hidden
+layers: 8-bit weights alone cost little (l2 width 32: 1.2e-4 float, 1.9e-4); 8-bit outputs raise
+the error floor 2-4x (2.8e-4 to 6.7e-4), mostly still under the 1e-3 success target (int8: 28 of 30 trials
+succeed against 29 of 30 for float).
+
+**Snake**, the fixed ER(16) at recovery 0.5 (the best Snake player, §31), learning online for 1500
+games, 10 seeds, final window:
+
+| format | apples/game (mean ± sd) | best window |
+|---|---|---|
+| float | 9.82 ± 0.45 | 10.93 |
+| 8-bit weights | 9.66 ± 0.56 | 11.02 |
+| 8-bit outputs | 9.74 ± 0.33 | 11.37 |
+| 8-bit E-R layer | 9.63 ± 0.59 | 11.10 |
+| 8-bit E-R layer and readouts | 9.20 ± 0.72 | 10.87 |
+
+**An 8-bit E-R layer learns as well as a float one.** The differences are within noise (standard
+error about 0.15-0.2 per row). The readouts are where 8-bit costs: with them 8-bit too the score is
+0.6 lower (about 2.4 standard errors). Likely cause (not tested): a readout is one neuron with 16
+weights whose updates are small relative to its step, so it depends most on stochastic rounding.
+Not measured yet: speed and memory, which need a packed int8 kernel (the weights are still stored
+as float, restricted to 8-bit values).
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.

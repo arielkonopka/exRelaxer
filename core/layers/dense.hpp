@@ -54,6 +54,7 @@ public:
     // per-synapse eligibility (Eligibility, EProp).
     bool learns() const override { return true; }
     bool supportsPerSynapse() const override { return true; }
+    bool supportsInt8Weights() const override { return true; }
     bool followsShrinkingSources() const override { return true; }
 
     // --- Growth and pruning -----------------------------------------------
@@ -148,6 +149,7 @@ protected:
     void writeLayerExtras(std::ostream& os) const override;
     void readLayerExtras(std::istream& is, DeserializeMode mode) override;
     void sourceShrank(const layer& source, std::span<const size_t> removed) override;
+    void precisionChanged() override { wiringChanged(); }
 
 private:
     struct Group
@@ -183,6 +185,12 @@ private:
     // The only way a group is created. Throws std::logic_error if a neuron
     // is already in a group: a neuron belongs to exactly one group.
     void addGroup(Group group);
+    // Weights changed by wiring or growth: weightsChanged(), and with 8-bit
+    // weights every row is rounded to its nearest code.
+    void wiringChanged();
+    // 8-bit weights: rounds the rows of `group` with active[r] != 0 (all
+    // when empty) to their grid, stochastically after learning.
+    void roundWeights(Group& group, std::span<const std::uint8_t> active, bool stochastic);
     // Fills `w` from `stream`, or with zeros for WeightInit::Zero.
     static void initWeights(rng::WeightStream stream, WeightInit init, std::span<float> w);
     // Sizes the group's per-synapse matrices to its weights (new inputs and

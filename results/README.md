@@ -31,9 +31,10 @@ and `NNtesting/tools/capacity.py`.
 | `defaults/` | §23 | `er_silence` at spontaneous amplitudes 0.01 to 1.0 (linear and log growth, with and without recurrence); `run.sh` |
 | `dynamic/` | §20 | `dyn_ladder` pilot and E-R at width 256, `nl_temporal` with a frame window, `doom` imitation, `doom_rl` pilots, architectures (depth, feedback, reservoir) and longer E-R runs; evolution (`es_*`: five topologies on defend_the_center, MAP01), the search retest, and the evolved agents' weights and settings (`doom_agent/`, rebuild with `es.build`) |
 | `goe/` | §28 | Gardens of Eris ([doc/goe.md](../doc/goe.md)): `untrained_models.jsonl.gz` (G1: untrained networks and a random player) |
+| `snake-growth/` | §30 | `snake_growth`: a growing network learning Snake always-on, from ER(1) and ER(4), with and without growth, frozen or plastic old neurons, recovery 0.99, fixed ER(8); saturation of untrained populations; `summary.md`, `runs.jsonl.gz`; commands in `NNtesting/experiments/snake_growth/sweep.py` |
+| `precision/` | §32 | 8-bit weights and outputs: `nl_static` (E-R and ReLU, four formats; `nl_static_summary.txt` from `nl_summary.py`) and Snake ER(16) (`snake_er16.txt`); commands in `run.sh` |
 
 Runs recorded before 2026-09-27 evening used the logarithmic threshold
 growth rule, the default at the time; pass `--set growth=log` to reproduce
 them with the current library. The `run.sh` files show the exact commands
 (run from the repository root after `./build.sh`).
-| `snake-growth/` | §30 | `snake_growth`: a growing network learning Snake always-on, from ER(1) and ER(4), with and without growth, frozen or plastic old neurons, recovery 0.99, fixed ER(8); saturation of untrained populations; `summary.md`, `runs.jsonl.gz`; commands in `NNtesting/experiments/snake_growth/sweep.py` |

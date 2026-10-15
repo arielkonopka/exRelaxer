@@ -65,7 +65,19 @@ DEFAULTS = {
     "lr": 0.03, "explore": 0.05,
     "eat": 1.0, "die": -1.0, "approach": 0.1,
     "grow": True,                       # False: the same run with growth and pruning off (control)
+    "precision": "float",               # adaptive layers' number format: float, int8 (8-bit weights
+                                        # and outputs), int8w (weights only), int8v (outputs only)
+    "readout_precision": "float",       # the readouts' number format (as precision)
+    "value_step": 0.0625,               # 8-bit outputs: the step (a power of two)
 }
+
+
+def precision(name, step):
+    """A number format by name (doc/precision.md)."""
+    if name not in ("float", "int8", "int8w", "int8v"):
+        raise ValueError("precision must be float, int8, int8w or int8v")
+    return exr.Precision(int8_weights=name in ("int8", "int8w"), int8_values=name in ("int8", "int8v"),
+                         value_step=step)
 
 
 class Agent:
@@ -81,7 +93,9 @@ class Agent:
         net.connect(self.eye, self.er)
         self.readouts = []
         for name in ACTIONS:
-            out = net.add_layer(name, exr.LayerSpec.dense(1, False, False))
+            spec = exr.LayerSpec.dense(1, False, False)
+            spec.precision = precision(p["readout_precision"], p["value_step"])
+            out = net.add_layer(name, spec)
             net.connect(self.er, out)
             net.add_output(out)
             self.readouts.append(out)
@@ -102,8 +116,9 @@ class Agent:
         self.ticks = 0
 
     def adaptive_spec(self, size):
-        return exr.LayerSpec.dense(size, False, True,
-                                   learning_rule=exr.LearningRule.feedback_alignment())
+        spec = exr.LayerSpec.dense(size, False, True, learning_rule=exr.LearningRule.feedback_alignment())
+        spec.precision = precision(self.p["precision"], self.p["value_step"])
+        return spec
 
     def tune(self, layer):
         r = self.p["recovery"]

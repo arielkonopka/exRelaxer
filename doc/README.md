@@ -7,6 +7,7 @@ of known limitations, see the [project README](../README.md).
 |------|--------|
 | [model](model.md) | The mathematical model as implemented: weighted input, activation, E-R threshold, habituation, spontaneous activation, eligibility, learning update, feedback, and the exact order of one tick (what belongs to t and t−1); state probes |
 | [state output](state_output.md) | Experimental State layer: three values per neuron (output, E-R threshold above rest, habituation streak) that downstream layers can read; timing, usage, and what it changes on the controlled benchmarks |
+| [precision](precision.md) | `Precision`: optional 8-bit weights (per-row power-of-two step, stochastic rounding during learning) and 8-bit outputs per layer; what stays float, saving, results |
 | [protocol](protocol.md) | Research protocol: controlled benchmarks before Doom, determinism, no new mechanism without a hypothesis and a controlled experiment, reporting |
 | [neuron](neuron.md) | `neuron`, `DeserializeMode`, `Habituation`, `ThresholdGrowth`, the tunable constants: E-R, habituation, fixed gate and ReLU, learning rule, serialization format |
 | [learning](learning.md) | `LearningRule`: the learning rules a layer can use (sign, trace, feedback alignment, perturbation, Oja, BCM, per-synapse eligibility, e-prop, surrogate gradients), bias, decay, `applyError`; the actor-critic TD error and the curiosity reward |

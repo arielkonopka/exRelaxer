@@ -71,6 +71,10 @@ nnt::Register experiment({
         {"resting_threshold", "0.2", "E-R resting threshold of the hidden layers, or auto: 0.2 times their mean "
                                      "1/|w| at initialization, with the gate model's gate scaled the same way"},
         {"learn_ticks", "last", "training: learn from the last tick's error (last) or from every tick at lr/ticks (all)"},
+        {"precision", "float", "hidden layers' number format: float, int8 (8-bit weights and outputs), int8w "
+                               "(weights only) or int8v (outputs only); see doc/precision.md"},
+        {"readout_precision", "float", "the readout's number format (as precision)"},
+        {"value_step", "0.0625", "8-bit outputs: the step, a power of two"},
         {"depth", "2", "hidden layers"},
         {"width", "16", "neurons per hidden layer"},
         {"lr", "0.01", "learning rate (the same for every model)"},
@@ -111,7 +115,9 @@ nnt::Register experiment({
             p.getDouble("spontaneous_below"), p.getDouble("spontaneous_amplitude"), p.getDouble("spontaneous_rate"));
         Mlp net(model, task.inputs, depth, width, static_cast<float>(p.getDouble("gate")),
                 er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
-                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"));
+                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"), false,
+                er_options::precision(p.getString("precision"), p.getDouble("value_step")),
+                er_options::precision(p.getString("readout_precision"), p.getDouble("value_step")));
         const float restingFactor = net.calibrateThresholds(p.getString("resting_threshold"));
         const std::string learnTicks = p.getString("learn_ticks");
         if (learnTicks != "last" && learnTicks != "all")
