@@ -20,7 +20,7 @@ void locally_connected2d::createWeights()
     weights_.clear();
     weights_.reserve(positions());
     for (size_t p = 0; p < positions(); ++p) {
-        rng::drawWeights(rng::WeightStream::Initial, w);
+        drawWeights(rng::WeightStream::Initial, w);
         weights_.emplace_back(outputChannels(), windowSize(), w);
     }
     weightsChanged();
@@ -30,7 +30,7 @@ void locally_connected2d::appendInputs(size_t count)
 {
     std::vector<float> w(outputChannels() * count);
     for (kernels::weight_matrix& m : weights_) {
-        rng::drawWeights(rng::WeightStream::Growth, w);
+        drawWeights(rng::WeightStream::Growth, w);
         m.appendColumns(count, w);
     }
     weightsChanged();
@@ -86,9 +86,9 @@ void locally_connected2d::updateWeights()
                 continue;
             learningWindowAt(p, pre);
             if (scaled)
-                weights_[p].learnScaled(pre, delta, keep, active, max_weight, 0, weights_[p].blocks());
+                weights_[p].learnScaled(pre, delta, keep, active, minWeight(), max_weight, 0, weights_[p].blocks());
             else
-                weights_[p].learn(pre, delta, active, max_weight, 0, weights_[p].blocks());
+                weights_[p].learn(pre, delta, active, minWeight(), max_weight, 0, weights_[p].blocks());
         }
     });
 }
@@ -117,7 +117,8 @@ void locally_connected2d::setWeights(size_t index, const std::vector<float>& wei
     if (weights.size() != windowSize())
         throw std::invalid_argument("locally_connected2d::setWeights: neuron reads " + std::to_string(windowSize()) +
                                     " inputs, got " + std::to_string(weights.size()) + " weights");
-    storeWeights(index, weights);
+    std::vector<float> bounded;
+    storeWeights(index, boundWeights(weights, bounded));
 }
 
 void locally_connected2d::storeWeights(size_t index, std::span<const float> weights)

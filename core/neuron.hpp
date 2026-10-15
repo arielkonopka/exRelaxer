@@ -169,6 +169,21 @@ struct ThresholdGrowth
     bool operator==(const ThresholdGrowth&) const = default;
 };
 
+// The range of a neuron's values. The weighted sum, and so the output, is
+// clamped to [-ceiling, ceiling], or to [0, ceiling] when `positive` (then
+// the neuron never outputs a negative value: a negative sum counts as 0, and
+// spontaneous firing draws from [0, amplitude]). The default is the original
+// [-max_output, max_output].
+struct ValueRange
+{
+    bool positive = false;
+    float ceiling = max_output;  // finite, in (0, 1e6]
+
+    bool valid() const { return ceiling > 0.0f && ceiling <= 1e6f; }
+    float floor() const { return positive ? 0.0f : -ceiling; }
+    bool operator==(const ValueRange&) const = default;
+};
+
 // Local derivatives of one activate() call, for gradient-based learning
 // rules (e-prop, surrogate gradients; see learning.hpp). s is the weighted
 // sum the neuron was given, y its output, thr its E-R threshold before the
@@ -300,6 +315,10 @@ public:
     // A layer-level setting (LayerSpec::spontaneous), like the gate.
     const Spontaneous& spontaneous() const { return spontaneous_; }
     void setSpontaneous(const Spontaneous& value) { spontaneous_ = value; }
+    // The range of the sum and output (see ValueRange). A layer-level
+    // setting (LayerSpec::positiveValues, LayerSpec::ceiling), like the gate.
+    const ValueRange& valueRange() const { return range_; }
+    void setValueRange(const ValueRange& value) { range_ = value; }
     // E-R resting threshold (default baseline_threshold): where the
     // threshold relaxes towards, the learning-eligibility boundary, and half
     // the floor after a firing. A layer-level setting
@@ -350,6 +369,7 @@ private:
     Habituation habituation_;
     ThresholdGrowth growth_;
     Spontaneous spontaneous_;
+    ValueRange range_;
     std::minstd_rand rng_;        // per neuron, so neurons can step in parallel; seeded from rng::spontaneousSeed()
 };
 

@@ -8,13 +8,13 @@
 
 namespace exr::kernels {
 
-void signRule(std::span<float> w, std::span<const float> x, float delta, float limit)
+void signRule(std::span<float> w, std::span<const float> x, float delta, float lo, float hi)
 {
     assert(x.size() >= w.size());
     // min/max instead of std::clamp: same result, but lets the compiler
     // vectorize the loop.
     for (size_t i = 0; i < w.size(); ++i)
-        w[i] = std::min(std::max(w[i] + sign(x[i]) * delta, -limit), limit);
+        w[i] = std::min(std::max(w[i] + sign(x[i]) * delta, lo), hi);
 }
 
 void signs(std::span<const float> x, std::span<float> out)
@@ -191,7 +191,7 @@ void weight_matrix::eprop(weight_matrix& adapt, std::span<const float> x, std::s
 }
 
 void weight_matrix::learnFrom(const weight_matrix& e, std::span<const float> delta, std::span<const float> keep,
-                              std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock)
+                              std::span<const std::uint8_t> active, float lo, float hi, size_t firstBlock, size_t lastBlock)
 {
     assert(e.rows_ == rows_ && e.cols_ == cols_);
     for (size_t b = firstBlock; b < lastBlock; ++b) {
@@ -212,7 +212,7 @@ void weight_matrix::learnFrom(const weight_matrix& e, std::span<const float> del
             float* wr = w.data() + c * lanes;
             const float* mr = m.data() + c * lanes;
             for (size_t l = 0; l < lanes; ++l)
-                wr[l] = std::min(std::max(wr[l] * k[l] + d[l] * mr[l], -limit), limit);
+                wr[l] = std::min(std::max(wr[l] * k[l] + d[l] * mr[l], lo), hi);
         }
     }
 }
@@ -301,10 +301,10 @@ void weight_matrix::multiply(std::span<const float> x, std::span<float> sums, si
 }
 
 void weight_matrix::learn(std::span<const float> signs, std::span<const float> delta,
-                          std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock)
+                          std::span<const std::uint8_t> active, float lo, float hi, size_t firstBlock, size_t lastBlock)
 {
     assert(signs.size() >= cols_ && delta.size() >= lastBlock * lanes && active.size() >= lastBlock * lanes);
-    const vfloat hi = splat(limit), lo = splat(-limit);
+    const vfloat vhi = splat(hi), vlo = splat(lo);
     for (size_t b = firstBlock; b < lastBlock; ++b) {
         vfloat on[per_block] = {}, d[per_block] = {};
         bool any = false;
@@ -325,8 +325,8 @@ void weight_matrix::learn(std::span<const float> signs, std::span<const float> d
                 const auto p = lanesOf(w, c, k);
                 const vfloat old = load(p);
                 vfloat v = old + s * d[k];
-                v = v < lo ? lo : v;  // std::max(v, lo), bit for bit (NaN stays NaN)
-                v = hi < v ? hi : v;  // std::min(v, hi)
+                v = v < vlo ? vlo : v;  // std::max(v, lo), bit for bit (NaN stays NaN)
+                v = vhi < v ? vhi : v;  // std::min(v, hi)
                 store(p, on[k] != 0.0f ? v : old);
             }
         }
@@ -334,11 +334,11 @@ void weight_matrix::learn(std::span<const float> signs, std::span<const float> d
 }
 
 void weight_matrix::learnScaled(std::span<const float> pre, std::span<const float> delta, std::span<const float> keep,
-                                std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock)
+                                std::span<const std::uint8_t> active, float lo, float hi, size_t firstBlock, size_t lastBlock)
 {
     assert(pre.size() >= cols_ && delta.size() >= lastBlock * lanes && keep.size() >= lastBlock * lanes &&
            active.size() >= lastBlock * lanes);
-    const vfloat hi = splat(limit), lo = splat(-limit);
+    const vfloat vhi = splat(hi), vlo = splat(lo);
     for (size_t b = firstBlock; b < lastBlock; ++b) {
         vfloat on[per_block] = {}, d[per_block] = {}, kp[per_block] = {};
         bool any = false;
@@ -360,8 +360,8 @@ void weight_matrix::learnScaled(std::span<const float> pre, std::span<const floa
                 const auto p = lanesOf(w, c, k);
                 const vfloat old = load(p);
                 vfloat v = old * kp[k] + s * d[k];
-                v = v < lo ? lo : v;
-                v = hi < v ? hi : v;
+                v = v < vlo ? vlo : v;
+                v = vhi < v ? vhi : v;
                 store(p, on[k] != 0.0f ? v : old);
             }
         }
@@ -385,7 +385,7 @@ void weight_matrix::multiply(std::span<const float> x, std::span<float> sums, si
 }
 
 void weight_matrix::learn(std::span<const float> signs, std::span<const float> delta,
-                          std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock)
+                          std::span<const std::uint8_t> active, float lo, float hi, size_t firstBlock, size_t lastBlock)
 {
     for (size_t b = firstBlock; b < lastBlock; ++b) {
         const std::span<float> w = block(b);
@@ -394,12 +394,12 @@ void weight_matrix::learn(std::span<const float> signs, std::span<const float> d
                 continue;
             const float d = delta[b * lanes + l];
             for (size_t c = 0; c < cols_; ++c)
-                w[c * lanes + l] = std::min(std::max(w[c * lanes + l] + signs[c] * d, -limit), limit);
+                w[c * lanes + l] = std::min(std::max(w[c * lanes + l] + signs[c] * d, lo), hi);
         }
     }
 }
 void weight_matrix::learnScaled(std::span<const float> pre, std::span<const float> delta, std::span<const float> keep,
-                                std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock)
+                                std::span<const std::uint8_t> active, float lo, float hi, size_t firstBlock, size_t lastBlock)
 {
     for (size_t b = firstBlock; b < lastBlock; ++b) {
         const std::span<float> w = block(b);
@@ -408,7 +408,7 @@ void weight_matrix::learnScaled(std::span<const float> pre, std::span<const floa
                 continue;
             const float d = delta[b * lanes + l], k = keep[b * lanes + l];
             for (size_t c = 0; c < cols_; ++c)
-                w[c * lanes + l] = std::min(std::max(w[c * lanes + l] * k + pre[c] * d, -limit), limit);
+                w[c * lanes + l] = std::min(std::max(w[c * lanes + l] * k + pre[c] * d, lo), hi);
         }
     }
 }

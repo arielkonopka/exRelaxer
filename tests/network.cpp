@@ -27,6 +27,31 @@ void restoreCoutFormat()
     std::cout.precision(6);
 }
 
+// The bytes format 21 adds to every layer record with the default value
+// range: positive values off, ceiling max_output, positive weights off.
+std::string defaultValueRangeBytes()
+{
+    std::string bytes(1, '\0');
+    const float ceiling = exr::max_output;
+    bytes.append(reinterpret_cast<const char*>(&ceiling), sizeof ceiling);
+    bytes.push_back('\0');
+    return bytes;
+}
+
+// A saved network without those bytes, as format 20 and older wrote it;
+// `layers` is how many layer records it has.
+std::string withoutValueRanges(std::string bytes, size_t layers)
+{
+    const std::string range = defaultValueRangeBytes();
+    for (size_t k = 0; k < layers; ++k) {
+        const size_t at = bytes.find(range);
+        if (at == std::string::npos)
+            throw std::logic_error("withoutValueRanges: fewer value ranges than layers");
+        bytes.erase(at, range.size());
+    }
+    return bytes;
+}
+
 } // namespace
 
 // =============================================================================
@@ -647,6 +672,7 @@ TEST(NetworkSerializationTest, RejectsUnknownFormatVersions)
 
 TEST(NetworkSerializationTest, FilesBeforeFormat20KeepRecovery09)
 {
+    // (The value range bytes of format 21 are removed for the older versions.)
     // Format 20 changed the default recovery from 0.9 to 0.5 without new data:
     // a file marked 19 grows (and resets) neurons at 0.9, its saved neurons
     // keep their saved values.
@@ -665,7 +691,7 @@ TEST(NetworkSerializationTest, FilesBeforeFormat20KeepRecovery09)
 
     for (char version : {19, 20}) {
         SCOPED_TRACE("format version " + std::to_string(version));
-        std::string bytes = ss.str();
+        std::string bytes = withoutValueRanges(ss.str(), 2);
         bytes[4] = version;
         std::stringstream s(bytes);
         const auto loaded = network::load(s);
@@ -1732,7 +1758,7 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
     ASSERT_NE(at, std::string::npos);
     ASSERT_EQ(bytes.find(ruleBytes, at + 1), std::string::npos);
     bytes.erase(at, ruleBytes.size() + sizeof(std::uint32_t) + 4 * sizeof(float) + 3 * sizeof(std::uint8_t) +
-                        sizeof(std::uint64_t) + sizeof(std::uint8_t));
+                        sizeof(std::uint64_t) + sizeof(std::uint8_t) + defaultValueRangeBytes().size());
     const std::uint32_t v13 = 13;
     bytes.replace(4, sizeof v13, reinterpret_cast<const char*>(&v13), sizeof v13);
     std::stringstream old(bytes);

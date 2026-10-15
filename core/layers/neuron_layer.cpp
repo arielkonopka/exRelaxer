@@ -37,6 +37,7 @@ neuron& neuron_layer::newNeuron()
     n.setSpontaneous(spontaneous_);
     n.setRestingThreshold(resting_);
     n.setBinary(binary_);
+    n.setValueRange(range_);
     output_.push_back(n.output());
     frozen_.push_back(0);
     growth_order_.push_back(0);
@@ -127,6 +128,63 @@ void neuron_layer::setBinary(bool binary)
     binary_ = binary;
     for (neuron& n : neurons_)
         n.setBinary(binary);
+}
+
+void neuron_layer::setValueRange(const ValueRange& range)
+{
+    if (!range.valid() || !std::isfinite(range.ceiling))
+        throw std::invalid_argument("setValueRange: the ceiling must be in (0, 1e6]");
+    range_ = range;
+    for (neuron& n : neurons_)
+        n.setValueRange(range);
+}
+
+void neuron_layer::setPositiveWeights(bool positive)
+{
+    if (positive && !learns())
+        throw std::invalid_argument("setPositiveWeights: this layer type has fixed filters, not learned weights");
+    if (positive && !positive_weights_) {
+        std::vector<float> w;
+        const auto fold = [&w] {
+            for (float& x : w)
+                x = std::abs(x);
+        };
+        if (hasSharedWeights()) {
+            copySharedWeights(w);
+            fold();
+            if (!w.empty())
+                storeSharedWeights(w);
+        } else {
+            for (size_t i = 0; i < neurons_.size(); ++i) {
+                copyWeights(i, w);
+                fold();
+                if (!w.empty())
+                    storeWeights(i, w);
+            }
+        }
+        for (float& b : bias_)
+            b = std::max(b, 0.0f);
+        weightsChanged();
+    }
+    positive_weights_ = positive;
+}
+
+void neuron_layer::drawWeights(rng::WeightStream stream, std::span<float> out) const
+{
+    rng::drawWeights(stream, out);
+    if (positive_weights_)
+        for (float& x : out)
+            x = std::abs(x);
+}
+
+std::span<const float> neuron_layer::boundWeights(std::span<const float> weights, std::vector<float>& scratch) const
+{
+    if (!positive_weights_)
+        return weights;
+    scratch.resize(weights.size());
+    for (size_t i = 0; i < weights.size(); ++i)
+        scratch[i] = std::max(weights[i], 0.0f);
+    return scratch;
 }
 
 void neuron_layer::setNeuronsFrozen(size_t first, size_t count, bool frozen)
@@ -386,7 +444,7 @@ void neuron_layer::setBias(size_t index, float value)
 {
     if (bias_.empty())
         throw std::logic_error("setBias: the layer's learning rule has no bias");
-    bias_.at(index) = value;
+    bias_.at(index) = positive_weights_ ? std::max(value, 0.0f) : value;
 }
 
 std::vector<float> neuron_layer::feedbackRow(size_t index) const
@@ -569,7 +627,7 @@ void neuron_layer::learn(Modulator m, float learningRate)
                 // The bias's input is 1; per-synapse rules use its eligibility.
                 const float pre = bias_elig_.empty() ? 1.0f : bias_elig_[i];
                 bias_[i] = std::min(
-                    std::max(bias_[i] * (scaled ? step_keep_[i] : 1.0f) + step_delta_[i] * pre, -max_weight), max_weight);
+                    std::max(bias_[i] * (scaled ? step_keep_[i] : 1.0f) + step_delta_[i] * pre, minWeight()), max_weight);
             }
 }
 
@@ -580,7 +638,7 @@ void neuron_layer::applyBiasGradient(float learningRate)
     for (size_t i = 0; i < neurons_.size(); ++i) {
         if (!frozen_[i])
             bias_[i] = std::min(std::max(bias_[i] - learningRate * neurons_[i].learningGain() * bias_grad_[i],
-                                         -max_weight), max_weight);
+                                         minWeight()), max_weight);
         bias_grad_[i] = 0.0f;
     }
 }

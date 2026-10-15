@@ -58,12 +58,12 @@ TEST(KernelsTest, LearnEqualsScalarSignRuleAndSkipsInactiveRows)
         active[r] = r % 3 != 0;
         delta[r] = 0.37f * static_cast<float>(r) - 3.0f;
     }
-    m.learn(signs, delta, active, max_weight, 0, m.blocks());
+    m.learn(signs, delta, active, -max_weight, max_weight, 0, m.blocks());
 
     std::vector<float> row(cols);
     for (size_t r = 0; r < rows; ++r) {
         if (active[r])
-            kernels::signRule(std::span(w).subspan(r * cols, cols), x, delta[r], max_weight);
+            kernels::signRule(std::span(w).subspan(r * cols, cols), x, delta[r], -max_weight, max_weight);
         m.copyRow(r, row);
         for (size_t c = 0; c < cols; ++c)
             EXPECT_TRUE(sameBits(row[c], w[r * cols + c])) << "row " << r << " col " << c;

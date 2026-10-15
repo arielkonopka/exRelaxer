@@ -73,6 +73,16 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to rectify");
         dynamic_cast<neuron_layer&>(*impl).setRectified(true);
     }
+    if (spec.positiveValues || spec.ceiling != max_output) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a value range");
+        dynamic_cast<neuron_layer&>(*impl).setValueRange({spec.positiveValues, spec.ceiling});
+    }
+    if (spec.positiveWeights) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no weights to keep positive");
+        dynamic_cast<neuron_layer&>(*impl).setPositiveWeights(true);
+    }
     if (spec.binary) {
         if (!impl->hasNeurons())
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to give a binary output");
@@ -1093,6 +1103,13 @@ void network::describe(std::ostream& os) const
         os << "  growth " << node.name << ": " << node.impl->size() << " neurons, " << grown << " grown, minimum "
            << node.spec.minimumSize << (node.spec.grown ? ", a grown layer" : "") << "\n";
     }
+    for (const Node& node : this->nodes) {
+        if (!node.spec.positiveValues && node.spec.ceiling == max_output && !node.spec.positiveWeights)
+            continue;
+        os << "  range " << node.name << ": values [" << (node.spec.positiveValues ? "0" : "-" + describeNumber(node.spec.ceiling))
+           << ", " << describeNumber(node.spec.ceiling) << "]"
+           << (node.spec.positiveWeights ? ", weights >= 0" : "") << "\n";
+    }
     const auto names = [this](const std::vector<LayerId>& layers, const std::vector<std::string>& inputs) {
         std::string text;
         for (LayerId id : layers)
@@ -1161,7 +1178,7 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //  20  no new data: the default E-R recovery became 0.5; older files keep
 //      0.9 (legacy_recovery_factor) for neurons they grow or reset
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 20;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 21;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -1421,6 +1438,9 @@ void network::save(std::ostream& os) const
             writeValue<std::uint8_t>(os, node.spec.bus);
             writeCount(os, node.spec.minimumSize);  // current setting, like frozen
             writeValue<std::uint8_t>(os, node.spec.grown);
+            writeValue<std::uint8_t>(os, node.spec.positiveValues);
+            writeValue(os, node.spec.ceiling);
+            writeValue<std::uint8_t>(os, node.spec.positiveWeights);
             break;
         }
         case OpKind::Connect:
@@ -1614,6 +1634,13 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 minimum_sizes.resize(net->nodes.size() + 1, 0);
                 minimum_sizes.back() = readCount(is, "minimum size");
                 spec.grown = readValue<std::uint8_t>(is) != 0;
+            }
+            if (version >= 21) {
+                spec.positiveValues = readValue<std::uint8_t>(is) != 0;
+                spec.ceiling = readValue<float>(is);
+                spec.positiveWeights = readValue<std::uint8_t>(is) != 0;
+                if (!ValueRange{spec.positiveValues, spec.ceiling}.valid() || !std::isfinite(spec.ceiling))
+                    throw std::runtime_error("network::load: invalid value range");
             }
             if (version < 20 && !spec.recoveryJitter.mean)
                 spec.recoveryJitter.mean = legacy_recovery_factor;  // the default these files were saved under

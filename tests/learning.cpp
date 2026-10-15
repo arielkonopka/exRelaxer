@@ -99,8 +99,8 @@ TEST(LearningRuleTest, LearnScaledWithUnitKeepEqualsLearn)
         delta[r] = d(gen);
         active[r] = r % 3 != 0;
     }
-    a.learn(signs, delta, active, max_weight, 0, a.blocks());
-    b.learnScaled(signs, delta, keep, active, max_weight, 0, b.blocks());
+    a.learn(signs, delta, active, -max_weight, max_weight, 0, a.blocks());
+    b.learnScaled(signs, delta, keep, active, -max_weight, max_weight, 0, b.blocks());
     for (size_t r = 0; r < 11; ++r)
         for (size_t c = 0; c < 5; ++c)
             EXPECT_EQ(a.at(r, c), b.at(r, c));

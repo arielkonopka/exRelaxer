@@ -184,7 +184,7 @@ private:
     // is already in a group: a neuron belongs to exactly one group.
     void addGroup(Group group);
     // Fills `w` from `stream`, or with zeros for WeightInit::Zero.
-    static void initWeights(rng::WeightStream stream, WeightInit init, std::span<float> w);
+    void initWeights(rng::WeightStream stream, WeightInit init, std::span<float> w) const;
     // Sizes the group's per-synapse matrices to its weights (new inputs and
     // rows start at 0).
     void syncSynapseState(Group& group) const;
