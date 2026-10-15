@@ -4,6 +4,7 @@
 #include "random.hpp"
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <istream>
 #include <ostream>
 #include <sstream>
@@ -41,7 +42,46 @@ float drawJitter(const Jitter& jitter, float fallbackMean, float validMin, float
 using binary_io::read;
 using binary_io::write;
 
+constexpr float izhikevich_peak = 30.0f;    // mV: a spike, then reset
+constexpr float izhikevich_floor = -200.0f; // mV: keeps strong inhibition finite
+constexpr float two_pi = 6.28318530717958647692f;
+
+float logistic(float x) { return 1.0f / (1.0f + std::exp(-x)); }
+
+// Triangular bump of half-width `half` around `edge`, 1 at its top.
+float tent(float x, float edge, float half)
+{
+    return std::max(0.0f, 1.0f - std::abs(x - edge) / std::max(half, min_threshold));
+}
+
 } // namespace
+
+const char* neuronModelName(NeuronModel::Type type)
+{
+    switch (type) {
+    case NeuronModel::Type::ER: return "er";
+    case NeuronModel::Type::Sigmoid: return "sigmoid";
+    case NeuronModel::Type::Tanh: return "tanh";
+    case NeuronModel::Type::Softplus: return "softplus";
+    case NeuronModel::Type::LIF: return "lif";
+    case NeuronModel::Type::Izhikevich: return "izhikevich";
+    case NeuronModel::Type::Resonator: return "resonator";
+    }
+    return "?";
+}
+
+bool NeuronModel::valid() const
+{
+    const auto finite = [](std::initializer_list<float> values) {
+        return std::ranges::all_of(values, [](float v) { return std::isfinite(v); });
+    };
+    return static_cast<std::uint8_t>(type) <= static_cast<std::uint8_t>(Type::Resonator) &&
+           finite({gain, smoothing, leak, threshold, reset, adaptation, adaptationDecay, frequency, a, b, c, d}) &&
+           gain > 0.0f && smoothing >= 0.0f && smoothing < 1.0f && leak >= 0.0f && leak < 1.0f &&
+           threshold > 0.0f && reset < threshold && refractory <= 1000000 && adaptation >= 0.0f &&
+           adaptationDecay >= 0.0f && adaptationDecay < 1.0f && frequency > 0.0f && frequency <= 0.5f &&
+           c < izhikevich_peak && c > izhikevich_floor;
+}
 
 neuron::neuron(bool hasHabituation, bool hasER, float alpha)
     : threshold_(baseline_threshold), has_habituation_(hasHabituation), has_er_(hasER), alpha_(alpha),
@@ -87,7 +127,7 @@ float neuron::activate(float weightedSum)
     // run away and the threshold (grown from this value) stays finite.
     float sum = std::clamp(weightedSum, -max_output, max_output);
     last_sum_ = sum;
-    last_threshold_ = threshold_;
+    last_threshold_ = model_.type == NeuronModel::Type::ER ? threshold_ : 0.0f;
 
     if (has_habituation_) {
         // Branchless habituation update:
@@ -108,6 +148,11 @@ float neuron::activate(float weightedSum)
             sum *= habituation_.decay > 0.0f ? std::pow(habituation_.decay, static_cast<float>(habituatedTicks)) : 0.0f;
     }
     output_ = sum;
+    if (model_.type != NeuronModel::Type::ER) {
+        output_ = stepModel(sum);
+        last_firing_ = output_ != 0.0f ? Firing::Fired : Firing::Silent;
+        return output_;
+    }
     if (has_er_) {
         // Firing decision and threshold growth are both magnitude-based:
         // inputs and outputs can be negative, the threshold is always positive.
@@ -145,6 +190,8 @@ float neuron::activate(float weightedSum)
 float neuron::activate(float weightedSum, float width, Derivatives& d)
 {
     const float threshold = threshold_;
+    const float v = model_v_, u = model_u_;
+    const std::uint32_t refractory = refractory_;
     const float y = activate(weightedSum);
     d = {};
 
@@ -160,6 +207,12 @@ float neuron::activate(float weightedSum, float width, Derivatives& d)
             chain *= factor;
             s *= factor;
         }
+    }
+    if (model_.type != NeuronModel::Type::ER) {
+        modelDerivatives(s, v, u, refractory, width, d);
+        d.dyds *= chain;
+        d.dthrds *= chain;
+        return y;
     }
     const float a = std::abs(s);
     const float sg = s >= 0.0f ? 1.0f : -1.0f;
@@ -223,6 +276,182 @@ float neuron::activate(float weightedSum, float width, Derivatives& d)
     d.dyds *= chain;
     d.dthrds *= chain;
     return y;
+}
+
+void neuron::setModel(const NeuronModel& value)
+{
+    model_ = value;
+    restModel();
+}
+
+void neuron::restModel()
+{
+    model_v_ = model_.type == NeuronModel::Type::Izhikevich ? model_.c : 0.0f;
+    model_u_ = model_.type == NeuronModel::Type::Izhikevich ? model_.b * model_.c : 0.0f;
+    refractory_ = 0;
+    last_slope_ = 0.0f;
+}
+
+float neuron::charge() const
+{
+    switch (model_.type) {
+    case NeuronModel::Type::LIF:
+        return model_v_ / (model_.threshold + model_u_);
+    case NeuronModel::Type::Izhikevich:
+        return (model_v_ - model_.c) / (izhikevich_peak - model_.c);
+    case NeuronModel::Type::Resonator:
+        return model_v_ / model_.threshold;
+    default:
+        return 0.0f;
+    }
+}
+
+float neuron::stepModel(float s)
+{
+    const NeuronModel& m = model_;
+    switch (m.type) {
+    case NeuronModel::Type::Sigmoid:
+    case NeuronModel::Type::Tanh:
+    case NeuronModel::Type::Softplus: {
+        const float x = m.gain * s;
+        float f = 0.0f, slope = 0.0f;  // f(gain * s) and its derivative by s
+        if (m.type == NeuronModel::Type::Sigmoid) {
+            f = logistic(x);
+            slope = m.gain * f * (1.0f - f);
+        } else if (m.type == NeuronModel::Type::Tanh) {
+            f = std::tanh(x);
+            slope = m.gain * (1.0f - f * f);
+        } else {
+            f = (x > 20.0f ? x : std::log1p(std::exp(x))) / m.gain;
+            slope = logistic(x);
+        }
+        model_v_ = m.smoothing * model_v_ + (1.0f - m.smoothing) * f;
+        last_slope_ = (1.0f - m.smoothing) * slope;
+        return model_v_;
+    }
+    case NeuronModel::Type::LIF: {
+        bool spike = false;
+        const float threshold = m.threshold + model_u_;
+        if (refractory_ > 0) {
+            --refractory_;
+            model_v_ = m.reset;
+            last_slope_ = 0.0f;
+        } else {
+            model_v_ = m.leak * model_v_ + s;
+            last_slope_ = model_v_ > threshold ? 1.0f : tent(model_v_, threshold, 0.5f * threshold);
+            if (model_v_ > threshold) {
+                spike = true;
+                model_v_ = m.reset;
+                refractory_ = m.refractory;
+            }
+        }
+        model_u_ = m.adaptationDecay * model_u_ + (spike ? m.adaptation : 0.0f);
+        return spike ? 1.0f : 0.0f;
+    }
+    case NeuronModel::Type::Izhikevich: {
+        // Two half-millisecond Euler steps for v (Izhikevich's own scheme),
+        // one for u.
+        const float current = m.gain * s;
+        bool spike = false;
+        float peak = model_v_;
+        for (int half = 0; half < 2 && !spike; ++half) {
+            model_v_ += 0.5f * (0.04f * model_v_ * model_v_ + 5.0f * model_v_ + 140.0f - model_u_ + current);
+            model_v_ = std::max(model_v_, izhikevich_floor);
+            peak = model_v_;
+            spike = model_v_ >= izhikevich_peak;
+        }
+        model_u_ += m.a * (m.b * std::min(model_v_, izhikevich_peak) - model_u_);
+        last_slope_ = spike ? 1.0f : tent(peak, izhikevich_peak, 0.5f * izhikevich_peak);
+        if (spike) {
+            model_v_ = m.c;
+            model_u_ += m.d;
+        }
+        return spike ? 1.0f : 0.0f;
+    }
+    case NeuronModel::Type::Resonator: {
+        // z = leak * e^(i theta) * z + i s, with v = Im z and u = Re z.
+        const float theta = two_pi * m.frequency;
+        const float cs = std::cos(theta), sn = std::sin(theta);
+        const float re = m.leak * (cs * model_u_ - sn * model_v_);
+        float im = m.leak * (sn * model_u_ + cs * model_v_);
+        const bool listening = refractory_ == 0;
+        if (listening)
+            im += s;
+        else
+            --refractory_;
+        model_u_ = re;
+        model_v_ = im;
+        last_slope_ = !listening ? 0.0f : im > m.threshold ? 1.0f : tent(im, m.threshold, 0.5f * m.threshold);
+        if (listening && im > m.threshold) {
+            model_u_ = model_v_ = 0.0f;
+            refractory_ = m.refractory;
+            return 1.0f;
+        }
+        return 0.0f;
+    }
+    case NeuronModel::Type::ER:
+        break;
+    }
+    return s;
+}
+
+void neuron::modelDerivatives(float s, float v, float u, std::uint32_t refractory, float width, Derivatives& d) const
+{
+    const NeuronModel& m = model_;
+    // Triangular pseudo-derivative of a spike at x = edge, integrating to 1.
+    const auto bump = [width](float x, float edge, float scale) {
+        const float half = width * std::max(scale, min_threshold);
+        return std::max(0.0f, 1.0f - std::abs(x - edge) / half) / half;
+    };
+    switch (m.type) {
+    case NeuronModel::Type::Sigmoid:
+    case NeuronModel::Type::Tanh:
+    case NeuronModel::Type::Softplus:
+        // y = m y_prev + (1 - m) f(gain s): the state is the output itself.
+        d.dyds = last_slope_;
+        d.dthrds = last_slope_;
+        d.dydthr = m.smoothing;
+        d.dthrdthr = m.smoothing;
+        break;
+    case NeuronModel::Type::LIF: {
+        if (refractory > 0)
+            break;  // the input is ignored and v held at reset
+        const float threshold = m.threshold + u;
+        const float b = bump(m.leak * v + s, threshold, threshold);
+        d.dyds = b;
+        d.dydthr = b * m.leak;
+        d.dthrdthr = m.leak;
+        d.dthrds = 1.0f;
+        break;
+    }
+    case NeuronModel::Type::Izhikevich: {
+        // dv'/dv of one full Euler step, ignoring u, kept in [0, 1] so the
+        // traces stay bounded; the spike is a bump around the peak.
+        const float jacobian = std::clamp(1.0f + 0.08f * v + 5.0f, 0.0f, 1.0f);
+        const float next = std::min(v + (0.04f * v * v + 5.0f * v + 140.0f - u + m.gain * s), 2.0f * izhikevich_peak);
+        const float b = bump(next, izhikevich_peak, izhikevich_peak);
+        d.dyds = b * m.gain;
+        d.dydthr = b * jacobian;
+        d.dthrdthr = jacobian;
+        d.dthrds = m.gain;
+        break;
+    }
+    case NeuronModel::Type::Resonator: {
+        // Im z' = leak (sin theta Re z + cos theta Im z) + s, ignoring Re z.
+        const float decay = m.leak * std::cos(two_pi * m.frequency);
+        d.dthrdthr = decay;
+        if (refractory > 0)
+            break;
+        const float im = m.leak * (std::sin(two_pi * m.frequency) * u + std::cos(two_pi * m.frequency) * v) + s;
+        const float b = bump(im, m.threshold, m.threshold);
+        d.dyds = b;
+        d.dydthr = b * decay;
+        d.dthrds = 1.0f;
+        break;
+    }
+    case NeuronModel::Type::ER:
+        break;
+    }
 }
 
 void neuron::excite(float effectiveSum)
@@ -358,6 +587,7 @@ std::vector<float> neuron::deserialize(std::istream& is, DeserializeMode mode, s
         output_ = output;
         std::istringstream(std::to_string(rng_state)) >> rng_;
     } else {
+        restModel();
         threshold_ = resting_;
         previous_input_ = 0.0f;
         habituation_counter_ = 0;

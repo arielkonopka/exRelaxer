@@ -45,6 +45,7 @@ struct LayerSpec
     bool binary = false;         // neurons without E-R: output the sign of a sum that passes the gate (see neuron::binary)
     bool bus = false;            // Dense: the layer is a bus (see network::addBus)
     size_t minimumSize = 0;      // Dense: pruning never leaves fewer neurons (see network::setMinimumSize); 0 = no floor
+    NeuronModel neuronModel = {};  // what turns sums into outputs (see NeuronModel); not ER: needs hasER = false
     bool grown = false;          // the layer was added by structural growth, not built with the network (a tag; see doc/development.md)
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
@@ -57,6 +58,16 @@ struct LayerSpec
     {
         LayerSpec s{LayerType::Dense, size, hasHabituation, hasER};
         s.normalize = true;
+        return s;
+    }
+    // Dense neurons of another model than E-R (see NeuronModel), without
+    // E-R and by default without habituation:
+    //   LayerSpec::Dense(64, NeuronModel::tanh())
+    //   LayerSpec::Dense(64, NeuronModel::alif(0.9f, 1.0f, 0.2f))
+    static LayerSpec Dense(size_t size, const NeuronModel& model, bool hasHabituation = false)
+    {
+        LayerSpec s = Dense(size, hasHabituation, false);
+        s.neuronModel = model;
         return s;
     }
     // Classic perceptrons: no E-R, no habituation, output 1 when the

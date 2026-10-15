@@ -130,7 +130,10 @@ before; files older than format 15 keep 0.01), which raises the
    [nonlinearity experiments](nonlinearity.md).
 
 Without E-R (and without a gate or rectification) the output is simply the (clamped,
-possibly habituated) sum.
+possibly habituated) sum. A neuron without E-R can also run another
+[neuron model](neuron_models.md) (`setModel`: sigmoid, tanh, softplus, LIF,
+Izhikevich, resonate-and-fire), which then takes the habituated sum in place
+of the gate and rectification.
 
 For one neuron with caller-owned weights, `step(inputs, weights)` is
 `activate(dot(inputs, weights))`.

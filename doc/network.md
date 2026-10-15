@@ -340,7 +340,7 @@ the building methods' exceptions.
 Binary, native endianness (not portable across platforms). Counts and ids
 are `uint64`.
 
-1. Magic `EXRN`, format version `uint32` (currently **18**).
+1. Magic `EXRN`, format version `uint32` (currently **21**).
 2. Operation count, then each operation: kind (`uint8`) and fields:
    - AddLayer: name length + bytes, `LayerType` (`uint8`), size,
      hasHabituation, hasER, frozen (`uint8` each; frozen is the state at save
@@ -379,6 +379,13 @@ are `uint64`.
    frozen inputs.
 6. (version 18) Critic flag (`uint8`) and, if set, its spec and weights,
    traces and last state; the same for the curiosity model.
+7. (version 21) Neuron models: the count of layers whose model is not ER,
+   then for each its id, its `NeuronModel` (type `uint8`, gain, smoothing,
+   leak, threshold, reset `float`, refractory `uint32`, adaptation,
+   adaptationDecay, frequency, a, b, c, d `float`), its neuron count and per
+   neuron the model state: membrane, recovery variable (`float`) and
+   refractory ticks left (`uint32`). Appended last, so the earlier sections
+   keep the layout of version 20 ([neuron models](neuron_models.md)).
 
 | Version | Added |
 |---------|-------|
@@ -402,6 +409,7 @@ are `uint64`.
 | 18 | binary output and bus flag per layer; weight init per connect; growth and pruning; neuron format 4 (Eligibility, EProp, Surrogate state; frozen neurons and inputs); critic and curiosity model |
 | 19 | minimum size and the grown-layer tag per layer |
 | 20 | no new data: the default recovery became 0.5; older files keep 0.9 for the neurons they grow or reset (their recovery jitter is centred on 0.9) |
+| 21 | neuron models (`NeuronModel`) and their state, in a last section; older files load with the ER model |
 
 Versions 1–5 load as weights only (see above); unknown versions are
 rejected.

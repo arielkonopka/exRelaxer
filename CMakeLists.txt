@@ -165,6 +165,7 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(exrelaxer_tests
     tests/neuron.cpp
+    tests/neuron_models.cpp
     tests/dense.cpp
     tests/network.cpp
     tests/regressions.cpp

@@ -102,8 +102,12 @@ experiment so far.
   with full internal state (continues bit-identically) or weights only.
 
 Both adaptation mechanisms can be toggled independently per layer. Neurons
-without E-R can instead have a fixed firing threshold (`LayerSpec::gate`) or
-be ReLUs (`LayerSpec::rectify`).
+without E-R can instead have a fixed firing threshold (`LayerSpec::gate`),
+be ReLUs (`LayerSpec::rectify`), perceptrons (`LayerSpec::Perceptron`), or
+another neuron model (`LayerSpec::neuronModel`): sigmoid, tanh and softplus
+rate units (optionally leaky integrators), leaky integrate-and-fire with
+optional adaptation (LIF / ALIF), Izhikevich and resonate-and-fire neurons
+(see [doc/neuron_models.md](doc/neuron_models.md)).
 
 ## Requirements
 
@@ -443,6 +447,21 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files older than format 6 load as weights only.
 
 ## Changelog
+
+### 2026-10-15: neuron models
+
+- `NeuronModel` per layer (`LayerSpec::neuronModel`,
+  `neuron_layer::setNeuronModel`, Python `LayerSpec.dense(..., neuron_model=...)`):
+  sigmoid, tanh, softplus (with `smoothing`, leaky integrators), LIF with
+  refractoriness and optional threshold adaptation (ALIF), Izhikevich (regular
+  spiking, fast spiking, chattering, intrinsically bursting) and
+  resonate-and-fire. The default `ER` is the original neuron. Habituation,
+  every learning rule (e-prop and surrogate gradients through the model's
+  membrane), growth, state taps and probes work with all of them.
+- Network format 21 saves the models and their state in a last section;
+  older files load unchanged.
+- `nl_static`, `nl_temporal` and `dyn_ladder` take the new models by name.
+  See [doc/neuron_models.md](doc/neuron_models.md).
 
 ### 2026-10-08: default E-R recovery 0.5
 

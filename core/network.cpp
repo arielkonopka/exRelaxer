@@ -78,6 +78,11 @@ network::LayerId network::addLayer(const std::string& name, const LayerSpec& spe
             throw std::invalid_argument("network: layer '" + name + "' has no neurons to give a binary output");
         dynamic_cast<neuron_layer&>(*impl).setBinary(true);
     }
+    if (spec.neuronModel != NeuronModel{}) {
+        if (!impl->hasNeurons())
+            throw std::invalid_argument("network: layer '" + name + "' has no neurons to take a neuron model");
+        dynamic_cast<neuron_layer&>(*impl).setNeuronModel(spec.neuronModel);
+    }
     if (spec.bus && spec.type != LayerType::Dense)
         throw std::invalid_argument("network: bus '" + name + "' must be a Dense layer");
     if (spec.minimumSize > 0 && (spec.type != LayerType::Dense || spec.minimumSize > impl->size()))
@@ -341,7 +346,8 @@ std::vector<network::PruneCandidate> network::pruneCandidates(LayerId id, const 
         const neuron& n = neurons[i];
         const bool finite = std::ranges::all_of(w, [](float v) { return std::isfinite(v); }) &&
                             std::isfinite(target->bias(i)) && std::isfinite(n.threshold()) &&
-                            std::isfinite(n.output());
+                            std::isfinite(n.output()) && std::isfinite(n.membrane()) &&
+                            std::isfinite(n.recoveryVariable());
         if (!finite)
             reasons |= Invalid;
         if (w.empty())
@@ -985,6 +991,21 @@ std::string describeNumber(float value)
     return text.str();
 }
 
+// The neuron model in at most five characters, for the summary's E-R column.
+std::string describeModel(const NeuronModel& model)
+{
+    switch (model.type) {
+    case NeuronModel::Type::Sigmoid: return "sigm";
+    case NeuronModel::Type::Tanh: return "tanh";
+    case NeuronModel::Type::Softplus: return "splus";
+    case NeuronModel::Type::LIF: return model.adaptation > 0.0f ? "alif" : "lif";
+    case NeuronModel::Type::Izhikevich: return "izh";
+    case NeuronModel::Type::Resonator: return "res";
+    case NeuronModel::Type::ER: break;
+    }
+    return "-";
+}
+
 // "channels x height x width" for spatial layers, "-" for flat ones.
 std::string describeShape(const Shape& shape)
 {
@@ -1026,6 +1047,7 @@ void network::describe(std::ostream& os) const
            << std::setw(6) << (node.impl->hasNeurons() && node.spec.hasHabituation ? "on" : "-")
            << std::setw(6) << (!node.impl->hasNeurons() ? std::string("-")
                                : node.spec.hasER   ? std::string("on")
+                               : node.spec.neuronModel.type != NeuronModel::Type::ER ? describeModel(node.spec.neuronModel)
                                : node.spec.binary  ? (node.spec.rectify ? "1>" + describeNumber(node.spec.gate)
                                                                         : std::string("sign"))
                                : node.spec.rectify ? (node.spec.gate > 0.0f ? ">" + describeNumber(node.spec.gate)
@@ -1160,8 +1182,11 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //  19  + minimum size and the grown-layer tag per layer
 //  20  no new data: the default E-R recovery became 0.5; older files keep
 //      0.9 (legacy_recovery_factor) for neurons they grow or reset
+//  21  + a last section: the neuron model of each layer that has another
+//        model than ER (NeuronModel) and its neurons' model state. Older
+//        readers' layout is unchanged.
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 20;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 21;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -1304,6 +1329,30 @@ LearningRule readLearningRule(std::istream& is)
         throw std::runtime_error(std::string("network::load: ") + e.what());
     }
     return rule;
+}
+
+void writeNeuronModel(std::ostream& os, const NeuronModel& m)
+{
+    writeValue(os, static_cast<std::uint8_t>(m.type));
+    for (float v : {m.gain, m.smoothing, m.leak, m.threshold, m.reset})
+        writeValue(os, v);
+    writeValue(os, m.refractory);
+    for (float v : {m.adaptation, m.adaptationDecay, m.frequency, m.a, m.b, m.c, m.d})
+        writeValue(os, v);
+}
+
+NeuronModel readNeuronModel(std::istream& is)
+{
+    NeuronModel m;
+    m.type = static_cast<NeuronModel::Type>(readValue<std::uint8_t>(is));
+    for (float* v : {&m.gain, &m.smoothing, &m.leak, &m.threshold, &m.reset})
+        *v = readValue<float>(is);
+    m.refractory = readValue<std::uint32_t>(is);
+    for (float* v : {&m.adaptation, &m.adaptationDecay, &m.frequency, &m.a, &m.b, &m.c, &m.d})
+        *v = readValue<float>(is);
+    if (!m.valid())
+        throw std::runtime_error("network::load: invalid neuron model");
+    return m;
 }
 
 size_t readCount(std::istream& is, std::string_view what)
@@ -1491,6 +1540,26 @@ void network::save(std::ostream& os) const
     writeValue<std::uint8_t>(os, this->curiosity_.has_value());
     if (this->curiosity_)
         this->curiosity_->serialize(os);
+
+    // 6. Neuron models (version 21): each layer whose model is not ER, its
+    // model and its neurons' model state.
+    std::vector<LayerId> modelled;
+    for (LayerId id = 0; id < this->nodes.size(); ++id)
+        if (this->nodes[id].impl->hasNeurons() &&
+            dynamic_cast<const neuron_layer&>(*this->nodes[id].impl).neuronModel().type != NeuronModel::Type::ER)
+            modelled.push_back(id);
+    writeCount(os, modelled.size());
+    for (LayerId id : modelled) {
+        const auto& layer = dynamic_cast<const neuron_layer&>(*this->nodes[id].impl);
+        writeCount(os, id);
+        writeNeuronModel(os, layer.neuronModel());
+        writeCount(os, layer.neurons().size());
+        for (const neuron& n : layer.neurons()) {
+            writeValue(os, n.membrane());
+            writeValue(os, n.recoveryVariable());
+            writeValue(os, n.refractoryTicks());
+        }
+    }
 
     if (!os)
         throw std::runtime_error("network::save: write failed");
@@ -1764,6 +1833,35 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
                 throw std::runtime_error(std::string("network::load: ") + e.what());
             }
             net->curiosity_->deserialize(is, full);
+        }
+    }
+
+    // 6. Neuron models
+    if (version >= 21) {
+        const size_t count = readCount(is, "neuron model count");
+        for (size_t k = 0; k < count; ++k) {
+            const size_t id = readCount(is, "layer id");
+            if (id >= net->nodes.size() || !net->nodes[id].impl->hasNeurons())
+                throw std::runtime_error("network::load: a neuron model for a layer without neurons");
+            const NeuronModel model = readNeuronModel(is);
+            auto& layer = dynamic_cast<neuron_layer&>(*net->nodes[id].impl);
+            const size_t neurons = readCount(is, "neuron count");
+            if (neurons != layer.neurons().size())
+                throw std::runtime_error("network::load: neuron model state for " + std::to_string(neurons) +
+                                         " neurons, the layer has " + std::to_string(layer.neurons().size()));
+            try {
+                layer.setNeuronModel(model, mode != DeserializeMode::FullState);
+            } catch (const std::invalid_argument& e) {
+                throw std::runtime_error(std::string("network::load: ") + e.what());
+            }
+            net->nodes[id].spec.neuronModel = model;
+            for (neuron& n : layer.neurons()) {
+                const auto v = readValue<float>(is);
+                const auto u = readValue<float>(is);
+                const auto refractory = readValue<std::uint32_t>(is);
+                if (mode == DeserializeMode::FullState)
+                    n.setModelState(v, u, refractory);
+            }
         }
     }
     return net;

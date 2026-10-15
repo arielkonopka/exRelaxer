@@ -47,6 +47,7 @@ from ._core import (  # noqa: F401
     LearningRule,
     LearningRuleType,
     Network,
+    NeuronModel,
     PoolMode,
     ResizeSpec,
     RetinaSpec,
@@ -69,7 +70,7 @@ from . import audio, datasets  # noqa: F401,E402
 __all__ = [
     "CochleaSpec", "Compression", "CriticSpec", "CuriositySpec", "DeserializeMode", "DisparityMeasure", "DisparitySpec", "Edge", "EdgeKind",
     "FrequencyScale", "Habituation", "Interpolation", "Jitter", "LayerSpec", "LayerType", "LearningRule",
-    "LearningRuleType", "Network", "PoolMode", "ResizeSpec",
+    "LearningRuleType", "Network", "NeuronModel", "PoolMode", "ResizeSpec",
     "RetinaSpec", "Sampling", "Shape", "Spontaneous", "ThresholdGrowth", "WeightInit", "Window2D", "audio", "build_info", "constants", "datasets", "filters", "reseed",
     "set_threads", "threads",
 ]

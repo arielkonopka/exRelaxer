@@ -9,6 +9,7 @@ of known limitations, see the [project README](../README.md).
 | [state output](state_output.md) | Experimental State layer: three values per neuron (output, E-R threshold above rest, habituation streak) that downstream layers can read; timing, usage, and what it changes on the controlled benchmarks |
 | [protocol](protocol.md) | Research protocol: controlled benchmarks before Doom, determinism, no new mechanism without a hypothesis and a controlled experiment, reporting |
 | [neuron](neuron.md) | `neuron`, `DeserializeMode`, `Habituation`, `ThresholdGrowth`, the tunable constants: E-R, habituation, fixed gate and ReLU, learning rule, serialization format |
+| [neuron_models](neuron_models.md) | `NeuronModel`: neuron types besides E-R per layer: sigmoid, tanh, softplus (leaky integrators with smoothing), LIF / ALIF, Izhikevich, resonate-and-fire; learning, saving, probes |
 | [learning](learning.md) | `LearningRule`: the learning rules a layer can use (sign, trace, feedback alignment, perturbation, Oja, BCM, per-synapse eligibility, e-prop, surrogate gradients), bias, decay, `applyError`; the actor-critic TD error and the curiosity reward |
 | [layer](layer.md) | `layer` (base class), `neuron_layer`, `Shape`, `InputRange`, `LayerType`: what every layer type shares |
 | [dense](dense.md) | `dense`: wiring groups, growth propagation, SIMD forward pass and learning |
