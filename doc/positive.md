@@ -65,4 +65,16 @@ constrained.
 
 ## Results
 
-See [research log](research.md) for the learning rules under the constraint.
+Snake with every learning-rule pair ([research log §32](research.md),
+`results/positive/summary.md`):
+
+- Positive values on a linear output layer stop learning: a readout whose
+  sum goes negative outputs 0 and is then never eligible (a dead ReLU).
+  Keep outputs signed, or give them E-R.
+- Positive weights cost almost nothing in one stage (mix or readouts), but
+  in two consecutive stages the network can only learn non-decreasing
+  functions of its inputs, and Snake breaks (13 -> 2-4 apples). One signed
+  stage is enough.
+- Positive readout weights help the trace rule (7.8 -> 11.7, 9.2 -> 13.0
+  with an E-R mix), and positive Oja / BCM features help sign readouts
+  (up to 14.7, the best Snake score with these rules).

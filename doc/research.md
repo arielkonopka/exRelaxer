@@ -2071,6 +2071,37 @@ older ones to 3-11. Scores: 9.4 (9.2–9.6) at recovery 0.5 (wide unpruned 9.8),
 fixed; wide unpruned 7.7). At 0.9 a 3-neuron layer saturates, so width growth and pruning churn
 (39 widenings, 78 prunings over 3 seeds) before the size settles.
 
+## 32. Positive-only values and weights
+
+[positive](positive.md): a layer option keeping values in [0, ceiling] and/or weights at or above 0.
+Benchmark: `snake_rules` (the §11 learning-rule benchmark), every readout rule (sign, trace, fa,
+perturbation) x mix rule (frozen, sign, trace, fa, perturbation, oja, bcm) x mix with and without
+E-R, 10 seeds, test apples per game; the constraint on all layers, on the 64-neuron mix only, or on
+the 3 action readouts only, and on values, weights or both (`results/positive/`, table in
+`summary.md`). Unconstrained: 12-13 apples with sign or fa readouts, 7-9 with trace, 0-6 with
+perturbation.
+
+**Positive values on the readouts stop learning.** Every rule ends at the untrained level (0.1). A
+readout without E-R whose sum goes negative outputs exactly 0; the Sign rule's eligibility without
+E-R is a non-zero output (neuron.hpp), and the trace rules multiply by an output trace that stays
+0, so a readout that dies never learns again (a dead ReLU; inferred from the rules, not probed).
+
+**Positive weights in one stage are nearly free, in two stages they break the task.** Mix weights
+only: sign and fa readouts keep 11-13. Readout weights only: 13-14.6 with sign readouts over a
+learned mix. Both: 1.5-4.5. With non-negative weights after a non-decreasing activation in both
+stages, every readout is a non-decreasing function of every sensor, so the network cannot learn
+"turn away when this sensor goes up"; one signed stage is enough to undo that.
+
+**Where the constraint helps.** Trace readouts with positive readout weights: 7.8 -> 11.7 (mix
+without E-R) and 9.2 -> 13.0 (with E-R), and 10.5-13.2 over every learned mix but Oja / BCM, against
+7-9.5 unconstrained: the clamp at 0 stops the trace rule's drift. Positive Oja / BCM mixes (values
+and weights) under sign readouts: 9.7 -> 14.7 (Oja) and 11.9 -> 14.1 (BCM with E-R); positive
+features from the unsupervised rules are easier for the readouts. Perturbation readouts over a mix
+with positive values: 0.1 -> 3.9 (perturbation mix), 1.1 -> 4.6 (trace mix).
+
+**Where it hurts.** Positive mix values or both under trace readouts: 7-9.5 -> 2-5. Fa readouts
+over a positive mix (values and weights): 12-13 -> 8-10.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.

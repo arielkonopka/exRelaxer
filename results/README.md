@@ -11,6 +11,7 @@ and `NNtesting/tools/capacity.py`.
 |--------|--------------|----------|
 | `multimodal/` | §12 | `stereo_depth`, `audiovisual` |
 | `learning-rules/` | §11 | `snake_rules` |
+| `positive/` | §32 | `snake_rules` with positive-only values and/or weights on all layers, the mix or the readouts; `summary.md` (from `NNtesting/tools/positive_summary.py`), `run.sh` |
 | `er-activity/` | §13 | `er_economy`, `er_paths`, `er_fatigue`, `er_history` (+ summaries and traces) |
 | `nonlinearity/explore/` | §14 | `nl_static` grid, one file per task; `analysis/` is `capacity.py`'s output |
 | `nonlinearity/settle/` | §14 | `nl_static` with more ticks per sample; `analysis_settle7/`, `analysis_settle15/` |
