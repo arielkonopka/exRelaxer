@@ -32,7 +32,9 @@ of known limitations, see the [project README](../README.md).
 | [snake_growth_guide](snake_growth_guide.md) | A practical guide and Python API manual: Snake learned always-on by a network that grows from one neuron (or four), with results |
 | [network](network.md) | `network`: layer graph, inputs/outputs, update order, freezing, buses, growing and pruning a running network, save/load |
 | [pattern_benchmark](pattern_benchmark.md) | Task support (`NNtesting/tasks/pattern_benchmark.hpp`): gapped-pattern benchmark, frozen value detectors, delay window |
+| [pipeline](pipeline.md) | The neuron comparison pipeline: every neuron model × learning method on one Doom architecture, on a self-hosted GitHub Actions runner; resumable, with timing and profiles |
 | [NNtesting](../NNtesting/README.md) | The `nntest` benchmark harness: experiments, parameter sweeps, result files, comparisons |
+| [results](../results/README.md) | Raw results behind the research log, one folder per topic |
 | [research](research.md) | Research log: parameter changes, mechanisms, topologies, jitter and what each showed |
 | [appendix 1](appendix1.md) | Audit of the execution semantics, topology rules, reproducibility and the evidence behind the E-R findings (2026-09-27) |
 

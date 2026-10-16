@@ -109,6 +109,8 @@ spread over the workers.
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `model`, `width`, `depth` | `er`, 128, 1 | hidden neurons and layers |
+| `directions` | 8 | 8: 22 readouts with the diagonal moves and shots; 4: the 14 actions of G1 to G4 (saved runs without it load as 4) |
+| `recovery` | 0.9 | E-R recovery of every E-R neuron: 0.9 as when G1 to G4 ran, whatever the library default (0.5 since 2026-10-08) |
 | `habituation`, `habituation_*` | on | fade-mode habituation of the hidden layers |
 | `recurrent`, `recurrent_scale` | off, 0.5 | each hidden layer also reads itself |
 | `skip` | off | the top hidden layer reads every layer below it, not only the one under it |

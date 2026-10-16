@@ -35,6 +35,17 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [21. Video temporal memory](#21-video-temporal-memory)
 - [22. Learned video memory](#22-learned-video-memory)
 - [23. New defaults and spontaneous firing after silence](#23-new-defaults-and-spontaneous-firing-after-silence)
+- [24. Do the earlier results survive the new defaults?](#24-do-the-earlier-results-survive-the-new-defaults)
+- [25. Temporal semantics, state readability and delayed credit](#25-temporal-semantics-state-readability-and-delayed-credit)
+- [26. State as output](#26-state-as-output)
+- [27. State component ablation](#27-state-component-ablation)
+- [28. Gardens of Eris](#28-gardens-of-eris)
+- [29. Per-synapse eligibility, e-prop and surrogate gradients](#29-per-synapse-eligibility-e-prop-and-surrogate-gradients)
+- [30. Structural development: growing from one neuron](#30-structural-development-growing-from-one-neuron)
+- [31. How big does a growing Snake network get?](#31-how-big-does-a-growing-snake-network-get)
+- [32. 8-bit weights and values](#32-8-bit-weights-and-values)
+- [33. Positive-only values and weights](#33-positive-only-values-and-weights)
+- [34. Neuron models on the nonlinearity tasks](#34-neuron-models-on-the-nonlinearity-tasks)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -1926,7 +1937,24 @@ best weights score +18.9 but the final ones +9.2. The gains are items,
 doors and less damage; kills, teleports, apples and mines stay too rare
 in 2-minute games to be learned. The score alone gave ES no signal.
 
-Data: `results/goe/`.
+**G3, a growing column network taught in skill rooms**: one skill at a
+time (explore, collect, doors, avatar, mines, maze), a new column on each
+plateau. The grown 4-column network scores 57.8 per maze against 49.1
+for one column on the same curriculum, 37.0 for a random player and 19.1
+untrained (the maze lead is within noise; the skill rooms are clearly
+better, with fewer deaths); neither learned mines or exploring.
+
+**G4, online learning rules on the grown network** (§29): every rule
+that learns while the network plays stays at the noise control or
+hurts; continuing ES adds about 6. A critic must read only frozen
+layers, or it diverges.
+
+**G5, eight directions**: goe_rl's default action set now has the
+game's diagonal moves and shots (22 readouts; `directions` 4 keeps the
+14). Untrained, the recurrent E-R network explores more with them
+(reward +5.6 → +9.2).
+
+Details, setups and data of G1–G5: [goe](goe.md#log). Data: `results/goe/`.
 
 ## 29. Per-synapse eligibility, e-prop and surrogate gradients
 
@@ -1974,8 +2002,10 @@ With λ = 0.97 (delays 8 / 16 / 32):
   for recurrent layers driven by an error or a TD signal, not this
   single-neuron reward task.
 - Sign has no delayed credit (§25), unchanged.
-- Not tested yet: the critic, curiosity and the new rules on a game; the
-  GoE nets saved in `reports/goe-grow/` are the next test bed.
+- On a game (GoE G4, [goe](goe.md#g4-the-grown-network-trained-further-by-online-learning-rules-2026-10-07)):
+  no rule improved the grown network beyond the noise control while it
+  played; learning in the newest column hurt, and a critic must read
+  frozen layers only.
 
 Data: [`results/learning-rules-v2/delayed_credit/`](../results/learning-rules-v2/delayed_credit/)
 (`*_097` at λ 0.97); command:
@@ -2136,6 +2166,37 @@ with positive values: 0.1 -> 3.9 (perturbation mix), 1.1 -> 4.6 (trace mix).
 **Where it hurts.** Positive mix values or both under trace readouts: 7-9.5 -> 2-5. Fa readouts
 over a positive mix (values and weights): 12-13 -> 8-10.
 
+## 34. Neuron models on the nonlinearity tasks
+
+New in the library ([neuron_models](neuron_models.md)): a `NeuronModel` per
+layer besides E-R: sigmoid, tanh and softplus rate units (optionally leaky
+integrators, `smoothing`), LIF and adaptive LIF, Izhikevich and
+resonate-and-fire. Benchmark: the §14/§16 grids of `nl_static` and
+`nl_temporal` (depth 1–3 × width 4–64, 5 seeds, learning rate per
+architecture on validation, feedback alignment with a learned bias,
+habituation off, default model parameters). E-R ran at the default
+recovery 0.5, so its row is not its best (at 0.9 it solved delayed XOR with
+8 neurons, §18). Tables and raw data: `results/neuron-models/`.
+
+| model | t1 delayed XOR | t2 x(t) ∧ ¬x(t−3) | t3 parity 4 | l1 x1·x2 (MSE) | active |
+|---|---|---|---|---|---|
+| stateless (relu, sigmoid, tanh, softplus) | 0.51 | 0.75 | 0.49 | 5–6.5e-4 | 50–100 % |
+| E-R (recovery 0.5) | 0.64 | 0.78 | 0.52 | 0.066 | 65–80 % |
+| tanh, smoothing 0.5 | 1.00 (8 neurons) | 0.76 | – | – | 100 % |
+| LIF | 0.95 | 0.86 | 0.68 | 0.035 | 7–17 % |
+| resonator | 0.68 | 0.83 | 0.77 | 0.028 | 11–30 % |
+| Izhikevich (gain 10) | 0.50 | 0.76 | 0.49 | 0.11 | 1–2 % |
+
+- **A one-step memory needs only a leaky output.** tanh with smoothing 0.5
+  solves delayed XOR with 8 neurons, as E-R did at recovery 0.9.
+- **LIF is the best spiking memory** (t2 0.86, above the 0.75 ceiling of
+  stateless networks) at an eighth of the activity; the resonator is the
+  only model clearly above chance on parity.
+- **Static functions**: tanh matches ReLU; spiking models are 10–50× worse
+  than ReLU but better than E-R, at a fraction of the activity.
+- Izhikevich at gain 10 hardly fires on these normalised sums; its input
+  scale needs calibrating before the comparison is fair.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -2277,6 +2338,32 @@ over a positive mix (values and weights): 12-13 -> 8-10.
     carries none here and costs the online readout 3–5 points. At
     recovery 0.9 the threshold stores the direction (probe 0.79) but the
     reappearance overwrites it before the prediction (0.55).
+
+24. **Games: evolution learns, online rules do not yet** (§28, §29). On
+    Gardens of Eris, ES on the event reward beats a random player, and a
+    network grown column by column in skill rooms beats one column on the
+    same curriculum; every online learning rule tried on the grown network
+    stays at the noise control or hurts.
+
+25. **Growth rescues a network too small to learn, but does not beat the
+    right size** (§30, §31). Width growth on E-R saturation stops by
+    itself at about twice the starting size; at fast recovery (0.5–0.75)
+    a fixed ER(16) is the best Snake player (9.7), and depth growth only
+    matches it when old layers keep learning and new layers start wide.
+
+26. **8 bits are enough for an E-R layer** (§32): Snake learns as well with
+    8-bit weights and outputs in the E-R layer; 8-bit readouts cost about
+    0.6 apples.
+
+27. **Positive-only constraints are cheap in one stage, fatal in two**
+    (§33): non-negative weights in two consecutive stages make every
+    readout monotone in every sensor; positive values on readouts stop
+    learning (a dead ReLU). The clamp helps the trace rule and the
+    unsupervised Oja / BCM features.
+
+28. **Other neuron state does E-R's job as memory** (§34): a leaky tanh
+    solves delayed XOR with 8 neurons, LIF and the resonator reach further
+    back than E-R at recovery 0.5, at a fraction of the activity.
 
 ## Open questions and next steps
 

@@ -135,7 +135,7 @@ which the whole population was saturated falls with its size:
 
 | recovery | ER(1) | ER(2) | ER(4) | ER(8) | ER(16) |
 |---|---|---|---|---|---|
-| 0.9 (default) | 75% | 38% | 19% | 0% | 0% |
+| 0.9 (the default then) | 75% | 38% | 19% | 0% | 0% |
 | 0.99 | 90% | 76% | 65% | 39% | 11% |
 
 So saturation is a real signal, and width growth limits itself: growing makes saturation rarer.
@@ -296,4 +296,4 @@ net.read_strength(h); Pruning(reasons=("weak",), weak_fraction=0.2, weak_after=2
 Plateau(baseline=b, patience=4).update(score); grow_depth(net, h, readers=[out])
 ```
 
-Network files are format 19 (minimum size and the grown tag per layer); older files load as before.
+Network format 19 added the minimum size and the grown tag per layer; older files load as before (current format: [network](network.md#file-format)).
