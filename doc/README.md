@@ -10,6 +10,7 @@ of known limitations, see the [project README](../README.md).
 | [precision](precision.md) | `Precision`: optional 8-bit weights (per-row power-of-two step, stochastic rounding during learning) and 8-bit outputs per layer; what stays float, saving, results |
 | [protocol](protocol.md) | Research protocol: controlled benchmarks before Doom, determinism, no new mechanism without a hypothesis and a controlled experiment, reporting |
 | [neuron](neuron.md) | `neuron`, `DeserializeMode`, `Habituation`, `ThresholdGrowth`, the tunable constants: E-R, habituation, fixed gate and ReLU, learning rule, serialization format |
+| [neuron_models](neuron_models.md) | `NeuronModel`: neuron types besides E-R per layer: sigmoid, tanh, softplus (leaky integrators with smoothing), LIF / ALIF, Izhikevich, resonate-and-fire; learning, saving, probes |
 | [positive](positive.md) | Positive-only values (0..n) and weights (>= 0) per layer: what they change, how every learning rule respects them, and results |
 | [learning](learning.md) | `LearningRule`: the learning rules a layer can use (sign, trace, feedback alignment, perturbation, Oja, BCM, per-synapse eligibility, e-prop, surrogate gradients), bias, decay, `applyError`; the actor-critic TD error and the curiosity reward |
 | [layer](layer.md) | `layer` (base class), `neuron_layer`, `Shape`, `InputRange`, `LayerType`: what every layer type shares |

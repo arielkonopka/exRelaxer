@@ -13,7 +13,9 @@
 //                threshold (0 without E-R): 0 at rest, positive after a
 //                firing (up to max_output - rest), negative while it relaxes
 //                below rest during a long silence (down to -rest); the same
-//                units as outputs and sums;
+//                units as outputs and sums; for other neuron models
+//                (NeuronModel) its charge instead (see neuron::charge: 0 at
+//                rest, 1 at the firing threshold; 0 for rate units);
 //   habituation  min(streak / onset, 1), where streak is the number of
 //                consecutive ticks the neuron's sum has been "the same" and
 //                onset the streak length at which suppression starts

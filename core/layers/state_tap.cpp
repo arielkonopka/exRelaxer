@@ -51,7 +51,7 @@ void state_tap::forward()
         if (output_field_)
             *out++ = outputs[i];
         if (threshold_)
-            *out++ = n.hasER() ? n.threshold() - n.restingThreshold() : 0.0f;
+            *out++ = n.hasER() ? n.threshold() - n.restingThreshold() : n.charge();
         if (habituation_)
             *out++ = n.hasHabituation() ? std::min(static_cast<float>(n.habituationStreak()) / onset, 1.0f) : 0.0f;
     }

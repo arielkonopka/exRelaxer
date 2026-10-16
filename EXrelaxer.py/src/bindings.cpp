@@ -350,6 +350,56 @@ NB_MODULE(_core, m)
         .def_rw("amount", &ThresholdGrowth::amount)
         .def("__eq__", [](const ThresholdGrowth& a, const ThresholdGrowth& b) { return a == b; });
 
+    nb::class_<NeuronModel> model(m, "NeuronModel",
+                                  "What turns a neuron's sum into its output: ER (the default: E-R, or linear / gate /\n"
+                                  "ReLU / binary without it), rate units SIGMOID, TANH, SOFTPLUS (y = f(gain*s), with\n"
+                                  "smoothing a leaky integrator), and spiking units (output 1 on a spike): LIF (leaky\n"
+                                  "integrate-and-fire; with adaptation an ALIF), IZHIKEVICH and RESONATOR\n"
+                                  "(resonate-and-fire). Models other than ER are for layers without E-R. See doc/neuron_models.md.");
+    nb::enum_<NeuronModel::Type>(model, "Type")
+        .value("ER", NeuronModel::Type::ER)
+        .value("SIGMOID", NeuronModel::Type::Sigmoid)
+        .value("TANH", NeuronModel::Type::Tanh)
+        .value("SOFTPLUS", NeuronModel::Type::Softplus)
+        .value("LIF", NeuronModel::Type::LIF)
+        .value("IZHIKEVICH", NeuronModel::Type::Izhikevich)
+        .value("RESONATOR", NeuronModel::Type::Resonator);
+    model.def(nb::init<>())
+        .def_rw("type", &NeuronModel::type)
+        .def_rw("gain", &NeuronModel::gain, "Rate units: slope; Izhikevich: input current per unit of sum.")
+        .def_rw("smoothing", &NeuronModel::smoothing, "Rate units: y = smoothing*y + (1 - smoothing)*f, [0, 1).")
+        .def_rw("leak", &NeuronModel::leak, "LIF: membrane decay per tick; Resonator: damping per tick.")
+        .def_rw("threshold", &NeuronModel::threshold, "LIF, Resonator: firing threshold.")
+        .def_rw("reset", &NeuronModel::reset, "LIF: membrane after a spike.")
+        .def_rw("refractory", &NeuronModel::refractory, "LIF, Resonator: ticks after a spike that ignore the input.")
+        .def_rw("adaptation", &NeuronModel::adaptation, "LIF: threshold rise per spike (ALIF); 0 = plain LIF.")
+        .def_rw("adaptation_decay", &NeuronModel::adaptationDecay, "LIF: decay of that rise per tick.")
+        .def_rw("frequency", &NeuronModel::frequency, "Resonator: cycles per tick, (0, 0.5].")
+        .def_rw("a", &NeuronModel::a)
+        .def_rw("b", &NeuronModel::b)
+        .def_rw("c", &NeuronModel::c)
+        .def_rw("d", &NeuronModel::d)
+        .def_prop_ro("valid", &NeuronModel::valid)
+        .def_prop_ro("spiking", &NeuronModel::spiking)
+        .def_prop_ro("name", [](const NeuronModel& m) { return neuronModelName(m.type); })
+        .def_static("er", &NeuronModel::er)
+        .def_static("sigmoid", &NeuronModel::sigmoid, "gain"_a = 1.0f, "smoothing"_a = 0.0f)
+        .def_static("tanh", &NeuronModel::tanh, "gain"_a = 1.0f, "smoothing"_a = 0.0f)
+        .def_static("softplus", &NeuronModel::softplus, "gain"_a = 1.0f, "smoothing"_a = 0.0f)
+        .def_static("lif", &NeuronModel::lif, "leak"_a = 0.9f, "threshold"_a = 1.0f, "refractory"_a = 0,
+                    "reset"_a = 0.0f)
+        .def_static("alif", &NeuronModel::alif, "leak"_a = 0.9f, "threshold"_a = 1.0f, "adaptation"_a = 0.2f,
+                    "adaptation_decay"_a = 0.95f, "refractory"_a = 0)
+        .def_static("izhikevich", &NeuronModel::izhikevich, "a"_a = 0.02f, "b"_a = 0.2f, "c"_a = -65.0f,
+                    "d"_a = 8.0f, "gain"_a = 10.0f)
+        .def_static("regular_spiking", &NeuronModel::regularSpiking, "gain"_a = 10.0f)
+        .def_static("fast_spiking", &NeuronModel::fastSpiking, "gain"_a = 10.0f)
+        .def_static("chattering", &NeuronModel::chattering, "gain"_a = 10.0f)
+        .def_static("intrinsically_bursting", &NeuronModel::intrinsicallyBursting, "gain"_a = 10.0f)
+        .def_static("resonator", &NeuronModel::resonator, "frequency"_a = 0.1f, "damping"_a = 0.9f,
+                    "threshold"_a = 1.0f, "refractory"_a = 0)
+        .def("__eq__", [](const NeuronModel& a, const NeuronModel& b) { return a == b; })
+        .def("__repr__", [](const NeuronModel& m) { return std::string("<NeuronModel ") + neuronModelName(m.type) + ">"; });
     nb::class_<Precision>(m, "Precision",
                           "Number formats of a layer's weights and outputs (default float). 8-bit numbers are codes "
                           "in [-127, 127] times a power-of-two step: int8_weights (Dense) gives each weight row its own "
@@ -480,6 +530,8 @@ NB_MODULE(_core, m)
                 "Dense, Conv2D, LocallyConnected2D: divide each weighted sum by the length of the neuron's weights.")
         .def_rw("binary", &LayerSpec::binary,
                 "Neurons without E-R: output the sign of a sum that passes the gate (1 / 0 with rectify).")
+        .def_rw("neuron_model", &LayerSpec::neuronModel,
+                "What turns sums into outputs (NeuronModel; default ER). Other models need has_er = False.")
         .def_rw("positive_values", &LayerSpec::positiveValues,
                 "Neurons: sums and outputs in [0, ceiling] instead of [-ceiling, ceiling].")
         .def_rw("ceiling", &LayerSpec::ceiling,
@@ -503,12 +555,15 @@ NB_MODULE(_core, m)
         .def_static(
             "dense",
             [](size_t size, bool habituation, bool er, bool frozen, const Jitter& rj, const Jitter& lj,
-               const Jitter& aj, const LearningRule& rule) {
-                return withOptions(LayerSpec::Dense(size, habituation, er), frozen, rj, lj, aj, rule);
+               const Jitter& aj, const LearningRule& rule, const NeuronModel& model) {
+                LayerSpec spec = model.type == NeuronModel::Type::ER ? LayerSpec::Dense(size, habituation, er)
+                                                                     : LayerSpec::Dense(size, model, habituation);
+                return withOptions(spec, frozen, rj, lj, aj, rule);
             },
             "size"_a, "habituation"_a = true, "er"_a = true, nb::kw_only(), "frozen"_a = false,
             "recovery_jitter"_a = noJitter, "learning_jitter"_a = noJitter, "alpha_jitter"_a = noJitter,
-            "learning_rule"_a = signRule)
+            "learning_rule"_a = signRule, "neuron_model"_a = NeuronModel{},
+            "Dense neurons. A neuron_model other than ER (e.g. NeuronModel.lif()) replaces E-R: `er` is ignored.")
         .def_static(
             "conv2d",
             [](size_t channels, const Window2D& window, bool habituation, bool er, bool frozen, const Jitter& rj,
@@ -1061,7 +1116,8 @@ NB_MODULE(_core, m)
                 // Read-only: nothing here feeds back into the network.
                 const neuron_layer& l = neuronLayer(net, id);
                 const auto neurons = l.neurons();
-                std::vector<float> output, threshold, resting, eligibility, trace, streak, previous, sum, start, spont;
+                std::vector<float> output, threshold, resting, eligibility, trace, streak, previous, sum, start, spont,
+                    membrane, recovery, charge;
                 for (size_t i = 0; i < neurons.size(); ++i) {
                     const neuron& n = neurons[i];
                     sum.push_back(n.lastSum());
@@ -1074,6 +1130,9 @@ NB_MODULE(_core, m)
                     trace.push_back(l.outputTrace(i));
                     streak.push_back(static_cast<float>(n.habituationStreak()));
                     previous.push_back(n.previousInput());
+                    membrane.push_back(n.membrane());
+                    recovery.push_back(n.recoveryVariable());
+                    charge.push_back(n.charge());
                 }
                 nb::dict d;
                 d["output"] = toNumpy(std::move(output));
@@ -1086,6 +1145,9 @@ NB_MODULE(_core, m)
                 d["last_sum"] = toNumpy(std::move(sum));
                 d["last_threshold"] = toNumpy(std::move(start));
                 d["spontaneous"] = toNumpy(std::move(spont));
+                d["membrane"] = toNumpy(std::move(membrane));
+                d["recovery_variable"] = toNumpy(std::move(recovery));
+                d["charge"] = toNumpy(std::move(charge));
                 return d;
             },
             "layer"_a,
@@ -1093,7 +1155,10 @@ NB_MODULE(_core, m)
             "E-R threshold, resting (baseline) threshold, Sign-rule eligibility, output trace P (0 for Sign),\n"
             "habituation streak and the previous raw sum habituation compares against; and of the last tick:\n"
             "the clamped raw sum (last_sum), the threshold it started with (last_threshold) and whether the\n"
-            "neuron fired spontaneously (1) or not (0). See doc/model.md.")
+            "neuron fired spontaneously (1) or not (0). Other neuron models (NeuronModel): the membrane\n"
+            "(LIF/Izhikevich v, resonator Im z, smoothed rate output), the second state variable\n"
+            "(recovery_variable: ALIF's threshold rise, Izhikevich's u, resonator Re z) and the charge (0 at\n"
+            "rest, 1 at threshold). See doc/model.md and doc/neuron_models.md.")
         .def(
             "last_inputs", [](network& net, LayerId id, size_t index) {
                 return toNumpy(layerAs<dense>(net, id, "Dense").lastInputs(index));

@@ -64,12 +64,13 @@ nnt::Register experiment({
     .description = "temporal tasks (delayed XOR, delayed AND-NOT, parity of n, sin(x(t)*x(t-2))) with relu, E-R, "
                    "memoryless E-R, static-threshold or clamped hidden neurons: accuracy, size, activity, cost",
     .tags = {"er", "nonlinearity", "temporal", "learning"},
-    .params = {
+    .params = withNeuronModelParams({
         {"task", "t1", "t1 x(t) XOR x(t-1), t2 x(t) AND NOT x(t-3), t3 parity of the last n, t4 sin(x(t)*x(t-2))"},
         {"n", "2", "t3: parity length"},
         {"window", "0", "extra past inputs x(t-1)..x(t-window) given to every model (0: x(t) only)"},
         {"data_seed", "1", "seed of the training stream (validation +1, test +2)"},
-        {"model", "er", "hidden neurons: relu, er, er_memoryless (state reset every step), gate, clamp (alias linear)"},
+        {"model", "er", "hidden neurons: relu, er, er_memoryless (state reset every step), gate, clamp (alias linear), "
+                           "sigmoid, tanh, softplus, lif, alif, izhikevich, resonator (model_* parameters)"},
         {"gate", "0.2", "gate model: the fixed threshold (default: E-R's resting threshold)"},
         {"growth", "linear", "E-R threshold growth on firing: linear (default), log (original), fixed, multiplicative"},
         {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
@@ -104,7 +105,7 @@ nnt::Register experiment({
         {"early_stop", "true", "stop training once validation reaches the success target"},
         {"trace", "", "trace mode: CSV of every hidden neuron's output and threshold per tick (optional)"},
         {"trace_steps", "20", "trace mode: test steps to trace"},
-    },
+    }),
     .trials = 10,
     .run = [](nnt::Trial& t) {
         const auto& p = t.params();
@@ -129,7 +130,8 @@ nnt::Register experiment({
             p.getDouble("spontaneous_below"), p.getDouble("spontaneous_amplitude"), p.getDouble("spontaneous_rate"));
         Mlp net(model, task.inputs(), depth, width, static_cast<float>(p.getDouble("gate")),
                 er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
-                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"), p.getBool("state_readout"));
+                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"), p.getBool("state_readout"), {}, {},
+                neuronModel(model, p));
         const float restingFactor = net.calibrateThresholds(p.getString("resting_threshold"));
         const std::string learnTicks = p.getString("learn_ticks");
         if (learnTicks != "last" && learnTicks != "all")
@@ -215,7 +217,8 @@ nnt::Register experiment({
         if (pretrain > 0) {
             Mlp pre(pretrainModel, task.inputs(), depth, width, static_cast<float>(p.getDouble("gate")),
                     er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
-                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"), p.getBool("state_readout"));
+                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"), p.getBool("state_readout"), {}, {},
+                    neuronModel(pretrainModel, p));
             pre.calibrateThresholds(p.getString("resting_threshold"));
             cur = &pre;
             run(trainStream, 0, pretrain, true, nullptr, nullptr, 0);

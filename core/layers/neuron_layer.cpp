@@ -37,6 +37,7 @@ neuron& neuron_layer::newNeuron()
     n.setSpontaneous(spontaneous_);
     n.setRestingThreshold(resting_);
     n.setBinary(binary_);
+    n.setModel(model_);
     n.setValueRange(range_);
     output_.push_back(n.output());
     frozen_.push_back(0);
@@ -71,6 +72,9 @@ void neuron_layer::setGate(float gate)
         throw std::invalid_argument("setGate: the gate must be a finite value >= 0");
     if (gate > 0.0f && has_er_)
         throw std::invalid_argument("setGate: a fixed threshold is for neurons without E-R");
+    if (gate > 0.0f && model_.type != NeuronModel::Type::ER)
+        throw std::invalid_argument(std::string("setGate: a fixed threshold is for the ER neuron model, not ") +
+                                    neuronModelName(model_.type));
     gate_ = gate;
     for (neuron& n : neurons_)
         n.setGate(gate);
@@ -116,6 +120,9 @@ void neuron_layer::setRectified(bool rectified)
 {
     if (rectified && has_er_)
         throw std::invalid_argument("setRectified: rectification is for neurons without E-R");
+    if (rectified && model_.type != NeuronModel::Type::ER)
+        throw std::invalid_argument(std::string("setRectified: rectification is for the ER neuron model, not ") +
+                                    neuronModelName(model_.type));
     rectified_ = rectified;
     for (neuron& n : neurons_)
         n.setRectified(rectified);
@@ -125,9 +132,40 @@ void neuron_layer::setBinary(bool binary)
 {
     if (binary && has_er_)
         throw std::invalid_argument("setBinary: binary output is for neurons without E-R");
+    if (binary && model_.type != NeuronModel::Type::ER)
+        throw std::invalid_argument(std::string("setBinary: binary output is for the ER neuron model, not ") +
+                                    neuronModelName(model_.type));
     binary_ = binary;
     for (neuron& n : neurons_)
         n.setBinary(binary);
+}
+
+void neuron_layer::setNeuronModel(const NeuronModel& model, bool rest)
+{
+    if (!model.valid())
+        throw std::invalid_argument("setNeuronModel: invalid parameters for the " +
+                                    std::string(neuronModelName(model.type)) + " neuron model");
+    if (model.type != NeuronModel::Type::ER) {
+        if (has_er_)
+            throw std::invalid_argument(std::string("setNeuronModel: the ") + neuronModelName(model.type) +
+                                        " model is for neurons without E-R");
+        if (gate_ > 0.0f || rectified_ || binary_)
+            throw std::invalid_argument(std::string("setNeuronModel: the ") + neuronModelName(model.type) +
+                                        " model replaces the gate, rectification and binary output");
+    }
+    model_ = model;
+    for (size_t i = 0; i < neurons_.size(); ++i) {
+        if (!rest) {
+            const float v = neurons_[i].membrane(), u = neurons_[i].recoveryVariable();
+            const std::uint32_t refractory = neurons_[i].refractoryTicks();
+            neurons_[i].setModel(model);
+            neurons_[i].setModelState(v, u, refractory);
+            continue;
+        }
+        neurons_[i].setModel(model);
+        output_[i] = 0.0f;
+        neurons_[i].setOutput(0.0f);
+    }
 }
 
 void neuron_layer::setValueRange(const ValueRange& range)
@@ -264,6 +302,8 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
     std::vector<std::vector<float>> weights(count);
     for (size_t i = 0; i < count; ++i) {
         neuron n = in_place ? neurons_[i] : neuron(has_habituation, has_er);
+        if (!in_place && !has_er)
+            n.setModel(model_);
         weights[i] = n.deserialize(is, mode, neuronFormat);
         if (!is)
             return;  // the caller reports the truncated stream
@@ -303,6 +343,8 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
         n.setSpontaneous(spontaneous_);
         n.setRestingThreshold(resting_, mode != DeserializeMode::FullState);  // a full state keeps its thresholds
         n.setBinary(!has_er_ && binary_);
+        if (has_er_ && n.model().type != NeuronModel::Type::ER)
+            n.setModel({});
     }
     if (!in_place) {
         frozen_.assign(count, 0);
@@ -726,6 +768,12 @@ bool neuron_layer::ruleStep(size_t i, float m, float learningRate, float& delta,
         // silent or held at the output clamp in the direction the modulator
         // pushes.
         const float y = nr.output();
+        if (nr.model().type != NeuronModel::Type::ER) {
+            // Other models: the derivative of a rate unit, or a spike's
+            // pseudo-derivative (see neuron::slope).
+            delta = rate * m * nr.slope();
+            return delta != 0.0f;
+        }
         if ((nr.hasER() && !nr.eligible()) || ((nr.gate() > 0.0f || nr.rectified()) && y == 0.0f) || (y >= max_output && m > 0.0f) || (y <= -max_output && m < 0.0f))
             return false;
         delta = rate * m;

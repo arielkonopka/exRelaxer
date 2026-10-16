@@ -16,6 +16,13 @@
 //   gate    static threshold: output = sum if |sum| > gate, else 0 (LayerSpec::gate)
 //   clamp   the library's plain neuron: output = sum, clamped to +-max_output
 //           (nearly linear for these inputs; "linear" is the same model)
+//   sigmoid, tanh, softplus
+//           rate units (NeuronModel), slope model_gain, smoothing model_smoothing
+//   lif, alif, izhikevich, resonator
+//           spiking units (NeuronModel; output 1 on a spike): leak
+//           model_leak, threshold model_threshold (lif, alif, resonator),
+//           input gain model_gain (izhikevich: current per unit sum),
+//           adaptation model_adaptation (alif), model_frequency (resonator)
 // Everything else is the same: the task data, the weight initialization
 // (uniform, variance 1 / fan-in, drawn from the trial seed), feedback
 // alignment with a learned bias in every layer, the learning rate, the
@@ -223,6 +230,53 @@ inline double quantile(std::vector<float> v, double q)
     return v[i];
 }
 
+// The models above that are a NeuronModel (not ER), with the experiments'
+// model_* parameters; nullopt for relu, er, er_memoryless, gate and clamp.
+inline std::optional<NeuronModel> neuronModel(const std::string& name, float gain, float smoothing, float leak,
+                                              float threshold, float adaptation, float frequency)
+{
+    if (name == "sigmoid")
+        return NeuronModel::sigmoid(gain, smoothing);
+    if (name == "tanh")
+        return NeuronModel::tanh(gain, smoothing);
+    if (name == "softplus")
+        return NeuronModel::softplus(gain, smoothing);
+    if (name == "lif")
+        return NeuronModel::lif(leak, threshold);
+    if (name == "alif")
+        return NeuronModel::alif(leak, threshold, adaptation);
+    if (name == "izhikevich")
+        return NeuronModel::regularSpiking(10.0f * gain);
+    if (name == "resonator")
+        return NeuronModel::resonator(frequency, leak, threshold);
+    return std::nullopt;
+}
+
+// The model_* parameters of nl_static and nl_temporal.
+inline const std::vector<nnt::ParamSpec> neuron_model_params = {
+    {"model_gain", "1", "rate units: slope; izhikevich: input current per unit sum / 10"},
+    {"model_smoothing", "0", "rate units: leaky integration of the output, [0, 1)"},
+    {"model_leak", "0.9", "lif, alif: membrane decay per tick; resonator: damping"},
+    {"model_threshold", "1", "lif, alif, resonator: firing threshold"},
+    {"model_adaptation", "0.2", "alif: threshold rise per spike"},
+    {"model_frequency", "0.1", "resonator: cycles per tick"},
+};
+
+inline std::vector<nnt::ParamSpec> withNeuronModelParams(std::vector<nnt::ParamSpec> params)
+{
+    params.insert(params.end(), neuron_model_params.begin(), neuron_model_params.end());
+    return params;
+}
+
+inline std::optional<NeuronModel> neuronModel(const std::string& name, const nnt::Params& p)
+{
+    return neuronModel(name, static_cast<float>(p.getDouble("model_gain")),
+                       static_cast<float>(p.getDouble("model_smoothing")), static_cast<float>(p.getDouble("model_leak")),
+                       static_cast<float>(p.getDouble("model_threshold")),
+                       static_cast<float>(p.getDouble("model_adaptation")),
+                       static_cast<float>(p.getDouble("model_frequency")));
+}
+
 class Mlp
 {
 public:
@@ -230,12 +284,16 @@ public:
         const ThresholdGrowth& growth = {}, const Spontaneous& spontaneous = {},
         std::optional<Habituation> habituation = std::nullopt, bool normalize = false,
         bool normalizeReadout = false, bool stateReadout = false, const Precision& precision = {},
-        const Precision& readoutPrecision = {})
+        const Precision& readoutPrecision = {},
+        std::optional<NeuronModel> neuronModel = std::nullopt)
         : model_(model == "linear" ? "clamp" : model == "er_memoryless" ? "er" : model),
           memoryless_(model == "er_memoryless"), inputs_(inputs), depth_(depth), width_(width)
     {
-        if (model_ != "relu" && model_ != "er" && model_ != "gate" && model_ != "clamp")
-            throw std::invalid_argument("model must be relu, er, er_memoryless, gate or clamp");
+        if (!neuronModel)
+            neuronModel = nonlinearity::neuronModel(model_, 1.0f, 0.0f, 0.9f, 1.0f, 0.2f, 0.1f);
+        if (model_ != "relu" && model_ != "er" && model_ != "gate" && model_ != "clamp" && !neuronModel)
+            throw std::invalid_argument("model must be relu, er, er_memoryless, gate, clamp, sigmoid, tanh, softplus, "
+                                        "lif, alif, izhikevich or resonator");
         if (depth == 0 || width == 0)
             throw std::invalid_argument("depth and width must be at least 1");
         const LearningRule rule = LearningRule::feedbackAlignment().withBias();
@@ -251,6 +309,8 @@ public:
                 spec.thresholdGrowth = growth;
                 spec.spontaneous = spontaneous;
             }
+            if (neuronModel)
+                spec.neuronModel = *neuronModel;
             spec.learningRule = rule;
             spec.precision = precision;
             hidden_.push_back(net_.addLayer("h" + std::to_string(l + 1), spec));

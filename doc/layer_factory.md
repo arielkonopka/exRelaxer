@@ -25,6 +25,7 @@ struct LayerSpec
     Spontaneous spontaneous = {};  // when and how strongly E-R neurons fire on their own (default: the original)
     Habituation habituationRule = {};  // how habituation suppresses repeated inputs (default: cut after 100 exact repeats)
     bool rectify = false;        // layers of neurons without E-R: ReLU, only sums above the gate pass
+    NeuronModel neuronModel = {}; // layers of neurons without E-R: another neuron model (doc/neuron_models.md)
     float restingThreshold = baseline_threshold;  // E-R: resting threshold, eligibility boundary, half the floor after firing
     bool normalize = false;      // Dense, Conv2D, LocallyConnected2D: weighted sum / |w|;
                                  // their builders (Dense(), Conv2D(), LocallyConnected2D()) turn it on
@@ -57,7 +58,7 @@ LayerSpec d{LayerType::Dense, 32, false, true, false,
 | `type` | the factory, to select a creator |
 | `size`, `hasHabituation`, `hasER`, `recoveryJitter`, `learningJitter`, `alphaJitter` | the creator (for `dense`: its constructor arguments; see [per-neuron dynamics](neuron.md#per-neuron-dynamics)) |
 | `frozen` | the network only ([freezing](network.md#freezing)); creators ignore it |
-| `learningRule`, `gate`, `rectify`, `habituationRule`, `thresholdGrowth`, `spontaneous`, `restingThreshold`, `normalize` | the network: after creating a layer of neurons it applies each non-default one through the `neuron_layer` setters ([learning](learning.md), [neuron](neuron.md#one-tick-activate), [E-R](neuron.md#excitationrelaxation-e-r)); on a layer without neurons it throws `std::invalid_argument` |
+| `learningRule`, `gate`, `rectify`, `habituationRule`, `thresholdGrowth`, `spontaneous`, `restingThreshold`, `normalize`, `neuronModel` | the network: after creating a layer of neurons it applies each non-default one through the `neuron_layer` setters ([learning](learning.md), [neuron](neuron.md#one-tick-activate), [E-R](neuron.md#excitationrelaxation-e-r)); on a layer without neurons it throws `std::invalid_argument` |
 | `window`, `pool`, `retina`, `cochlea`, `resize`, `disparity` | the creators of the types listed in their comments |
 
 `network::freeze` / `unfreeze`, `network::setRecoveryJitter` /

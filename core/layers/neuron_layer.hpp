@@ -67,6 +67,13 @@ public:
     // invalid setting.
     void setSpontaneous(const Spontaneous& spontaneous);
     const Spontaneous& spontaneous() const { return spontaneous_; }
+    // The neuron model (see NeuronModel) for every neuron, now and later;
+    // their model state is put at rest. A model other than ER is for layers
+    // without E-R and without a gate, rectification or binary output. Throws
+    // std::invalid_argument otherwise, or for an invalid model.
+    // `rest` = false keeps the neurons' outputs and model state (loading).
+    void setNeuronModel(const NeuronModel& model, bool rest = true);
+    const NeuronModel& neuronModel() const { return model_; }
     // E-R resting threshold (see neuron::setRestingThreshold) for every
     // neuron, now and later; neurons at rest move to it. Throws
     // std::invalid_argument outside (0, max_output].
@@ -345,6 +352,7 @@ private:
     Spontaneous spontaneous_;                                    // likewise
     float resting_ = baseline_threshold;                         // likewise
     bool binary_ = false;                                        // likewise
+    NeuronModel model_;                                          // likewise
     ValueRange range_;                                           // likewise
     bool positive_weights_ = false;                              // every weight this layer creates or learns
     std::vector<std::uint8_t> frozen_;                           // per neuron: 1 = does not learn

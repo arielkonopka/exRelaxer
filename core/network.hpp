@@ -167,7 +167,7 @@ public:
     // Why a neuron may be unnecessary (flags; see pruneCandidates).
     enum PruneReason : std::uint32_t
     {
-        Invalid = 1,       // a weight, its bias, threshold or output is NaN or infinite
+        Invalid = 1,       // a weight, its bias, threshold, output or model state is NaN or infinite
         Disconnected = 2,  // reads nothing
         ZeroIncoming = 4,  // every weight it reads with is 0
         Unread = 8,        // nothing downstream reads it with a non-zero weight (not an output layer,

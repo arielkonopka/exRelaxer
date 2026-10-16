@@ -56,7 +56,8 @@ inline constexpr float default_learning_gain = 2.0f;        // default per-neuro
 // (network formats 1-2); 2: with them; 3: the same neuron record, and layers
 // of neurons append their learning rule and its state (network format 9);
 // 4: the same, and layers append the per-synapse rules' state and frozen
-// neurons and inputs (network format 18).
+// neurons and inputs (network format 18). The neuron model's state is not in
+// the record: networks save it after everything else (format 23).
 inline constexpr std::uint32_t NEURON_FORMAT_VERSION = 4;
 // Upper bound for a serialized weight count, so corrupt data fails with an
 // error instead of an enormous allocation.
@@ -171,6 +172,115 @@ struct ThresholdGrowth
     bool operator==(const ThresholdGrowth&) const = default;
 };
 
+// What turns a neuron's weighted sum (after the clamp and habituation) into
+// its output. The default, ER, is the original neuron: E-R with hasER, else
+// linear, gated, rectified (ReLU) or binary (see neuron::gate). The others
+// are for neurons without E-R; a layer chooses one (LayerSpec::neuronModel).
+//
+//   Rate units, y = f(gain * s); with smoothing m > 0 a leaky integrator
+//   (continuous-time RNN unit): y = m * y + (1 - m) * f(gain * s).
+//     Sigmoid     f(x) = 1 / (1 + e^-x)              in (0, 1)
+//     Tanh        f(x) = tanh(x)                     in (-1, 1)
+//     Softplus    f(x) = ln(1 + e^x), divided by gain (a smooth ReLU)
+//   Spiking units, output 1 on a spike, else 0:
+//     LIF         leaky integrate-and-fire: v = leak * v + s; a spike when
+//                 v > threshold + a, then v = reset and `refractory` ticks
+//                 ignore the input. With adaptation > 0 every spike raises
+//                 a by `adaptation`, and a decays by adaptationDecay per
+//                 tick: an adaptive LIF (ALIF, the e-prop neuron).
+//     Izhikevich  Izhikevich (2003), one tick = 1 ms: v' = 0.04v^2 + 5v + 140
+//                 - u + I, u' = a(bv - u), I = gain * s; a spike at v >= 30
+//                 mV, then v = c, u += d. Presets: regularSpiking (default),
+//                 fastSpiking, chattering, intrinsicallyBursting.
+//     Resonator   resonate-and-fire (Izhikevich 2001): a damped oscillator
+//                 z = leak * e^(2 pi i frequency) * z + i s; a spike when
+//                 Im z > threshold, then z = 0 and `refractory` ticks ignore
+//                 the input. Input near its own frequency builds up; slow
+//                 or fast input cancels out.
+// Saved in network files (format 23): never renumber.
+struct NeuronModel
+{
+    enum class Type : std::uint8_t { ER = 0, Sigmoid = 1, Tanh = 2, Softplus = 3, LIF = 4, Izhikevich = 5, Resonator = 6 };
+
+    Type type = Type::ER;
+    float gain = 1.0f;             // rate units: slope; Izhikevich: input current per unit of sum; > 0
+    float smoothing = 0.0f;        // rate units: leaky integration of the output, [0, 1)
+    float leak = 0.9f;             // LIF: membrane decay per tick; Resonator: damping per tick; [0, 1)
+    float threshold = 1.0f;        // LIF, Resonator: firing threshold, > 0
+    float reset = 0.0f;            // LIF: membrane after a spike, < threshold
+    std::uint32_t refractory = 0;  // LIF, Resonator: ticks after a spike that ignore the input
+    float adaptation = 0.0f;       // LIF: threshold rise per spike (ALIF), >= 0; 0 = plain LIF
+    float adaptationDecay = 0.95f; // LIF: decay of that rise per tick, [0, 1)
+    float frequency = 0.1f;        // Resonator: cycles per tick, (0, 0.5]
+    float a = 0.02f, b = 0.2f, c = -65.0f, d = 8.0f;  // Izhikevich (regular spiking)
+
+    bool rate() const { return type == Type::Sigmoid || type == Type::Tanh || type == Type::Softplus; }
+    bool spiking() const { return type == Type::LIF || type == Type::Izhikevich || type == Type::Resonator; }
+    bool valid() const;
+    bool operator==(const NeuronModel&) const = default;
+
+    static NeuronModel er() { return {}; }
+    static NeuronModel sigmoid(float gain = 1.0f, float smoothing = 0.0f) { return rateUnit(Type::Sigmoid, gain, smoothing); }
+    static NeuronModel tanh(float gain = 1.0f, float smoothing = 0.0f) { return rateUnit(Type::Tanh, gain, smoothing); }
+    static NeuronModel softplus(float gain = 1.0f, float smoothing = 0.0f) { return rateUnit(Type::Softplus, gain, smoothing); }
+    static NeuronModel lif(float leak = 0.9f, float threshold = 1.0f, std::uint32_t refractory = 0, float reset = 0.0f)
+    {
+        NeuronModel m;
+        m.type = Type::LIF;
+        m.leak = leak;
+        m.threshold = threshold;
+        m.refractory = refractory;
+        m.reset = reset;
+        return m;
+    }
+    static NeuronModel alif(float leak = 0.9f, float threshold = 1.0f, float adaptation = 0.2f,
+                            float adaptationDecay = 0.95f, std::uint32_t refractory = 0)
+    {
+        NeuronModel m = lif(leak, threshold, refractory);
+        m.adaptation = adaptation;
+        m.adaptationDecay = adaptationDecay;
+        return m;
+    }
+    static NeuronModel izhikevich(float a = 0.02f, float b = 0.2f, float c = -65.0f, float d = 8.0f, float gain = 10.0f)
+    {
+        NeuronModel m;
+        m.type = Type::Izhikevich;
+        m.a = a;
+        m.b = b;
+        m.c = c;
+        m.d = d;
+        m.gain = gain;
+        return m;
+    }
+    static NeuronModel regularSpiking(float gain = 10.0f) { return izhikevich(0.02f, 0.2f, -65.0f, 8.0f, gain); }
+    static NeuronModel fastSpiking(float gain = 10.0f) { return izhikevich(0.1f, 0.2f, -65.0f, 2.0f, gain); }
+    static NeuronModel chattering(float gain = 10.0f) { return izhikevich(0.02f, 0.2f, -50.0f, 2.0f, gain); }
+    static NeuronModel intrinsicallyBursting(float gain = 10.0f) { return izhikevich(0.02f, 0.2f, -55.0f, 4.0f, gain); }
+    static NeuronModel resonator(float frequency = 0.1f, float damping = 0.9f, float threshold = 1.0f,
+                                 std::uint32_t refractory = 0)
+    {
+        NeuronModel m;
+        m.type = Type::Resonator;
+        m.frequency = frequency;
+        m.leak = damping;
+        m.threshold = threshold;
+        m.refractory = refractory;
+        return m;
+    }
+
+private:
+    static NeuronModel rateUnit(Type type, float gain, float smoothing)
+    {
+        NeuronModel m;
+        m.type = type;
+        m.gain = gain;
+        m.smoothing = smoothing;
+        return m;
+    }
+};
+
+// "er", "sigmoid", "tanh", "softplus", "lif", "izhikevich", "resonator".
+const char* neuronModelName(NeuronModel::Type type);
 // The range of a neuron's values. The weighted sum, and so the output, is
 // clamped to [-ceiling, ceiling], or to [0, ceiling] when `positive` (then
 // the neuron never outputs a negative value: a negative sum counts as 0, and
@@ -227,7 +337,11 @@ struct Precision
 // Local derivatives of one activate() call, for gradient-based learning
 // rules (e-prop, surrogate gradients; see learning.hpp). s is the weighted
 // sum the neuron was given, y its output, thr its E-R threshold before the
-// tick and thr' after it. The firing step (y jumps when |s| crosses the
+// tick and thr' after it. For the other neuron models (NeuronModel) thr is
+// the model's state variable instead: a LIF or Izhikevich neuron's membrane
+// v, a resonator's Im z, a smoothed rate unit's output (Izhikevich's
+// recovery u and the resonator's Re z are ignored, and spikes' resets are
+// not differentiated, as in e-prop). The firing step (y jumps when |s| crosses the
 // threshold or the gate) has no useful derivative, so it is replaced by a
 // triangular pseudo-derivative of half-width `width` times the threshold.
 // Habituation and the output clamp scale the sum's derivatives; spontaneous
@@ -373,6 +487,36 @@ public:
         resting_ = value;
     }
 
+    // What turns the sum into the output (see NeuronModel). A layer-level
+    // setting (LayerSpec::neuronModel), like the gate; a model other than
+    // ER replaces E-R and the gate, rectification and binary output.
+    // Setting it puts the model's state at rest; setModelState restores a
+    // saved one (see membrane, recoveryVariable; refractory ticks left).
+    // The state is not in the serialized record.
+    const NeuronModel& model() const { return model_; }
+    void setModel(const NeuronModel& value);
+    void setModelState(float membrane, float recoveryVariable, std::uint32_t refractory)
+    {
+        model_v_ = membrane;
+        model_u_ = recoveryVariable;
+        refractory_ = refractory;
+    }
+    std::uint32_t refractoryTicks() const { return refractory_; }
+    // --- Model state probes (NeuronModel; 0 for ER) ------------------------
+    // The state variable: the membrane v (LIF, Izhikevich, in mV for the
+    // latter), Im z (Resonator), the smoothed output (rate units).
+    float membrane() const { return model_v_; }
+    // The second one: LIF's threshold rise a, Izhikevich's recovery u, Re z.
+    float recoveryVariable() const { return model_u_; }
+    // How close the neuron is to firing: 1 at the threshold, 0 at rest (LIF:
+    // v / (threshold + a), Izhikevich: (v - c) / (30 - c), Resonator:
+    // Im z / threshold); rate units: 0. State taps read it.
+    float charge() const;
+    // Feedback alignment's surrogate derivative for the last tick: dy/ds of
+    // a rate unit, a triangular pseudo-derivative (1 at the threshold, 0
+    // half a threshold away) for spiking models; 0 for ER.
+    float slope() const { return last_slope_; }
+
     // --- Serialization --------------------------------------------------
     // One record: flags, alpha, the weights (count + values, passed in since
     // layers own them), the internal state, the spontaneous-firing generator
@@ -388,6 +532,10 @@ public:
 
 private:
     void excite(float effectiveSum); // shared by real and spontaneous excitation: sets output, lifts threshold
+    float stepModel(float sum);      // one tick of a model other than ER (sum after the clamp and habituation)
+    void restModel();                // the model's state at rest
+    // The model's local derivatives for a tick that started at state (v, u, refractory).
+    void modelDerivatives(float s, float v, float u, std::uint32_t refractory, float width, Derivatives& d) const;
     float spontaneousOutput();       // random output in [-amplitude, amplitude] (see Spontaneous)
 
     float threshold_;             // E-R: current firing threshold, starts at resting_
@@ -409,6 +557,11 @@ private:
     Habituation habituation_;
     ThresholdGrowth growth_;
     Spontaneous spontaneous_;
+    NeuronModel model_;
+    float model_v_ = 0.0f;           // see membrane()
+    float model_u_ = 0.0f;           // see recoveryVariable()
+    std::uint32_t refractory_ = 0;   // LIF, Resonator: refractory ticks left
+    float last_slope_ = 0.0f;        // see slope()
     ValueRange range_;
     std::minstd_rand rng_;        // per neuron, so neurons can step in parallel; seeded from rng::spontaneousSeed()
 };
