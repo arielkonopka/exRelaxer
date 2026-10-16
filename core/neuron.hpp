@@ -18,6 +18,8 @@
 // (activate()). step() and learn() run one neuron against caller-owned
 // weights, for experiments and tests.
 #pragma once
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <iosfwd>
 #include <limits>
@@ -182,6 +184,44 @@ struct ValueRange
     bool valid() const { return ceiling > 0.0f && ceiling <= 1e6f; }
     float floor() const { return positive ? 0.0f : -ceiling; }
     bool operator==(const ValueRange&) const = default;
+};
+
+// Number formats of a layer's weights and outputs (see doc/precision.md).
+// The default is float for both. 8-bit numbers are integer codes in
+// [-127, 127] times a power-of-two step, so a weighted sum of 8-bit values
+// and weights is integer arithmetic scaled once:
+//   int8Weights  each weight row has its own step, the smallest power of two
+//                that fits the row's largest |weight| in 127 codes; learning
+//                rounds every changed weight to its row's grid
+//                stochastically (up with probability equal to the
+//                remainder), so updates smaller than a step still count on
+//                average. Dense layers only.
+//   int8Values   every output is rounded to the nearest multiple of
+//                valueStep, at most 127 steps from 0 (127 / 16 = 7.94 for
+//                the default step). Layers with learned weights (Dense,
+//                Conv2D, LocallyConnected2D).
+// Neuron state (E-R thresholds, habituation, learning traces) stays float.
+struct Precision
+{
+    bool int8Weights = false;
+    bool int8Values = false;
+    float valueStep = 1.0f / 16.0f;  // int8Values: a power of two in [2^-12, 2^-3]
+
+    static Precision Float() { return {}; }
+    static Precision Int8(float valueStep = 1.0f / 16.0f) { return {true, true, valueStep}; }
+
+    bool valid() const
+    {
+        int exponent = 0;
+        return std::isfinite(valueStep) && valueStep >= 1.0f / 4096.0f && valueStep <= 0.125f &&
+               std::frexp(valueStep, &exponent) == 0.5f;
+    }
+    // `y` rounded to the 8-bit value grid.
+    float quantizeValue(float y) const
+    {
+        return std::clamp(std::nearbyint(y / valueStep), -127.0f, 127.0f) * valueStep;
+    }
+    bool operator==(const Precision&) const = default;
 };
 
 // Local derivatives of one activate() call, for gradient-based learning

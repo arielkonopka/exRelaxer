@@ -4,7 +4,7 @@ An option per layer that keeps neuron values non-negative (like firing
 rates, 0..n) and weights non-negative (like excitatory synapses). It
 composes with every other layer option: E-R or not, habituation, gate,
 ReLU, binary, normalisation, any learning rule, growth, freezing, buses.
-Off by default; files saved before network format 21 load with it off.
+Off by default; files saved before network format 22 load with it off.
 
 ```cpp
 net.addLayer("h", LayerSpec::Dense(32).positive());      // values in [0, 10], weights >= 0
@@ -65,7 +65,7 @@ constrained.
 
 ## Results
 
-Snake with every learning-rule pair ([research log §32](research.md),
+Snake with every learning-rule pair ([research log §33](research.md),
 `results/positive/summary.md`):
 
 - Positive values on a linear output layer stop learning: a readout whose

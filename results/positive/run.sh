@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The positive-only grid behind doc/research.md §32 (about 4 minutes).
+# The positive-only grid behind doc/research.md §33 (about 4 minutes).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=results/positive/snake_rules.jsonl

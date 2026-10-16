@@ -50,7 +50,7 @@ python3 NNtesting/experiments/goe_rl/online.py es --agent results/goe/columns/gr
 vision: (2r + 1)^2 cells around the player (r = 6: 13 x 13), 8 channels -> "eye" (1352 sensors) --\
 body: energy / max energy, ammo, spare avatars -> "body" (3) -----------------------------------+-> h1 (128)
                                                                                                     |
-      14 readouts: MOVE, SHOOT, INTERACT x {up, down, left, right}, NEXT_GUN, USE (largest one is played)
+      22 readouts: MOVE, SHOOT x 8 directions, INTERACT x {up, down, left, right}, NEXT_GUN, USE (largest one is played)
 ```
 
 The grid's radius `radius` is `auto` by default: the player's sight grows
@@ -58,6 +58,15 @@ with its steps (2 + ln(steps) / 2 cells), so the grid covers the furthest
 sight of an episode from the start (6 for 2 minutes, 7 for 30), and cells
 beyond the current sight read zero. `seen_channel` adds a ninth channel
 marking the cells in sight.
+
+`directions` (8) picks the action set: 8 adds the diagonal moves and shots of
+Gardens-of-Eris PR #316 (a diagonal step needs one of the two cells beside it
+free) to the 14 four-way actions, 22 readouts in all; 4 keeps the 14 actions of
+G1 to G4. The diagonals come after the 14, so a 4-direction network's readouts
+are the first 14 of an 8-direction one's. Saved runs and agents without
+`directions` load as 4-direction ones (es.py and grow.py resume them so, and
+agent.load reads them so); a goe package from before PR #316 plays only
+`directions=4`.
 
 The channels say what each cell holds, from the game's element features: wall
 (walls, brick clusters), free (can be stepped on now), enemy (killable, not

@@ -7,7 +7,7 @@
                 p<k>  max pool 3 x 3, stride 2
                 h<k>  `width` E-R neurons, fading habituation, reading p<k>, the body, h<k-1>
                       and (recurrent) itself
-    readouts:   14 actions, reading h1 .. h<k>
+    readouts:   one per action (22 with directions 8, 14 with 4), reading h1 .. h<k>
 
 The eye has the 8 channels of experiment.py (wall, free, enemy, collectible, danger,
 door, apple, moving), plus `avatar` (a spare avatar), `in_sight`, `novelty` (the game's
@@ -43,7 +43,8 @@ try:
 except ImportError:
     goe = ChunkPattern = None
 
-ACTIONS = base.ACTIONS
+ACTIONS = base.ACTIONS  # the 4-direction actions; a network's own are actions(p)
+actions, saved_params, game_actions = base.actions, base.saved_params, base.game_actions
 CHANNELS = base.CHANNELS + ["avatar", "in_sight", "novelty", "visited"]
 CELL_FEATURES = ["type", "steppable", "killable", "collectible", "in_sight", "moving", "novelty", "visits"]
 PLAYER_FEATURES = ["energy", "max_energy", "ammo", "avatars"]
@@ -54,6 +55,8 @@ SKILLS = ["explore", "collect", "doors", "avatar", "mines", "maze"]
 
 PARAMS = {
     # the eye and the game
+    "directions": (8, "action directions: 8 (moves and shots along the diagonals too, 22 actions) or 4 "
+                      "(14 actions, the networks of G3 and G4)"),
     "radius": (6, "vision radius (13 x 13 cells); 6 is what a 2-minute game's sight reaches"),
     "maze_moves": (750, "moves in a maze world (750 = 2 minutes, as G2)"),
     "room_moves": (150, "moves in a skill room"),
@@ -74,6 +77,8 @@ PARAMS = {
     "w_explore": (0.1, "per cell seen for the first time"),
     "w_avatar": (10.0, "per spare avatar woken"),
     # the network
+    "recovery": (0.9, "E-R recovery of every E-R layer: 0.9 as in G3 and G4 (the library default is 0.5 "
+                      "since 2026-10-08)"),
     "retina": (True, "the habituating retina in front (false: only the raw image)"),
     "retina_er": (True, "retina neurons are E-R"),
     "filters": (8, "convolution kernels per column"),
@@ -141,6 +146,7 @@ class Net:
         if p["retina"]:
             spec = exr.LayerSpec.retina(exr.RetinaSpec(self.image), True, p["retina_er"], frozen=True)
             spec.habituation_rule = hab
+            spec.recovery_jitter = base.recovery_jitter(p)
             self.eyes.append(net.add_layer("retina", spec))
             net.add_inputs(self.eyes[0], self.image, "eye")
         raw = net.add_layer("raw", exr.LayerSpec.retina(exr.RetinaSpec(self.image), False, False, frozen=True))
@@ -154,6 +160,7 @@ class Net:
         for k in range(1, columns + 1):
             cspec = exr.LayerSpec.conv2d(p["filters"], exr.Window2D.square(3, 1, 1), False, p["conv_er"], frozen=True)
             cspec.rectify = not p["conv_er"]
+            cspec.recovery_jitter = base.recovery_jitter(p)
             c = net.add_layer(f"c{k}", cspec)
             for e in self.eyes:
                 net.connect(e, c)
@@ -161,6 +168,7 @@ class Net:
             net.connect(c, pool)
             hspec = exr.LayerSpec.dense(p["width"], True, True, frozen=True)
             hspec.habituation_rule = hab
+            hspec.recovery_jitter = base.recovery_jitter(p)
             h = net.add_layer(f"h{k}", hspec)
             net.connect(pool, h)
             src = [("pool", net.layer_size(pool))]
@@ -180,7 +188,8 @@ class Net:
             self.pools.append(pool)
             self.hidden.append(h)
         self.readouts = []
-        for name in ACTIONS:
+        self.actions = actions(p)
+        for name in self.actions:
             out = net.add_layer(name.lower(), exr.LayerSpec.dense(1, False, False, frozen=True))
             for h in self.hidden:
                 net.connect(h, out)
@@ -280,7 +289,7 @@ class Net:
     def act(self, state, meter=False):
         self.net.set_inputs("eye", encode(state).ravel())
         self.net.set_inputs("body", body(state))
-        total = np.zeros(len(ACTIONS))
+        total = np.zeros(len(self.actions))
         for _ in range(self.p["ticks"]):
             self.net.step()
             total += np.asarray(self.net.outputs())
@@ -298,14 +307,15 @@ class Net:
 
 
 class RandomPlayer:
-    def __init__(self):
+    def __init__(self, p=None):
         self.rng = np.random.default_rng(0)
+        self.n = len(actions(p or {}))
 
     def reset(self, seed):
         self.rng = np.random.default_rng(seed + 1)
 
     def act(self, state, meter=False):
-        return int(self.rng.integers(len(ACTIONS)))
+        return int(self.rng.integers(self.n))
 
 
 # --- rooms --------------------------------------------------------------------------------------
@@ -398,7 +408,7 @@ def prepare(game, kind, seed):
 
 def play(game, player, p, worlds, meter=False):
     """One episode per (kind, seed); returns per-world rewards and summed events."""
-    index = [goe.ACTIONS.index(a) for a in ACTIONS]
+    index = game_actions(p)
     rewards, events = [], {k: 0.0 for k in EVENTS}
     for kind, seed in worlds:
         prepare(game, kind, seed)

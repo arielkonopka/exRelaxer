@@ -1,5 +1,5 @@
 # Summary of results/positive/snake_rules.jsonl.gz: test apples per game for every
-# readout x mix rule pair under each positive-only setting (see doc/research.md §32).
+# readout x mix rule pair under each positive-only setting (see doc/research.md §33).
 #   zcat results/positive/snake_rules.jsonl.gz > /tmp/p.jsonl; python3 NNtesting/tools/positive_summary.py /tmp/p.jsonl
 import json,sys,collections,statistics as st
 rows=collections.defaultdict(list)

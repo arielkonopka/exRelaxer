@@ -140,6 +140,17 @@ public:
     // out[c] += sum over rows of w[r][c] * g[r] (backpropagation through
     // the weights); `g` has paddedRows() entries, `out` cols().
     void multiplyTransposed(std::span<const float> g, std::span<float> out) const;
+    // 8-bit weights (Precision::int8Weights): rounds every row r of blocks
+    // [firstBlock, lastBlock) with active[r] != 0 (every row when `active`
+    // is empty) to its grid, codes in [-127, 127] times step8(row).
+    // seed == 0 rounds to the nearest code (ties to even); any other seed
+    // rounds stochastically, up with probability equal to the remainder,
+    // the uniform draw a hash of (seed, row, column): the same bits for any
+    // thread count. A weight already on its row's grid never changes.
+    void quantize8(std::span<const std::uint8_t> active, std::uint64_t seed, size_t firstBlock, size_t lastBlock);
+    // Row `row`'s 8-bit step: the smallest power of two s with 127 * s >=
+    // the row's largest |weight| (0 for an all-zero row).
+    float step8(size_t row) const;
     // Every entry 0, shape kept.
     void zero();
     void copyColumn(size_t col, std::span<float> out) const;
