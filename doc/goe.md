@@ -576,8 +576,43 @@ player explores more too but dies more often. The plain network is nearly
 silent (2 spikes a step), as in G1. On the same mazes G2 had the untrained
 `er_rec` at +10.1 and the random player at +13.8: the game has changed since
 (roaming monsters, eight-way chasers, refreshers), so the numbers do not
-compare directly. Evolution (es.py, `er_rec`, 4 against 8 directions, 300
-generations) follows in a later entry.
+compare directly.
+
+Evolution: es.py on `er_rec` (128 E-R neurons, recurrent, habituation,
+evolve all, net seed 0, radius 6, recovery 0.9, the es.py defaults: 12 pairs,
+2 worlds per candidate, 6 validation worlds), 300 generations, 4 and 8
+directions side by side, 2 workers each, about 55 seconds a generation.
+Mean validation reward per 50 generations:
+
+| generations | 1-50 | 51-100 | 101-150 | 151-200 | 201-250 | 251-300 | best (gen) |
+|---|---|---|---|---|---|---|---|
+| 4 directions | +2.4 | +0.9 | +1.6 | +4.4 | +7.2 | +8.4 | +34.6 (226) |
+| 8 directions | +4.0 | +4.7 | +7.9 | +5.0 | +8.9 | +6.8 | +52.2 (193) |
+
+On the 30 fresh mazes (results/goe/directions/evolved.py, evolved.json;
+the best weights replay their logged validation exactly), the 30 played in
+a row by one network as above, and each world from a fresh network (mean ±
+standard error):
+
+| network | reward in a row | reward per world | score | cells seen | deaths per game |
+|---|---|---|---|---|---|
+| 4 directions, untrained | +5.6 | | 45 | 119 | 0.19 |
+| 4 directions, best | +10.6 | +10.0 ± 4.4 | 61 | 148 | 0.13 |
+| 4 directions, final | +8.1 | +9.4 ± 6.3 | 70 | 149 | 0.23 |
+| 8 directions, untrained | +9.2 | | 66 | 184 | 0.22 |
+| 8 directions, best | +2.1 | +4.2 ± 7.4 | 73 | 198 | 0.43 |
+| 8 directions, final | +1.7 | +13.5 ± 5.7 | 72 | 200 | 0.50 |
+
+8 minus 4 directions, paired per world: best −5.8 (bootstrap 95 %
+−22.9..+9.6), final +4.0 (−12.7..+22.6). No difference shows: one death
+(−50) moves a world's reward more than everything else in it, and 30 worlds
+leave a 95 % interval some 35 points wide. The 8-direction networks explore
+more (≈200 cells against ≈150) and open more doors, but die about twice as
+often, which cancels the gain in the reward. Neither beats the random player
+(+11.7 / +9.3) clearly, and neither killed anything. As in G2 and G4, a few
+validation worlds pick lucky networks: the 8-direction best (+52.2 on its 6
+validation worlds) is +2.1 on fresh ones. A fair comparison needs ~200 test
+worlds and more than one net seed (G4).
 
 ## Open questions
 
