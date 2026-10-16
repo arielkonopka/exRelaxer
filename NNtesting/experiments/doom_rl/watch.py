@@ -92,7 +92,7 @@ def main():
 
     stem = os.path.splitext(os.path.abspath(args.out))[0]
     video_path, srt_path = f"{stem}.{args.video}", stem + ".srt"
-    encoder = None if args.live else start_video(video_path, args.video)
+    encoder = None if args.live else start_video(video_path, args.video, p.get("color", False))
     steps, games = [], []
     for g in range(args.games):
         player = es.build(p, net_seed, theta)  # fresh E-R state every game, as in the tests
@@ -155,8 +155,8 @@ def main():
     print(f"{len(steps)} steps; open {args.out} in a browser, or {os.path.basename(video_path)} in any player")
 
 
-def start_video(path, kind):
-    """ffmpeg reading raw 160 x 120 gray frames, one per game step, from stdin."""
+def start_video(path, kind, color=False):
+    """ffmpeg reading raw 160 x 120 gray (or, with color, RGB) frames, one per game step, from stdin."""
     if shutil.which("ffmpeg") is None:
         raise SystemExit("watch.py: ffmpeg not found (sudo apt-get install ffmpeg); --live needs no ffmpeg")
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -165,7 +165,7 @@ def start_video(path, kind):
     codec = (["-c:v", "mpeg2video", "-q:v", "3", "-r", "25"] if kind == "mpg"  # MPEG-2 allows no 8.75 fps
              else ["-c:v", "libx264", "-crf", "18", "-preset", "slow", "-g", "35"])
     return subprocess.Popen(
-        ["ffmpeg", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", "160x120",
+        ["ffmpeg", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24" if color else "gray", "-s", "160x120",
          "-framerate", "35/4", "-i", "-", "-pix_fmt", "yuv420p", *codec,
          *(["-movflags", "+faststart"] if kind == "mp4" else []), path],
         stdin=subprocess.PIPE)

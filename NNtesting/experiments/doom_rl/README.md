@@ -28,6 +28,29 @@ snake, where a frozen mix with learned readouts is the best undesigned
 design; `learn_hidden=true` lets it learn too). The largest readout picks
 the action; while training a random one with probability `explore`.
 
+`color=true` sees the screen in colour (RGB, 3 sensors per pooled square)
+instead of gray. `model` takes the library's neuron models too (`tanh`,
+`sigmoid`, `softplus`, `lif`, `alif`, `izhikevich`, `resonator`; their
+`model_*` parameters), so one architecture can be compared across neuron
+types.
+
+## Online learning, tests and profiles (online.py)
+
+`online.py train` makes an agent that learns while it plays, by one of the
+library's rules (sign, trace, eligibility, e-prop, node perturbation on the
+reward or a TD critic's error; feedback alignment or surrogate gradients on
+an error per action), resumable from its checkpoints. `online.py test` plays
+any agent (es.py's, online.py's, or the untrained network) on fresh games,
+and `online.py profile` times each part of a game step. The comparison
+pipeline ([doc/pipeline.md](../../../doc/pipeline.md)) is built on them.
+
+```bash
+python3 NNtesting/experiments/doom_rl/online.py train --out OUT/fa --method fa_td --episodes 600 \
+    --config '{"depth": 1, "feedback": "none", "model": "lif", "color": true}'
+python3 NNtesting/experiments/doom_rl/online.py test --agent OUT/fa --out OUT/fa_test.json
+python3 NNtesting/experiments/doom_rl/online.py profile --agent OUT/fa --out OUT/fa_profile.json
+```
+
 ## Watching an agent (watch.py)
 
 ```bash

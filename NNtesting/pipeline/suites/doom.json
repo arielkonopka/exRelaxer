@@ -1,0 +1,37 @@
+{
+ "name": "doom",
+ "description": "Neuron models x learning methods on one architecture: Doom defend_the_center, colour screen and stereo sound -> 1 hidden layer of 128 with fading habituation, no feedback (the best E-R topology of doc/doom.md) -> 8 action readouts. Every cell of one seed starts from the same random network.",
+ "env": "doom",
+ "scenario": "defend_the_center",
+ "architecture": {
+  "color": true, "pool": 8, "sound": true, "bands": 16,
+  "depth": 1, "width": 128, "feedback": "none", "reservoir": 0, "ticks": 6,
+  "habituation": true, "habituation_tolerance": 0.05, "habituation_decay": 0.9, "habituation_fade_after": 2,
+  "readout": "last", "episode_tics": 2100
+ },
+ "neurons": {
+  "er": {"model": "er"},
+  "relu": {"model": "relu"},
+  "tanh": {"model": "tanh"},
+  "sigmoid": {"model": "sigmoid"},
+  "softplus": {"model": "softplus"},
+  "lif": {"model": "lif"},
+  "alif": {"model": "alif"},
+  "izhikevich": {"model": "izhikevich"},
+  "resonator": {"model": "resonator"}
+ },
+ "methods": {
+  "frozen": {"kind": "frozen"},
+  "es_readout": {"kind": "es", "evolve": "readout", "generations": 200, "pairs": 12, "episodes": 2, "validation": 10, "sigma": 0.1, "lr": 0.03},
+  "es_all": {"kind": "es", "evolve": "all", "generations": 200, "pairs": 12, "episodes": 2, "validation": 10, "sigma": 0.05, "lr": 0.02},
+  "sign": {"kind": "online", "method": "sign", "episodes": 600},
+  "eligibility_td": {"kind": "online", "method": "eligibility_td", "episodes": 600},
+  "eprop_td": {"kind": "online", "method": "eprop_td", "episodes": 600, "settings": {"hidden": true}},
+  "fa_td": {"kind": "online", "method": "fa_td", "episodes": 600, "settings": {"hidden": true}},
+  "surrogate_td": {"kind": "online", "method": "surrogate_td", "episodes": 600, "settings": {"hidden": true}},
+  "perturbation_td": {"kind": "online", "method": "perturbation_td", "episodes": 600}
+ },
+ "seeds": [1, 2],
+ "test": {"episodes": 30, "workers": 4},
+ "profile": {"steps": 2000}
+}

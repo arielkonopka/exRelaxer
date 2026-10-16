@@ -213,6 +213,13 @@ packaging/build-debs.sh build dist     # needs dpkg-dev
 sudo apt install ./dist/*.deb
 ```
 
+### Neuron comparison on your own machine
+
+A second workflow ([.github/workflows/compare.yml](.github/workflows/compare.yml),
+started by hand) runs on a self-hosted runner: every neuron model x learning
+method on one Doom architecture, resumable after any stop, with timing and
+machine data for finding bottlenecks. See [doc/pipeline.md](doc/pipeline.md).
+
 ## Python
 
 `EXrelaxer.py/` is the Python package `exrelaxer` (nanobind bindings): build
@@ -447,6 +454,18 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   layer types. Files older than format 6 load as weights only.
 
 ## Changelog
+
+### 2026-10-16: neuron comparison pipeline
+
+- `.github/workflows/compare.yml` and `NNtesting/pipeline/`: neuron models x
+  learning methods (frozen, ES on readouts or all weights, sign, eligibility,
+  e-prop, feedback alignment, surrogate gradients, node perturbation) on one
+  Doom architecture, on a self-hosted runner; resumable at job, stage and
+  generation/checkpoint level; per-stage CPU, memory and wall time, a machine
+  monitor and per-step profiles. See [doc/pipeline.md](doc/pipeline.md).
+- doom_rl: `color` (RGB screen), the library's neuron models as `model`,
+  `online.py` (online learners, tests and profiles of any agent); es.py writes
+  its state whole, so a stop never leaves a half-written file.
 
 ### 2026-10-15: neuron models
 
