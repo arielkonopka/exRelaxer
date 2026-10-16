@@ -1,5 +1,5 @@
 #pragma once
-// E-R options shared by experiments: the threshold growth rule by name.
+// E-R options shared by experiments: the threshold growth rule and number formats by name.
 #include <stdexcept>
 #include <string>
 #include "neuron.hpp"
@@ -35,6 +35,24 @@ inline exr::Spontaneous spontaneous(double below, double amplitude, double rate)
     if (!s.valid())
         throw std::invalid_argument("spontaneous_below and _amplitude in [0, max_output], spontaneous_rate in [0, 1]");
     return s;
+}
+
+// Number formats by name: "float" (the default), "int8" (8-bit weights and
+// outputs), "int8w" (8-bit weights only) or "int8v" (8-bit outputs only);
+// `valueStep` is the 8-bit output step (see exr::Precision).
+inline exr::Precision precision(const std::string& name, double valueStep)
+{
+    exr::Precision p;
+    p.valueStep = static_cast<float>(valueStep);
+    if (name == "int8" || name == "int8w")
+        p.int8Weights = true;
+    if (name == "int8" || name == "int8v")
+        p.int8Values = true;
+    if (name != "float" && name != "int8" && name != "int8w" && name != "int8v")
+        throw std::invalid_argument("precision must be float, int8, int8w or int8v");
+    if (!p.valid())
+        throw std::invalid_argument("value_step must be a power of two in [2^-12, 2^-3]");
+    return p;
 }
 
 // Mean 1 / |w| over a layer's neurons: how much its normalised sums shrink

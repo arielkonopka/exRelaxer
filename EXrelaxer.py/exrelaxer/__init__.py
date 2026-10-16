@@ -48,6 +48,7 @@ from ._core import (  # noqa: F401
     LearningRuleType,
     Network,
     PoolMode,
+    Precision,
     ResizeSpec,
     RetinaSpec,
     Sampling,
