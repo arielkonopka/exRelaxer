@@ -480,6 +480,14 @@ NB_MODULE(_core, m)
                 "Dense, Conv2D, LocallyConnected2D: divide each weighted sum by the length of the neuron's weights.")
         .def_rw("binary", &LayerSpec::binary,
                 "Neurons without E-R: output the sign of a sum that passes the gate (1 / 0 with rectify).")
+        .def_rw("positive_values", &LayerSpec::positiveValues,
+                "Neurons: sums and outputs in [0, ceiling] instead of [-ceiling, ceiling].")
+        .def_rw("ceiling", &LayerSpec::ceiling,
+                "Neurons: the largest magnitude a sum or output takes (default max_output, 10).")
+        .def_rw("positive_weights", &LayerSpec::positiveWeights,
+                "Dense, Conv2D, LocallyConnected2D: weights and bias stay in [0, max_weight] (new weights drawn as |w|).")
+        .def("positive", &LayerSpec::positive, "ceiling"_a = max_output,
+             "This spec with positive-only values in [0, ceiling] and, for layers with weights, positive-only weights.")
         .def_ro("bus", &LayerSpec::bus, "The layer is a bus (Network.add_bus).")
         .def_rw("minimum_size", &LayerSpec::minimumSize,
                 "Dense: pruning never leaves fewer neurons (Network.set_minimum_size); 0 = no floor.")

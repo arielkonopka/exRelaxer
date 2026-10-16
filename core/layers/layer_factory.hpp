@@ -42,6 +42,10 @@ struct LayerSpec
     float restingThreshold = baseline_threshold;  // E-R: resting threshold, eligibility boundary, half the floor after firing
     bool normalize = false;      // Dense, Conv2D, LocallyConnected2D: weighted sum / |w| (see neuron_layer::setNormalized);
                                  // their builders below turn it on
+    bool positiveValues = false; // neurons: values (sums and outputs) in [0, ceiling] (see ValueRange)
+    float ceiling = max_output;  // neurons: the largest magnitude a sum or output takes (see ValueRange)
+    bool positiveWeights = false;  // Dense, Conv2D, LocallyConnected2D: weights and bias in [0, max_weight]
+                                   // (see neuron_layer::setPositiveWeights)
     bool binary = false;         // neurons without E-R: output the sign of a sum that passes the gate (see neuron::binary)
     bool bus = false;            // Dense: the layer is a bus (see network::addBus)
     size_t minimumSize = 0;      // Dense: pruning never leaves fewer neurons (see network::setMinimumSize); 0 = no floor
@@ -53,6 +57,19 @@ struct LayerSpec
     CochleaSpec cochlea = {};    // Cochlea
     ResizeSpec resize = {};      // Resize2D
     DisparitySpec disparity = {};  // Disparity
+
+    // The same layer with positive-only values in [0, ceiling] and, for
+    // layers with weights, positive-only weights:
+    //   net.addLayer("h", LayerSpec::Dense(32).positive());
+    LayerSpec positive(float valueCeiling = max_output) const
+    {
+        LayerSpec s = *this;
+        s.positiveValues = true;
+        s.ceiling = valueCeiling;
+        s.positiveWeights = type == LayerType::Dense || type == LayerType::Conv2D ||
+                            type == LayerType::LocallyConnected2D;
+        return s;
+    }
 
     static LayerSpec Dense(size_t size, bool hasHabituation = true, bool hasER = true)
     {

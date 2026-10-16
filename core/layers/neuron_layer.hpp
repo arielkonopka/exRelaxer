@@ -8,6 +8,7 @@
 #include <vector>
 #include "../kernels.hpp"
 #include "../learning.hpp"
+#include "../random.hpp"
 #include "layer.hpp"
 
 namespace exr {
@@ -78,6 +79,25 @@ public:
     // std::invalid_argument on a layer that does not learn (fixed filters).
     void setNormalized(bool normalized);
     bool normalized() const { return normalized_; }
+    // Positive-only values: every neuron's sum and output is clamped to
+    // [0, ceiling] (see ValueRange); otherwise to [-ceiling, ceiling].
+    // `ceiling` (default max_output) applies either way. For every neuron,
+    // now and later. Throws std::invalid_argument for a ceiling outside
+    // (0, 1e6].
+    void setValueRange(const ValueRange& range);
+    const ValueRange& valueRange() const { return range_; }
+    // Positive-only weights: every learned weight (and bias) stays in
+    // [0, max_weight]. Turning it on folds the existing weights to their
+    // magnitude (|w|) and sets negative biases to 0; new weights are drawn
+    // the same way (|w|), learning clamps at 0, and weights set by hand are
+    // clamped at 0. Turning it off keeps the weights. Throws
+    // std::invalid_argument on a layer that does not learn (fixed filters).
+    void setPositiveWeights(bool positive);
+    bool positiveWeights() const { return positive_weights_; }
+    // The lowest value a weight may take: 0 with positive-only weights,
+    // else -max_weight.
+    float minWeight() const { return positive_weights_ ? 0.0f : -max_weight; }
+
     // The cached 1 / |w| of neuron `index` (1 when not normalised).
     float inverseNorm(size_t index);
     // Number formats of the weights and outputs (see Precision in
@@ -175,6 +195,13 @@ protected:
     neuron& newNeuron();
 
     // --- Hooks for the forward pass and learning --------------------------
+    // Draws new weights from `stream`; with positive-only weights, their
+    // magnitudes. Layers use it for every random weight they create.
+    void drawWeights(rng::WeightStream stream, std::span<float> out) const;
+    // Weights set from outside learning (by hand, ES): with positive-only
+    // weights, negative ones become 0. Returns `weights` unchanged otherwise.
+    std::span<const float> boundWeights(std::span<const float> weights, std::vector<float>& scratch) const;
+
     // Call once at the start of forward(): draws this tick's exploration noise.
     void beginForward()
     {
@@ -318,6 +345,8 @@ private:
     Spontaneous spontaneous_;                                    // likewise
     float resting_ = baseline_threshold;                         // likewise
     bool binary_ = false;                                        // likewise
+    ValueRange range_;                                           // likewise
+    bool positive_weights_ = false;                              // every weight this layer creates or learns
     std::vector<std::uint8_t> frozen_;                           // per neuron: 1 = does not learn
     std::vector<std::uint32_t> growth_order_;                    // per neuron: 0 = built with the layer, else see growthOrder
     std::uint32_t grown_so_far_ = 0;                             // neurons growth has added, ever

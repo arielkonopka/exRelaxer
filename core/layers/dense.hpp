@@ -192,7 +192,7 @@ private:
     // when empty) to their grid, stochastically after learning.
     void roundWeights(Group& group, std::span<const std::uint8_t> active, bool stochastic);
     // Fills `w` from `stream`, or with zeros for WeightInit::Zero.
-    static void initWeights(rng::WeightStream stream, WeightInit init, std::span<float> w);
+    void initWeights(rng::WeightStream stream, WeightInit init, std::span<float> w) const;
     // Sizes the group's per-synapse matrices to its weights (new inputs and
     // rows start at 0).
     void syncSynapseState(Group& group) const;
