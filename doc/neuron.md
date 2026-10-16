@@ -66,7 +66,10 @@ baseline below means this value.
    Neurons have no other bounded activation; without the clamp, networks
    with feedback loops diverge within a few dozen ticks. The clamp is also
    the only non-adaptive nonlinearity, which is why hand-wired detectors use
-   it (a high-gain neuron saturates at ±10).
+   it (a high-gain neuron saturates at ±10). With a `ValueRange`
+   (`neuron::setValueRange`, per layer `LayerSpec::positiveValues` /
+   `ceiling`) the clamp is `[-ceiling, ceiling]`, or `[0, ceiling]` for
+   positive-only values ([positive](positive.md)).
 2. **Habituation** (if enabled). If the sum is "the same" as the previous
    one, a streak counter increments; otherwise it resets to 0. Once the
    streak reaches the rule's onset, the sum is suppressed until the
@@ -111,9 +114,11 @@ before; files older than format 15 keep 0.01), which raises the
        Default `min_threshold`, 1e-10: about 30 silent ticks at recovery
        0.5, 200 at 0.9. A higher level gives faster cycles: roughly
        `ln(0.4 / below) / ln(1 / recovery)` ticks between firings.
-     - `amplitude`: the range of the random output. Default 0.01, too weak
-       to drive other neurons; around the resting threshold (0.2) and above,
-       spontaneous firings propagate.
+     - `amplitude`: the range of the random output. Default
+       `spontaneous_min_amplitude`, 0.1 (0.01 before 2026-09-28, too weak to
+       drive other neurons); around the resting threshold (0.2) and above,
+       spontaneous firings propagate. With positive-only values the range
+       is `[0, amplitude]`.
      - `rate`: an extra probability of firing on any silent tick. Default 0
        (none); the random draw happens only when a rate is set, so the
        default keeps the generator's sequence.
@@ -128,12 +133,18 @@ before; files older than format 15 keep 0.01), which raises the
    default), otherwise `sum`. Off by default; layers set it through
    `LayerSpec::rectify`. It is the conventional baseline of the
    [nonlinearity experiments](nonlinearity.md).
+6. **Binary output** (only without E-R, if set). With `setBinary(true)` a
+   sum that passes the gate gives its sign (±1) instead of its value; a
+   rectified binary neuron is a classic perceptron (0 or 1,
+   `LayerSpec::Perceptron`). Layers set it through `LayerSpec::binary`.
 
 Without E-R (and without a gate or rectification) the output is simply the (clamped,
 possibly habituated) sum. A neuron without E-R can also run another
 [neuron model](neuron_models.md) (`setModel`: sigmoid, tanh, softplus, LIF,
 Izhikevich, resonate-and-fire), which then takes the habituated sum in place
-of the gate and rectification.
+of the gate, rectification and binary output. A layer with 8-bit outputs
+([precision](precision.md)) rounds the returned value to its step
+afterwards; the neuron itself stays float.
 
 For one neuron with caller-owned weights, `step(inputs, weights)` is
 `activate(dot(inputs, weights))`.
@@ -174,7 +185,7 @@ one barely.
   Networks saved in format 13 or earlier load with `Log`, the only rule
   they knew; `alpha` affects only `Log`.
 - While silent the threshold decays geometrically (`× recovery` per tick,
-  0.9 by default), so a neuron that fired strongly stays refractory for a
+  0.5 by default, 0.9 before 2026-10-08), so a neuron that fired strongly stays refractory for a
   while. Because the threshold keeps a trace of recent firing, E-R neurons
   carry some memory even with no connections between them (measured in
   [pattern_benchmark](pattern_benchmark.md#memory-without-hand-built-delay-lines)).

@@ -115,10 +115,12 @@ describe the behaviour.
 | `edges`, `output_layers`, `update_order`, `inputs`, `input_values(name)`, `input_sources`, `input_count`, `layer_count`, `describe()` | the same |
 | `connect(a, b, init=WeightInit.Random)`, `add_bus`, `write_bus`, `subscribe`, `is_bus`, `buses`, `bus_writers`, `bus_readers` | buses ([network](../doc/network.md#buses)) |
 | `grow_layer(id, count, outgoing=WeightInit.Zero, freeze_existing=False)`, `prune_neurons(id, indices)`, `freeze_neurons`, `freeze_inputs(id, source)`, `frozen_neurons`, `frozen_input_count` | changing a running network |
+| `set_minimum_size`, `prune_newest`, `prune_candidates`, `read_strength`, `ActivityMonitor`, `TickState`; `exrelaxer.development` (`WidthGrowth`, `Pruning`, `Plateau`, `grow_depth`) | structural development ([development](../doc/development.md), [Snake growth guide](../doc/snake_growth_guide.md)) |
 | `set_critic(layers=, inputs=, gamma=, lambda_=, rate=)`, `critic_value`, `temporal_difference`, `apply_reward_td`, `set_curiosity(...)`, `curiosity_reward`, `synapse_trace`, `threshold_trace`, `derivatives` | actor-critic, curiosity, per-synapse probes ([learning](../doc/learning.md#actor-critic-and-curiosity)) |
 | `save(path)`, `Network.load(path, mode)`, `to_bytes()`, `Network.from_bytes(data, mode)` | `save`, `load` |
-| `LayerSpec.dense / conv2d / locally_connected2d / pool2d / retina / cochlea / history / resize2d / disparity / state(..., frozen=, recovery_jitter=, learning_jitter=, alpha_jitter=, learning_rule=)` | `LayerSpec` builders |
-| `LayerSpec` fields: `has_er`, `has_habituation`, `frozen`, `learning_rule`, `rectify`, `gate`, `habituation_rule`, `threshold_growth`, `spontaneous`, `resting_threshold`, `normalize`, `neuron_model`, ... | the same |
+| `LayerSpec.dense / perceptron / conv2d / locally_connected2d / pool2d / retina / cochlea / history / resize2d / disparity / state(..., frozen=, recovery_jitter=, learning_jitter=, alpha_jitter=, learning_rule=)`, `spec.positive(ceiling)` | `LayerSpec` builders |
+| `LayerSpec` fields: `has_er`, `has_habituation`, `frozen`, `learning_rule`, `rectify`, `gate`, `binary`, `habituation_rule`, `threshold_growth`, `spontaneous`, `resting_threshold`, `normalize`, `positive_values`, `ceiling`, `positive_weights`, `bus`, `minimum_size`, `neuron_model`, `precision`, `grown`, ... | the same |
+| `Precision.int8()`, `Precision(int8_weights=, int8_values=, value_step=)` | `Precision` ([doc/precision.md](../doc/precision.md)) |
 | `NeuronModel.sigmoid()`, `.tanh()`, `.softplus()`, `.lif()`, `.alif()`, `.izhikevich()`, `.regular_spiking()`, `.fast_spiking()`, `.chattering()`, `.intrinsically_bursting()`, `.resonator()` | `NeuronModel::...` ([doc/neuron_models.md](../doc/neuron_models.md)) |
 | `Shape`, `Window2D`, `RetinaSpec` (`Sampling`), `CochleaSpec` (`FrequencyScale`, `Compression`), `ResizeSpec` (`Interpolation`), `DisparitySpec` (`DisparityMeasure`), `PoolMode`, `Jitter` (`uniform`, `normal`, `*_relative`, `.around`, `.within`) | the same |
 | `LearningRule` (`sign`, `traced`, `feedback_alignment`, `perturbation`, `oja`, `bcm`, `eligibility`, `eprop`, `surrogate`, `.with_bias`, `.with_decay`), `Habituation(steps, tolerance, decay, fade_after)`, `Spontaneous(below, amplitude, rate)`, `ThresholdGrowth(rule, amount)` (`ThresholdGrowth.Rule.LINEAR`, `LOG`, `FIXED`, `MULTIPLICATIVE`) | the same |
@@ -147,4 +149,7 @@ must not be used from two threads at once.
 - the audio layers against numpy's FFT, spectrogram save/load, and
   `exrelaxer.audio` (framing, WAV reading at 8 to 32 bits);
 - the bar-orientation task learned from Python, at 0.97 to 1.0 accuracy
-  against about 0.5 without learning.
+  against about 0.5 without learning;
+- temporal semantics and state probes, neuron models, 8-bit precision,
+  growing and pruning a running network, `exrelaxer.development` and the
+  examples of the Snake growth guide.

@@ -25,10 +25,18 @@ struct LayerSpec
     Spontaneous spontaneous = {};  // when and how strongly E-R neurons fire on their own (default: the original)
     Habituation habituationRule = {};  // how habituation suppresses repeated inputs (default: cut after 100 exact repeats)
     bool rectify = false;        // layers of neurons without E-R: ReLU, only sums above the gate pass
-    NeuronModel neuronModel = {}; // layers of neurons without E-R: another neuron model (doc/neuron_models.md)
     float restingThreshold = baseline_threshold;  // E-R: resting threshold, eligibility boundary, half the floor after firing
     bool normalize = false;      // Dense, Conv2D, LocallyConnected2D: weighted sum / |w|;
                                  // their builders (Dense(), Conv2D(), LocallyConnected2D()) turn it on
+    bool positiveValues = false; // neurons: sums and outputs in [0, ceiling] (doc/positive.md)
+    float ceiling = max_output;  // neurons: the largest magnitude a sum or output takes
+    bool positiveWeights = false;  // Dense, Conv2D, LocallyConnected2D: weights and bias in [0, max_weight]
+    bool binary = false;         // neurons without E-R: output the sign of a sum that passes the gate
+    bool bus = false;            // Dense: the layer is a bus (network::addBus)
+    size_t minimumSize = 0;      // Dense: pruning never leaves fewer neurons (doc/development.md); 0 = no floor
+    NeuronModel neuronModel = {};  // what turns sums into outputs (doc/neuron_models.md); not ER: needs hasER = false
+    Precision precision = {};    // number formats of weights and outputs (default float; doc/precision.md)
+    bool grown = false;          // added by structural growth, not built with the network (a tag)
     Window2D window = {};        // Conv2D, LocallyConnected2D, Pool2D
     PoolMode pool = PoolMode::Max;  // Pool2D
     RetinaSpec retina = {};      // Retina
@@ -36,8 +44,8 @@ struct LayerSpec
     ResizeSpec resize = {};      // Resize2D
     DisparitySpec disparity = {};  // Disparity
 
-    // Builders, see below: Dense, Conv2D, LocallyConnected2D, Pool2D, Retina,
-    // Cochlea, History, Resize2D, Disparity
+    // Builders, see below: Dense, Perceptron, Conv2D, LocallyConnected2D, Pool2D,
+    // Retina, Cochlea, History, Resize2D, Disparity, State; positive()
 };
 ```
 
@@ -58,7 +66,8 @@ LayerSpec d{LayerType::Dense, 32, false, true, false,
 | `type` | the factory, to select a creator |
 | `size`, `hasHabituation`, `hasER`, `recoveryJitter`, `learningJitter`, `alphaJitter` | the creator (for `dense`: its constructor arguments; see [per-neuron dynamics](neuron.md#per-neuron-dynamics)) |
 | `frozen` | the network only ([freezing](network.md#freezing)); creators ignore it |
-| `learningRule`, `gate`, `rectify`, `habituationRule`, `thresholdGrowth`, `spontaneous`, `restingThreshold`, `normalize`, `neuronModel` | the network: after creating a layer of neurons it applies each non-default one through the `neuron_layer` setters ([learning](learning.md), [neuron](neuron.md#one-tick-activate), [E-R](neuron.md#excitationrelaxation-e-r)); on a layer without neurons it throws `std::invalid_argument` |
+| `learningRule`, `gate`, `rectify`, `binary`, `habituationRule`, `thresholdGrowth`, `spontaneous`, `restingThreshold`, `normalize`, `positiveValues`, `ceiling`, `positiveWeights`, `neuronModel`, `precision` | the network: after creating a layer of neurons it applies each non-default one through the `neuron_layer` setters ([learning](learning.md), [neuron](neuron.md#one-tick-activate), [E-R](neuron.md#excitationrelaxation-e-r), [positive](positive.md), [neuron models](neuron_models.md), [precision](precision.md)); on a layer without neurons it throws `std::invalid_argument` |
+| `bus`, `minimumSize`, `grown` | the network: buses ([network](network.md#buses)), the pruning floor and the growth tag ([development](development.md)); `bus` and `minimumSize` are for Dense only |
 | `window`, `pool`, `retina`, `cochlea`, `resize`, `disparity` | the creators of the types listed in their comments |
 
 `network::freeze` / `unfreeze`, `network::setRecoveryJitter` /
@@ -111,14 +120,19 @@ public:
 | `LayerType::State` | `state_tap(output, threshold, habituation)` from the bits of `spec.size` (1, 2, 4) |
 
 `LayerSpec` has a builder per type that fills the fields it uses:
-`LayerSpec::Dense(size)`, `Conv2D(channels, window)`,
+`LayerSpec::Dense(size)`, `Dense(size, neuronModel)` (another
+[neuron model](neuron_models.md), E-R off), `Perceptron(size, threshold)`
+(binary neurons with a fixed gate), `Conv2D(channels, window)`,
 `LocallyConnected2D(channels, window)`, `Pool2D(window, mode)`,
 `Retina(retinaSpec)`, `Cochlea(cochleaSpec)`, `History(length)` (see
 [audio](audio.md)), `Resize2D(height, width, interpolation)` and
 `Disparity(disparitySpec)` (see [multimodal](multimodal.md)) and
 `State(output, threshold, habituation)` (see [state output](state_output.md)). Fields a type does not use are ignored. `size` is the
 neuron count for Dense, the output channels for Conv2D and
-LocallyConnected2D, and the ticks remembered for History.
+LocallyConnected2D, the ticks remembered for History and a bit mask of the
+fields (1 output, 2 threshold, 4 habituation) for State.
+`spec.positive(ceiling)` returns the same spec with positive-only values
+and, for layers with weights, positive-only weights ([positive](positive.md)).
 
 Built-in types are registered in the constructor, **not** by static
 self-registering objects in their own source files: in a static library the

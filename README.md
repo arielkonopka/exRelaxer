@@ -8,7 +8,10 @@ local rule of its choice: reward-modulated Hebbian learning, eligibility
 traces, per-synapse eligibility, e-prop, feedback alignment, node
 perturbation, the unsupervised Oja and BCM rules, or (as a non-local
 reference) surrogate gradients through time. A TD critic and a curiosity
-reward turn a game's reward into a learning signal.
+reward turn a game's reward into a learning signal. Besides the E-R
+neuron, a layer can use other neuron models (rate units, LIF / ALIF,
+Izhikevich, resonate-and-fire), 8-bit weights and outputs, or positive-only
+values and weights, and a running network can grow and prune itself.
 
 Networks are graphs of layers that can grow at runtime and be wired with
 arbitrary feedback (recurrent) connections. Vision layers (retina,
@@ -23,17 +26,22 @@ audio-visual objects.
 > Status: experimental / research code. APIs and the binary serialization
 > format may change without notice.
 
-**Documentation:** [doc/](doc/README.md) has a detailed page for each class:
-[neuron](doc/neuron.md), [layer](doc/layer.md), [dense](doc/dense.md),
-[learning](doc/learning.md), [kernels](doc/kernels.md), [spatial](doc/spatial.md), [audio](doc/audio.md),
-[multimodal and stereo](doc/multimodal.md),
-[activity economy](doc/activity.md), [nonlinearity](doc/nonlinearity.md), [dynamic ladder](doc/dynamic.md),
-[layer_factory](doc/layer_factory.md),
-[network](doc/network.md), and the
-test-support [pattern_benchmark](doc/pattern_benchmark.md). It also has
-PlantUML composition, class and interaction diagrams, and a
-[research log](doc/research.md) summarizing every parameter and topology
-experiment so far.
+**Documentation:** [doc/](doc/README.md) is the index. It has the
+[mathematical model](doc/model.md), a page for each class
+([neuron](doc/neuron.md), [neuron models](doc/neuron_models.md),
+[layer](doc/layer.md), [dense](doc/dense.md), [learning](doc/learning.md),
+[kernels](doc/kernels.md), [spatial](doc/spatial.md), [audio](doc/audio.md),
+[multimodal and stereo](doc/multimodal.md), [layer_factory](doc/layer_factory.md),
+[network](doc/network.md)) and layer options ([8-bit precision](doc/precision.md),
+[positive-only](doc/positive.md), [state output](doc/state_output.md),
+[structural development](doc/development.md)); the experiments
+([activity economy](doc/activity.md), [nonlinearity](doc/nonlinearity.md),
+[dynamic ladder](doc/dynamic.md), [video memory](doc/video_memory.md),
+[Doom](doc/doom.md), [Gardens of Eris](doc/goe.md)); guides
+([Doom](doc/doom_guide.md), [Snake growth](doc/snake_growth_guide.md),
+[neuron comparison pipeline](doc/pipeline.md)); PlantUML composition, class
+and interaction diagrams; and a [research log](doc/research.md) summarizing
+every experiment so far, with raw data in [results/](results/README.md).
 
 ## Features
 
@@ -98,6 +106,18 @@ experiment so far.
   OpenMP, for both the forward pass and learning. Results are bit-identical
   to plain scalar code whatever the SIMD width or thread count (see
   [doc/kernels.md](doc/kernels.md)).
+- **8-bit weights and outputs** (optional, per layer: `LayerSpec::precision`)
+  – codes in [−127, 127] times a power-of-two step, stochastic rounding of
+  every learning update (see [doc/precision.md](doc/precision.md)).
+- **Positive-only values and weights** (optional, per layer:
+  `LayerSpec::positive()`) – values in [0, ceiling] like firing rates,
+  weights ≥ 0 like excitatory synapses; every learning rule respects them
+  (see [doc/positive.md](doc/positive.md)).
+- **Structural development** – `activity_monitor` (Python `ActivityMonitor`)
+  reads E-R saturation;
+  a protected minimum size, LIFO pruning of grown neurons and Python
+  policies for width growth, pruning and depth growth on a score plateau
+  (`exrelaxer.development`, see [doc/development.md](doc/development.md)).
 - **Serialization** – save and load a whole network, wiring included, either
   with full internal state (continues bit-identically) or weights only.
 
@@ -315,7 +335,7 @@ Global constants in [core/neuron.hpp](core/neuron.hpp) (full list in
 | Constant                    | Default  | Meaning |
 |-----------------------------|----------|---------|
 | `habituation_steps`         | `100`    | Identical steps before the input is suppressed (default of `Habituation::steps`) |
-| `recovery_factor`           | `0.9`    | Default per-step threshold decay while not firing |
+| `recovery_factor`           | `0.5`    | Default per-step threshold decay while not firing (0.9 before 2026-10-08; older files keep it) |
 | `baseline_threshold`        | `0.2`    | Resting E-R threshold and learning-eligibility boundary |
 | `spontaneous_min_amplitude` | `0.1`    | Default amplitude of spontaneous firing (0.01 before 2026-09-28) |
 | `max_weight`                | `10.0`   | Learning clamps each weight to ±this |
@@ -354,10 +374,13 @@ E-R constants.
 
 ```
 core/
-  neuron.hpp/.cpp                single neuron's dynamics: E-R, habituation, eligibility, serialization
+  neuron.hpp/.cpp                single neuron's dynamics: E-R, habituation, eligibility, serialization;
+                                 NeuronModel, Precision, ValueRange
   learning.hpp/.cpp              LearningRule: the per-layer learning rules and their update
   kernels.hpp/.cpp               SIMD weight matrix, weighted sums, learning rule, thread sizing
   random.hpp/.cpp                the library's random streams, exr::reseed
+  reinforcement.hpp/.cpp         the TD(lambda) critic and the curiosity model
+  development.hpp/.cpp           activity_monitor: E-R saturation for structural growth
   network.hpp/.cpp               graph of layers, inputs, outputs, update order, freezing, save/load
   layers/layer.hpp/.cpp          base class: output buffer, Shape, InputRange, growth notifications
   layers/neuron_layer.hpp/.cpp   base of neuron layers: neurons, jitter, neuron-record serialization
@@ -374,6 +397,7 @@ core/
   layers/history.hpp/.cpp        the last ticks of its sources side by side (spectrograms)
   layers/resize2d.hpp/.cpp       resampling to a fixed height x width (nearest, bilinear, area)
   layers/disparity.hpp/.cpp      binocular disparity: left and right views matched at a range of shifts
+  layers/state_tap.hpp/.cpp      State layer: a neuron layer's output, threshold and habituation as outputs
   filters.hpp/.cpp               fixed filter banks for Conv2D: Gaussian, difference of Gaussians, Gabor
   parallel.hpp                   splitting work between OpenMP threads
   binary_io.hpp                  binary stream I/O for serialization
@@ -393,10 +417,18 @@ tests/
   audio.cpp                      Cochlea against a double-precision DFT, History, save/load of a hearing network
   multimodal.cpp                 named input sources, multichannel cochlea, Resize2D, Disparity, save/load
   filters.cpp                    filter banks, and bar-orientation learning with frozen Gabor features
+  temporal.cpp, traces.cpp       the order within one tick; eligibility traces
+  plasticity.cpp                 per-synapse rules (eligibility, e-prop, surrogate gradients)
+  reinforcement.cpp              the critic and the curiosity model
+  structure.cpp, development.cpp growing, pruning and freezing a running network; minimum size, LIFO, activity_monitor
+  state_tap.cpp                  the State layer
+  neuron_models.cpp              neuron models other than E-R
+  precision.cpp, positive.cpp    8-bit formats; positive-only values and weights
   er_scales.hpp                  test inputs and timings relative to the E-R constants
 build.sh                         one command: build everything, run the tests, install
 packaging/build-debs.sh          Debian packages (libexrelaxer-dev, python3-exrelaxer) from a build
 .github/workflows/ci.yml         CI: build, all tests, Debian packages
+.github/workflows/compare.yml    neuron comparison pipeline on a self-hosted runner (started by hand)
 cmake/                           package config template, the installed-package test
 examples/consumer/               a separate program using the installed library (find_package)
 examples/doom_agent/             loads an evolved Doom agent (best.exr) in C++ and runs one game step
@@ -410,10 +442,13 @@ NNtesting/                       benchmark harness nntest (see NNtesting/README.
   experiments/                   one per experiment: NAME.cpp, NAME/experiment.py or NAME.py
     _shared/                     Python helpers shared by experiments (wiring.py: what every weight reads)
   nntest.py                      runner for the Python experiments
+  pipeline/                      the neuron comparison pipeline: pipeline.py, suites/, runner-setup.sh
   datasets/fetch.py              downloads public datasets (MNIST, CIFAR-10, Kaggle, ...) into one format
   tools/compare.py               tables and before/after comparisons of result files
   tools/spiral.py                spiral sampling of images, bit-identical to the Spiral retina
   tools/capacity.py              minimum architectures and capacity curves from nl_static results
+  tools/*_summary.py             summary tables of individual experiments (see results/README.md)
+results/                         raw results behind the research log, one folder per topic
 ```
 
 Tests express their E-R-sensitive inputs and timings relative to these
@@ -467,6 +502,34 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   `online.py` (online learners, tests and profiles of any agent); es.py writes
   its state whole, so a stop never leaves a half-written file.
 
+### 2026-10-16: Gardens of Eris in eight directions
+
+- goe_rl `directions` 8 (the new default): the diagonal moves and shots of
+  Gardens-of-Eris PR #316, 22 readouts; `directions` 4 keeps the 14 actions
+  of G1 to G4. Saved runs and agents without the setting load as 4.
+- goe_rl `recovery` (default 0.9, as when G1 to G4 ran), so saved agents
+  play as evolved after the library default became 0.5. See
+  [doc/goe.md](doc/goe.md#g5-eight-directions-2026-10-1516).
+
+### 2026-10-16: positive-only values and weights
+
+- `LayerSpec::positive(ceiling)`, `positiveValues`, `ceiling`,
+  `positiveWeights` (`ValueRange`, `neuron_layer::setValueRange`,
+  `setPositiveWeights`; Python `LayerSpec.dense(...).positive()`): values in
+  [0, ceiling], weights ≥ 0, respected by every learning rule.
+- Network format 22 saves them. Results on `snake_rules`: research log §33,
+  [doc/positive.md](doc/positive.md).
+
+### 2026-10-16: 8-bit weights and outputs
+
+- `Precision` per layer (`LayerSpec::precision`, Python `exr.Precision.int8()`):
+  8-bit weights (Dense; a power-of-two step per weight row, stochastic
+  rounding of every update) and 8-bit outputs (step 1/16 by default). The
+  weights are still stored as float on the 8-bit grid: no memory or speed
+  gain yet.
+- Network format 21 saves it. An 8-bit E-R layer learns Snake as well as a
+  float one (research log §32, [doc/precision.md](doc/precision.md)).
+
 ### 2026-10-15: neuron models
 
 - `NeuronModel` per layer (`LayerSpec::neuronModel`,
@@ -482,6 +545,31 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 - `nl_static`, `nl_temporal` and `dyn_ladder` take the new models by name.
   See [doc/neuron_models.md](doc/neuron_models.md).
 
+### 2026-10-08: continuous integration and Debian packages
+
+- GitHub Actions on every pull request and push to `main`: the full CTest
+  suite and the `libexrelaxer-dev` and `python3-exrelaxer` packages
+  ([above](#continuous-integration-and-debian-packages)).
+
+### 2026-10-08: structural development
+
+- A protected minimum size per layer (`network::setMinimumSize`, network
+  format 19), a grown tag, pruning candidates and LIFO pruning of grown
+  neurons (`pruneCandidates`, `pruneNewest`), `activity_monitor` (E-R
+  saturation) and Python policies in `exrelaxer.development` (width growth,
+  pruning, plateau, depth growth). See [doc/development.md](doc/development.md)
+  and the guide [doc/snake_growth_guide.md](doc/snake_growth_guide.md);
+  results in research log §30–§31.
+
+### 2026-10-07: per-synapse rules, critic, curiosity, buses, runtime growth
+
+- Learning rules Eligibility, EProp and Surrogate (per synapse), a TD(λ)
+  critic (`setCritic`, `applyRewardTD`) and a curiosity reward; buses
+  (`addBus`, `writeBus`, `subscribe`); growing, pruning and freezing
+  neurons or inputs of a running network. Network format 18. See
+  [doc/learning.md](doc/learning.md) and [doc/network.md](doc/network.md);
+  results in research log §29.
+
 ### 2026-10-08: default E-R recovery 0.5
 
 - `recovery_factor` 0.5 (was 0.9): a silent E-R neuron's threshold halves
@@ -493,8 +581,9 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 - A disabled jitter with a centre, `Jitter::none().around(x)` (Python
   `Jitter.none().around(x)`), gives every neuron exactly x.
 - Experiments with a `recovery` parameter keep 0.9 as their default, so
-  their documented results still reproduce; the rest (Doom, GoE, examples)
-  now run at 0.5. Tests that measure E-R memory over several ticks are
+  their documented results still reproduce; the rest (Doom, examples)
+  now run at 0.5. GoE (goe_rl) got a `recovery` parameter later, default
+  0.9, so its saved agents play as they were evolved. Tests that measure E-R memory over several ticks are
   pinned to 0.9: at 0.5 the sequence-order test drops from 100 to 31 of
   100 and the 3-number sequence detection falls to chance.
 
