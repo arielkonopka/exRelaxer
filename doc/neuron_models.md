@@ -151,3 +151,49 @@ field.
 `model_gain`, `model_smoothing`, `model_leak`, `model_threshold`,
 `model_adaptation` and `model_frequency` (see
 [nonlinearity](nonlinearity.md)).
+
+## First results: the nonlinearity tasks (2026-10-16)
+
+The grid of [nonlinearity](nonlinearity.md): depth 1–3 × width 4–64, 5
+seeds, learning rate per architecture chosen on validation, feedback
+alignment with a learned bias, habituation off, default model parameters.
+Tables, script and raw data: [results/neuron-models](../results/neuron-models/summary.md).
+E-R ran at the current default recovery 0.5 (nl_temporal has no recovery
+option); the earlier grid at 0.9 solved delayed XOR with 64 neurons
+(research §16), so E-R's row here is not its best.
+
+Temporal tasks (best median test accuracy; share of hidden neurons active per tick):
+
+| model | t1 delayed XOR | t2 x(t) ∧ ¬x(t−3) | t3 parity of 4 |
+|---|---|---|---|
+| relu, clamp, sigmoid, tanh, softplus (no state) | 0.51 | 0.75 | 0.49 |
+| E-R (recovery 0.5) | 0.64 (78 %) | 0.78 | 0.52 |
+| tanh, smoothing 0.5 | **1.00, solved with 8 neurons** | 0.76 | – |
+| softplus, smoothing 0.5 | 1.00, solved with 16 | 0.76 | – |
+| LIF | 0.95 (13 %) | **0.86** (17 %) | 0.68 |
+| ALIF | 0.91 (10 %) | 0.82 | 0.69 |
+| resonator | 0.68 (30 %) | 0.83 | **0.77** |
+| Izhikevich | 0.50 (2 %) | 0.76 | 0.49 |
+
+Static tasks (best median test MSE; in brackets the smallest network with
+MSE ≤ 1e-3 in ≥ 80 % of seeds):
+
+| model | l1 x1·x2 | l3 | l4 k=4 | active |
+|---|---|---|---|---|
+| relu | 6.1e-4 (16) | 7.2e-4 (32) | 7.8e-4 (32) | ~50 % |
+| tanh | 5.3e-4 (16) | 6.4e-4 (16) | 6.3e-4 (16) | 100 % |
+| softplus | 2.4e-4 (8) | 1.0e-3 | 0.020 | 100 % |
+| sigmoid | 6.5e-4 (32) | 0.013 | 0.035 | 100 % |
+| E-R | 0.066 | 0.081 | 0.11 | ~65 % |
+| LIF / resonator | 0.035 / 0.028 | 0.052 / 0.045 | 0.091 / 0.078 | 7–17 % |
+| Izhikevich | 0.11 | 0.13 | 0.35 | 1–2 % |
+
+- A one-step memory needs only a leaky output: tanh with smoothing 0.5
+  solves delayed XOR with 8 neurons, where E-R needed 64 (at recovery 0.9).
+- LIF is the best spiking memory (t2 0.86, above the 0.75 ceiling of
+  stateless nets) at an eighth of the activity; the resonator is the only
+  model clearly above chance on parity.
+- On static functions tanh matches ReLU; spiking models are 10–50× worse
+  than ReLU but better than E-R, at a fraction of the activity.
+- Izhikevich at gain 10 hardly fires on these normalised sums (|s| ≲ 1.4):
+  its input scale needs calibrating before it is a fair comparison.
