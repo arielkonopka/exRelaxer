@@ -550,6 +550,33 @@ Data: `results/goe/rules/`: `summary.md` (all tables, `summarize.py`),
 diverged critic runs. The trained weights of every final run are in the
 project's `reports/goe-rules/final/`.
 
+### G5. Eight directions (2026-10-15/16)
+
+Gardens of Eris added diagonal moves and shots (its PR #316); goe_rl's
+`directions` 8 (now the default) gives the network 22 readouts, 4 keeps the 14
+of G1 to G4. The game was the Gardens-of-Eris main of 2026-10-15 (#318) with a
+local fix for a crash: a refresher (a shot golden apple) blowing up in an
+inventory freed itself mid-explosion, a double free after some dozens of
+episodes (explosives.cpp, inventory.cpp; found with AddressSanitizer).
+
+Untrained networks (net seeds 0-2) and random players (3 seeds) on the 30
+fresh mazes of G2 (seeds 4242-4271), radius 6, recovery 0.9
+(results/goe/directions/untrained.py, untrained.json):
+
+| player | reward, 4 → 8 directions | score | cells seen | deaths per game |
+|---|---|---|---|---|
+| E-R recurrent (G2 `er_rec`) | +5.6 → +9.2 | 45 → 66 | 119 → 184 | 0.19 → 0.22 |
+| E-R plain | −2.6 → −2.5 | 6 → 6 | 32 → 33 | 0.07 → 0.07 |
+| random | +11.7 → +9.3 | 74 → 76 | 158 → 209 | 0.28 → 0.46 |
+
+The diagonals help the untrained recurrent network explore; the random
+player explores more too but dies more often. The plain network is nearly
+silent (2 spikes a step), as in G1. On the same mazes G2 had the untrained
+`er_rec` at +10.1 and the random player at +13.8: the game has changed since
+(roaming monsters, eight-way chasers, refreshers), so the numbers do not
+compare directly. Evolution (es.py, `er_rec`, 4 against 8 directions, 300
+generations) follows in a later entry.
+
 ## Open questions
 
 - **Does evolution get past standing still?** Run the three designed
