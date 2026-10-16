@@ -159,8 +159,8 @@ seeds, learning rate per architecture chosen on validation, feedback
 alignment with a learned bias, habituation off, default model parameters.
 Tables, script and raw data: [results/neuron-models](../results/neuron-models/summary.md).
 E-R ran at the current default recovery 0.5 (nl_temporal has no recovery
-option); the earlier grid at 0.9 solved delayed XOR with 64 neurons
-(research §16), so E-R's row here is not its best.
+option); at recovery 0.9 with linear growth E-R solved delayed XOR with 8
+neurons (research §18), so E-R's row here is not its best.
 
 Temporal tasks (best median test accuracy; share of hidden neurons active per tick):
 
@@ -189,7 +189,7 @@ MSE ≤ 1e-3 in ≥ 80 % of seeds):
 | Izhikevich | 0.11 | 0.13 | 0.35 | 1–2 % |
 
 - A one-step memory needs only a leaky output: tanh with smoothing 0.5
-  solves delayed XOR with 8 neurons, where E-R needed 64 (at recovery 0.9).
+  solves delayed XOR with 8 neurons, as E-R did at recovery 0.9.
 - LIF is the best spiking memory (t2 0.86, above the 0.75 ceiling of
   stateless nets) at an eighth of the activity; the resonator is the only
   model clearly above chance on parity.
