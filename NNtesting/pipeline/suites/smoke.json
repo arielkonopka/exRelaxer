@@ -1,0 +1,24 @@
+{
+ "name": "smoke",
+ "description": "A few minutes: checks that every stage of the Doom comparison runs (tiny network, 4-second games, 2 generations).",
+ "env": "doom",
+ "scenario": "defend_the_center",
+ "architecture": {
+  "color": true, "pool": 8, "sound": true, "depth": 1, "width": 16, "feedback": "none", "ticks": 3,
+  "habituation": true, "episode_tics": 140
+ },
+ "neurons": {
+  "er": {"model": "er"},
+  "lif": {"model": "lif"},
+  "tanh": {"model": "tanh"}
+ },
+ "methods": {
+  "frozen": {"kind": "frozen"},
+  "es_readout": {"kind": "es", "evolve": "readout", "generations": 2, "pairs": 2, "episodes": 1, "validation": 1},
+  "sign": {"kind": "online", "method": "sign", "episodes": 3, "checkpoint": 2},
+  "fa_td": {"kind": "online", "method": "fa_td", "episodes": 3, "checkpoint": 2, "settings": {"hidden": true}}
+ },
+ "seeds": [1],
+ "test": {"episodes": 2, "workers": 2},
+ "profile": {"steps": 100}
+}

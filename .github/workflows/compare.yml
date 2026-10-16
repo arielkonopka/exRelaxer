@@ -1,0 +1,116 @@
+# The neuron comparison (doc/pipeline.md): neuron models x learning methods on one architecture,
+# playing Doom, on the self-hosted runner. Started by hand (Actions > Compare neurons > Run
+# workflow). Everything it computes stays on the runner in $EXR_PIPELINE_HOME (default
+# ~/exr-pipeline), so a stopped run continues where it was: run the workflow again with the same
+# suite and run name, or "Re-run failed jobs". Finished stages are skipped, evolution resumes from
+# its last generation and online learning from its last checkpoint.
+#
+# Jobs: setup (venv, build of this commit, which neurons still have work) -> one job per neuron
+# model (all its methods and seeds, in parallel on the runner's CPUs) -> report (the tables, the
+# bottleneck data, an artifact with every result).
+name: Compare neurons
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Suite in NNtesting/pipeline/suites (doom, smoke)"
+        default: doom
+      run:
+        description: "Run name: the same name continues a run, a new one starts afresh (default: the suite's name)"
+        default: ""
+      neurons:
+        description: "Only these neuron models, comma-separated (default: all of the suite's)"
+        default: ""
+      methods:
+        description: "Only these learning methods, comma-separated (default: all)"
+        default: ""
+      seeds:
+        description: "Only these seeds, comma-separated (default: the suite's)"
+        default: ""
+      slots:
+        description: "CPU slots for stages (0: all CPUs)"
+        default: "0"
+      stop_after:
+        description: "Hours after which each neuron's job starts no new stage (0: no limit)"
+        default: "0"
+      native:
+        description: "Build the library for this CPU (-march=native)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# One run of a run folder at a time; a second dispatch waits rather than cancelling the first.
+concurrency:
+  group: compare-${{ inputs.run || inputs.suite }}
+  cancel-in-progress: false
+
+env:
+  SUITE: ${{ inputs.suite }}
+  RUN: ${{ inputs.run || inputs.suite }}
+
+jobs:
+  setup:
+    runs-on: [self-hosted, Linux]
+    timeout-minutes: 120
+    outputs:
+      neurons: ${{ steps.plan.outputs.neurons }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Virtual environment and build of this commit
+        # The repository variable EXR_PIPELINE_HOME, if set, puts the pipeline's home elsewhere.
+        run: EXR_PIPELINE_HOME="${{ vars.EXR_PIPELINE_HOME }}" NNtesting/pipeline/runner-setup.sh ${{ inputs.native && '--native' || '' }}
+      - name: This machine
+        run: '"$PYTHON" NNtesting/pipeline/pipeline.py system --suite "$SUITE" --run "$RUN"'
+      - name: Neurons with work left
+        id: plan
+        run: |
+          neurons=$("$PYTHON" NNtesting/pipeline/pipeline.py plan --suite "$SUITE" --run "$RUN" \
+                    --neurons "${{ inputs.neurons }}" --methods "${{ inputs.methods }}" --seeds "${{ inputs.seeds }}")
+          echo "neurons=$neurons" >> "$GITHUB_OUTPUT"
+          echo "Neurons with work left: $neurons"
+
+  neuron:
+    needs: setup
+    if: needs.setup.outputs.neurons != '[]'
+    runs-on: [self-hosted, Linux]
+    timeout-minutes: 4320  # 3 days; a job that hits it continues on the next run
+    strategy:
+      fail-fast: false
+      max-parallel: 1  # every job uses all its slots; two at once would oversubscribe the machine
+      matrix:
+        neuron: ${{ fromJSON(needs.setup.outputs.neurons) }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Environment (the build is already there)
+        run: EXR_PIPELINE_HOME="${{ vars.EXR_PIPELINE_HOME }}" NNtesting/pipeline/runner-setup.sh ${{ inputs.native && '--native' || '' }}
+      - name: Train, test and profile ${{ matrix.neuron }}
+        # exec: the pipeline itself gets the runner's stop signal and stops its stages cleanly
+        run: |
+          exec "$PYTHON" NNtesting/pipeline/pipeline.py run --suite "$SUITE" --run "$RUN" \
+            --neurons "${{ matrix.neuron }}" --methods "${{ inputs.methods }}" --seeds "${{ inputs.seeds }}" \
+            --slots "${{ inputs.slots }}" --stop-after "${{ inputs.stop_after }}"
+
+  report:
+    needs: [setup, neuron]
+    if: always() && needs.setup.result == 'success'
+    runs-on: [self-hosted, Linux]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Environment (the build is already there)
+        run: EXR_PIPELINE_HOME="${{ vars.EXR_PIPELINE_HOME }}" NNtesting/pipeline/runner-setup.sh ${{ inputs.native && '--native' || '' }}
+      - name: Report
+        run: |
+          rm -rf "$RUNNER_TEMP/compare"
+          report=$("$PYTHON" NNtesting/pipeline/pipeline.py report --suite "$SUITE" --run "$RUN" \
+                   --export "$RUNNER_TEMP/compare")
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          "$PYTHON" NNtesting/pipeline/pipeline.py status --suite "$SUITE" --run "$RUN"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: compare-${{ inputs.run || inputs.suite }}-${{ github.run_number }}
+          path: ${{ runner.temp }}/compare
+          if-no-files-found: error

@@ -221,6 +221,17 @@ def retry(what, write, tries=5):
             time.sleep(2 * (i + 1))
 
 
+def atomic(path, write):
+    """write(tmp path), then the file replaces `path` whole: a stopped run never leaves half a file."""
+    write(path + ".tmp")
+    os.replace(path + ".tmp", path)
+
+
+def save_npy(path, array):
+    with open(path, "wb") as f:  # a file object: np.save would add .npy to a path
+        np.save(f, array)
+
+
 def centred_ranks(x):
     r = np.empty(len(x))
     r[np.argsort(x)] = np.arange(len(x))
@@ -317,8 +328,9 @@ def main():
                 if val > best:
                     best = val
                     net = build(p, args.net_seed, theta).net
-                    retry("best.exr", lambda: net.save(os.path.join(args.out, "best.exr")))
-                    retry("best_theta.npy", lambda: np.save(os.path.join(args.out, "best_theta.npy"), theta))
+                    retry("best.exr", lambda: atomic(os.path.join(args.out, "best.exr"), net.save))
+                    retry("best_theta.npy", lambda: atomic(os.path.join(args.out, "best_theta.npy"),
+                                                           lambda path: save_npy(path, theta)))
                     retry("best.json", lambda: json.dump({"generation": gen, "validation": val, "depth": p["depth"]},
                                                          open(os.path.join(args.out, "best.json"), "w")))
                 theta = theta + step
@@ -340,9 +352,12 @@ def main():
                     _, scale, readouts = initial_weights(p, args.net_seed)
                     sigma, lr = args.sigma * scale, args.lr * scale
                     grown_at = len(vals)
-                retry("state.npz", lambda: np.savez(state_path, theta=theta, m=m, v=v, gen=gen, best=best,
-                                                    vals=np.array(vals), grown_at=grown_at, depth=p["depth"],
-                                                    level=level))
+                def save_state():  # whole or not at all: a run stopped mid-write resumes from the last one
+                    with open(state_path + ".tmp", "wb") as f:
+                        np.savez(f, theta=theta, m=m, v=v, gen=gen, best=best, vals=np.array(vals),
+                                 grown_at=grown_at, depth=p["depth"], level=level)
+                    os.replace(state_path + ".tmp", state_path)
+                retry("state.npz", save_state)
                 line = {"generation": gen, "depth": p["depth"], "validation_reward": val, "validation_kills": val_kills,
                         "validation_spikes_per_step": val_spikes, "population_mean": float(rewards.mean()),
                         "population_best": float(rewards.max()),

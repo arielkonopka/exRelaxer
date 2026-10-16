@@ -1,7 +1,7 @@
 """Doom learned from reward, seeing and hearing the game at its smallest
 settings. See README.md here.
 
-    screen 160 x 120 gray -> pooled 40 x 30 ("eye", 1200 sensors) ----------\\
+    screen 160 x 120 gray (or RGB with color) -> pooled 40 x 30 ("eye", 1200 sensors; x 3 in colour) --\\
     stereo sound 11025 Hz -> "mic" (2 x 420 samples per tick) -> cochlea    +-> hidden (relu | er | gate)
                              (2 ears x 16 bands) --------------------------/          |
                                                                      8 action readouts (learned from reward)
@@ -24,6 +24,7 @@ output traces spread it over the last steps. Exploration: epsilon-greedy.
 """
 import math
 import os
+import time
 
 import numpy as np
 
@@ -37,6 +38,12 @@ except ImportError:  # the experiment reports it in run()
     vzd = None
 
 ACTIONS = ["MOVE_FORWARD", "MOVE_BACKWARD", "TURN_LEFT", "TURN_RIGHT", "MOVE_LEFT", "MOVE_RIGHT", "ATTACK", "USE"]
+# Hidden neuron models: the experiment's own kinds of the original neuron
+# (E-R, ReLU, gate, clamp), and the library's NeuronModel types
+# (doc/neuron_models.md), set up by the model_* parameters.
+LEGACY_MODELS = ("relu", "er", "gate", "clamp")
+LIBRARY_MODELS = ("sigmoid", "tanh", "softplus", "lif", "alif", "izhikevich", "resonator")
+MODELS = LEGACY_MODELS + LIBRARY_MODELS
 SAMPLE_RATE = 11025
 FRAME_SKIP = 4                              # game tics per action (35 tics a second)
 STEP_SAMPLES = SAMPLE_RATE * FRAME_SKIP // 35  # 1260 per ear per step
@@ -51,7 +58,7 @@ def make_game(p, seed, visible=False):
         game.load_config(os.path.join(vzd.scenarios_path, p["scenario"] + ".cfg"))
     game.set_window_visible(visible)  # watch.py --live: the game's own window
     game.set_screen_resolution(vzd.ScreenResolution.RES_160X120)  # the smallest ViZDoom offers
-    game.set_screen_format(vzd.ScreenFormat.GRAY8)
+    game.set_screen_format(vzd.ScreenFormat.RGB24 if p.get("color", False) else vzd.ScreenFormat.GRAY8)
     game.set_render_hud(False)
     game.set_render_messages(False)
     game.set_automap_buffer_enabled(False)
@@ -74,22 +81,62 @@ def make_game(p, seed, visible=False):
     return game
 
 
+def neuron_model(p, model):
+    """The library's NeuronModel for a LIBRARY_MODELS name, from the model_* parameters."""
+    M = exr.NeuronModel
+    g, sm = p["model_gain"], p["model_smoothing"]
+    if model == "sigmoid":
+        return M.sigmoid(g, sm)
+    if model == "tanh":
+        return M.tanh(g, sm)
+    if model == "softplus":
+        return M.softplus(g, sm)
+    if model == "lif":
+        return M.lif(leak=p["model_leak"], threshold=p["model_threshold"], refractory=p["model_refractory"])
+    if model == "alif":
+        return M.alif(leak=p["model_leak"], threshold=p["model_threshold"], adaptation=p["model_adaptation"],
+                      refractory=p["model_refractory"])
+    if model == "izhikevich":
+        return M.izhikevich(gain=p["model_izhikevich_gain"])
+    if model == "resonator":
+        return M.resonator(frequency=p["model_frequency"], damping=p["model_leak"], threshold=p["model_threshold"],
+                           refractory=p["model_refractory"])
+    raise ValueError(f"model must be one of {', '.join(MODELS)}")
+
+
+def screen_size(p):
+    """Sensors of the pooled screen: (120 / pool) x (160 / pool), x 3 with color (RGB)."""
+    return (120 // p["pool"]) * (160 // p["pool"]) * (3 if p.get("color", False) else 1)
+
+
+def pool_screen(screen, pool):
+    """The screen buffer (120 x 160 gray, or 120 x 160 x 3 RGB) averaged over pool x pool squares, in [0, 1];
+    in colour the three channels of a square are next to each other."""
+    if screen.ndim == 2:  # as evolved agents saw it, bit for bit
+        return screen.reshape(120 // pool, pool, 160 // pool, pool).mean(axis=(1, 3)).ravel().astype(np.float32) / 255.0
+    # Integer sums, rows first: about 7x faster than mean() over both axes of the RGB screen.
+    rows = screen.reshape(120 // pool, pool, 160 * 3).sum(axis=1, dtype=np.uint32)
+    squares = rows.reshape(120 // pool, 160 // pool, pool, 3).sum(axis=2)
+    return squares.ravel().astype(np.float32) * np.float32(1.0 / (255 * pool * pool))
+
+
 class Player:
     def __init__(self, p):
         model, width = p["model"], p["width"]
-        if model not in ("relu", "er", "gate", "clamp"):
-            raise ValueError("model must be relu, er, gate or clamp")
+        if model not in MODELS:
+            raise ValueError(f"model must be one of {', '.join(MODELS)}")
         self.pool, self.ticks = p["pool"], p["ticks"]
-        self.eye_size = (120 // self.pool) * (160 // self.pool)
+        self.eye_size = screen_size(p)
         self.hop = STEP_SAMPLES // self.ticks
         self.net = net = exr.Network()
         self.sound = p["sound"]
         self.readout = p.get("readout", "last")
         def neurons(size, frozen=True, model=model, habituation=p["habituation"]):
-            if model not in ("relu", "er", "gate", "clamp"):
-                raise ValueError("model must be relu, er, gate or clamp")
+            if model not in MODELS:
+                raise ValueError(f"model must be one of {', '.join(MODELS)}")
             spec = exr.LayerSpec.dense(size, habituation, model == "er", frozen=frozen,
-                                       learning_rule=exr.LearningRule.traced(p["trace"]))
+                                       learning_rule=exr.LearningRule.traced(p["trace"]),
+                                       **({"neuron_model": neuron_model(p, model)} if model in LIBRARY_MODELS else {}))
             if habituation:
                 # Fade mode as in the rerun's fade2: a repeated input fades by
                 # `habituation_decay` per tick from its `habituation_fade_after`th repeat.
@@ -121,6 +168,9 @@ class Player:
         self.metered = self.layers + getattr(self, "rungs", []) + ([self.reservoir] if self.reservoir is not None else [])
         self.neurons = sum(net.layer_size(l) for l in self.metered)
         self.spikes = self.ticks_seen = 0
+        # Profiling (online.py profile): a dict here collects seconds spent in act() by part:
+        # senses (screen pooling, sound), network (the ticks) and readout (choosing the action).
+        self.timing = None
 
     def _build_stack(self, p, neurons, normalized):
         net, width = self.net, p["width"]
@@ -354,10 +404,10 @@ class Player:
         self.names = name
 
     def act(self, state, rng, explore, meter=False):
-        s = state.screen_buffer
-        f = self.pool
-        eye = s.reshape(120 // f, f, 160 // f, f).mean(axis=(1, 3)).ravel().astype(np.float32) / 255.0
-        self.net.set_inputs("eye", eye)
+        timing = self.timing
+        if timing is not None:
+            t0 = time.perf_counter()
+        self.net.set_inputs("eye", pool_screen(state.screen_buffer, self.pool))
         if self.sound:
             audio = np.zeros((STEP_SAMPLES, 2), dtype=np.float32)
             buf = state.audio_buffer
@@ -369,6 +419,9 @@ class Player:
         # layer that fires early in the step still counts (without sound it is
         # silent by the last tick).
         total = np.zeros(len(ACTIONS))
+        if timing is not None:
+            t1 = time.perf_counter()
+            timing["senses"] = timing.get("senses", 0.0) + t1 - t0
         for t in range(self.ticks):
             if self.sound:
                 chunk = audio[t * self.hop:(t + 1) * self.hop]
@@ -381,6 +434,9 @@ class Player:
                 for layer in self.metered:
                     self.spikes += np.count_nonzero(np.abs(self.net.layer_output(layer)) > 1e-6)
                 self.ticks_seen += 1
+        if timing is not None:
+            t2 = time.perf_counter()
+            timing["network"] = timing.get("network", 0.0) + t2 - t1  # incl. per-tick sound input and meters
         self.y = y = total if self.readout == "sum" else np.asarray(self.net.outputs())
         if explore > 0 and rng.random() < explore:
             return int(rng.integers(len(ACTIONS)))
@@ -457,7 +513,17 @@ PARAMS = {
                           "health_gathering, deadly_corridor, my_way_home, ..."),
     "skill": (2, "Doom skill 1 (easiest) .. 5"),
     "episode_tics": (2100, "episode timeout in game tics (35 a second)"),
-    "model": ("er", "hidden neurons: relu, er, gate or clamp"),
+    "model": ("er", "hidden neurons: relu, er, gate, clamp, or a library neuron model: sigmoid, tanh, softplus, "
+                    "lif, alif, izhikevich, resonator (model_* parameters)"),
+    "model_gain": (1.0, "sigmoid, tanh, softplus: slope"),
+    "model_smoothing": (0.0, "sigmoid, tanh, softplus: leaky-integrator smoothing of the output, [0, 1)"),
+    "model_leak": (0.9, "lif, alif: membrane decay per tick; resonator: damping"),
+    "model_threshold": (1.0, "lif, alif, resonator: firing threshold"),
+    "model_refractory": (0, "lif, alif, resonator: ticks after a spike that ignore the input"),
+    "model_adaptation": (0.2, "alif: threshold rise per spike"),
+    "model_frequency": (0.1, "resonator: cycles per tick"),
+    "model_izhikevich_gain": (10.0, "izhikevich: input current per unit of weighted sum"),
+    "color": (False, "see the screen in colour (RGB24: 3 sensors per pooled square) instead of gray"),
     "width": (256, "hidden neurons"),
     "gate": (0.2, "gate model: the fixed threshold"),
     "habituation": (False, "hidden and reservoir neurons habituate to repeated input (fade mode)"),
