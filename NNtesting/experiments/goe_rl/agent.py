@@ -7,7 +7,8 @@
 An exported agent is a folder:
     agent.json   columns.py parameters, columns, stage, generation, net seed, what each file holds
     weights.npz  every column's weights by layer (c<k>: kernels, h<k>: neuron weight vectors,
-                 as "<layer>_<index>") and "readouts" (14 x width * columns)
+                 as "<layer>_<index>") and "readouts" (actions x width * columns: 22 actions
+                 with directions 8, 14 with 4; agents saved before the diagonals have 14)
     net.exr      the same network in the library's format (exr.Network.load), with the E-R state
                  as it was built (fresh), for experiments that use the library directly
 
@@ -40,7 +41,7 @@ def export(run_dir, out_dir):
     info = {"params": p, "columns": meta["columns"], "stage": meta["stage"], "generation": meta["gen"],
             "net_seed": net_seed, "curriculum": config["params"].get("curriculum"),
             "grow_columns": config["params"].get("grow_columns"), "source": os.path.abspath(run_dir),
-            "actions": C.ACTIONS, "channels": C.CHANNELS, "body": ["energy", "ammo", "avatars"] + C.SECTIONS,
+            "actions": C.actions(p), "channels": C.CHANNELS, "body": ["energy", "ammo", "avatars"] + C.SECTIONS,
             "files": {"weights.npz": "c<k>_<i> kernels, h<k>_<i> neuron weights, readouts (actions x inputs)",
                       "net.exr": "the library network (exr.Network.load)"}}
     with open(os.path.join(out_dir, "agent.json"), "w") as f:
@@ -52,7 +53,7 @@ def load(folder):
     """The agent as a columns.Net, every weight from weights.npz."""
     with open(os.path.join(folder, "agent.json")) as f:
         info = json.load(f)
-    p = C.defaults() | info["params"]
+    p = C.defaults() | C.saved_params(info["params"])
     w = np.load(os.path.join(folder, "weights.npz"))
     net = C.Net(p, info["columns"], _by_layer(w), None, info["net_seed"])
     for r, row in zip(net.readouts, w["readouts"]):
@@ -67,14 +68,15 @@ class ExrAgent(C.Net):
         import exrelaxer as exr
         with open(os.path.join(folder, "agent.json")) as f:
             info = json.load(f)
-        self.p, self.columns = C.defaults() | info["params"], info["columns"]
+        self.p, self.columns = C.defaults() | C.saved_params(info["params"]), info["columns"]
         self.net = exr.Network.load(os.path.join(folder, "net.exr"))
         find = self.net.find_layer
         self.eyes = ([find("retina")] if self.p["retina"] else []) + [find("raw")]
         self.convs = [find(f"c{k}") for k in range(1, self.columns + 1)]
         self.pools = [find(f"p{k}") for k in range(1, self.columns + 1)]
         self.hidden = [find(f"h{k}") for k in range(1, self.columns + 1)]
-        self.readouts = [find(a.lower()) for a in C.ACTIONS]
+        self.actions = C.actions(self.p)
+        self.readouts = [find(a.lower()) for a in self.actions]
         self.metered = {"retina": self.eyes[:-1], "conv": self.convs, "hidden": self.hidden}
         self.spikes = {k: 0 for k in self.metered}
         self.ticks_seen = 0
@@ -93,7 +95,7 @@ def check(folder, worlds=None):
     with open(os.path.join(folder, "agent.json")) as f:
         info = json.load(f)
     worlds = worlds or [(k, 777000 + i) for i, k in enumerate(C.SKILLS)]
-    p = C.defaults() | info["params"]
+    p = C.defaults() | C.saved_params(info["params"])
     game = C.make_game(p)
     out = {}
     run = info["source"]
@@ -126,7 +128,7 @@ def _read_run(run_dir):
     """(config, parameters, state meta, the run's network) from a grow.py output folder."""
     with open(os.path.join(run_dir, "config.json")) as f:
         config = json.load(f)
-    p = C.defaults() | {k: v for k, v in config["params"].items() if k in C.PARAMS}
+    p = C.defaults() | C.saved_params({k: v for k, v in config["params"].items() if k in C.PARAMS})
     s = np.load(os.path.join(run_dir, "state.npz"))
     meta = json.loads(str(s["meta"]))
     frozen = _by_layer(np.load(os.path.join(run_dir, "frozen.npz")))

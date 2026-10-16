@@ -3,12 +3,18 @@
     vision grid (2r + 1)^2 cells x 8 channels ("eye") ---\\
     player energy, ammo, avatars ("body") ----------------+-> hidden (er | relu | gate), habituation
                                                                      |
-                                    14 action readouts: move, shoot, interact (x4 directions), next gun, use
+                                    action readouts: move and shoot (8 directions), interact (4), next gun, use
 
 The game is the `goe` package of https://github.com/arielkonopka/Gardens-of-Eris
 (agent/python): headless, one game per process, the same seed builds the same
 world. One step is one move (8 game ticks); the network runs `ticks` ticks
 on each step's view and the largest readout picks the action.
+
+The actions (`directions`): 8 (the default) moves and shoots in eight
+directions, the diagonals of Gardens-of-Eris PR #316 included (22 actions);
+4 is the action set of G1 to G4 (14 actions: move, shoot and interact up,
+down, left and right, next gun, use). A saved network without `directions`
+is a 4-direction one (saved_params).
 
 The reward (`reward` events, the default) weighs the game's events with the
 w_* parameters (goe's reward_weights, Gardens-of-Eris PR #289): items,
@@ -59,6 +65,10 @@ ACTIONS = ["MOVE_UP", "MOVE_DOWN", "MOVE_LEFT", "MOVE_RIGHT",
            "SHOOT_UP", "SHOOT_DOWN", "SHOOT_LEFT", "SHOOT_RIGHT",
            "INTERACT_UP", "INTERACT_DOWN", "INTERACT_LEFT", "INTERACT_RIGHT",
            "NEXT_GUN", "USE"]
+# the diagonal moves and shots (Gardens-of-Eris PR #316); after the 14 above, so a 4-direction
+# network's readouts are the first 14 of an 8-direction one's
+DIAGONALS = ["MOVE_UP_LEFT", "MOVE_UP_RIGHT", "MOVE_DOWN_LEFT", "MOVE_DOWN_RIGHT",
+             "SHOOT_UP_LEFT", "SHOOT_UP_RIGHT", "SHOOT_DOWN_LEFT", "SHOOT_DOWN_RIGHT"]
 CELL_FEATURES = ["type", "steppable", "killable", "collectible", "in_sight", "moving"]
 PLAYER_FEATURES = ["energy", "max_energy", "ammo", "avatars"]
 # element types (the game's bElemTypes)
@@ -71,6 +81,35 @@ CHANNELS = ["wall", "free", "enemy", "collectible", "danger", "door", "apple", "
 
 
 MOVE_TICKS = 8  # game ticks per move
+
+
+def actions(p):
+    """The actions the readouts stand for: 14 with directions 4, 22 with directions 8."""
+    d = p.get("directions", 4)
+    if d not in (4, 8):
+        raise ValueError(f"directions must be 4 or 8, not {d!r}")
+    return ACTIONS + DIAGONALS if d == 8 else ACTIONS
+
+
+def saved_params(params):
+    """Parameters read back from a saved run or agent: one saved before the diagonals has no
+    `directions` and is a 4-direction network."""
+    return {"directions": 4} | params
+
+
+def game_actions(p):
+    """The goe action number of each readout; fails on a goe package without the diagonals."""
+    missing = [a for a in actions(p) if a not in goe.ACTIONS]
+    if missing:
+        raise RuntimeError(f"this goe package has no {', '.join(missing)}: update Gardens of Eris "
+                           "(eight-way movement, PR #316) or use directions=4")
+    return [goe.ACTIONS.index(a) for a in actions(p)]
+
+
+def recovery_jitter(p):
+    """Every E-R neuron gets recovery `recovery`: 0.9, the library default when G1 to G4 ran
+    (the library's own default is 0.5 since 2026-10-08)."""
+    return exr.Jitter.none().around(p.get("recovery", 0.9))
 
 
 def vision_radius(p):
@@ -150,6 +189,7 @@ class Player:
         side = 2 * vision_radius(p) + 1
         self.seen_channel = p.get("seen_channel", False)
         self.ticks = p["ticks"]
+        self.actions = actions(p)
         self.readout = p["readout"]
         self.net = net = exr.Network()
         self.wiring, self.rungs, self.reservoir = None, [], None
@@ -158,6 +198,7 @@ class Player:
             if model not in ("relu", "er", "gate"):
                 raise ValueError("neuron model must be relu, er or gate")
             spec = exr.LayerSpec.dense(size, habituation, model == "er", frozen=True)
+            spec.recovery_jitter = recovery_jitter(p)
             if habituation:
                 spec.habituation_rule = exr.Habituation(tolerance=p["habituation_tolerance"],
                                                         decay=p["habituation_decay"],
@@ -184,7 +225,7 @@ class Player:
             for h in self.layers:
                 net.connect(h, h)
         self.readouts = []
-        for name in ACTIONS:
+        for name in self.actions:
             out = net.add_layer(name.lower(), exr.LayerSpec.dense(1, False, False))
             net.connect(self.layers[-1], out)
             net.add_output(out)
@@ -229,7 +270,7 @@ class Player:
             if p["reservoir_recurrent"] > 0:
                 w.feedback(self.reservoir, self.reservoir, p["reservoir_recurrent"])
         self.readouts = []
-        for name in ACTIONS:
+        for name in self.actions:
             out = w.dense(name.lower(), exr.LayerSpec.dense(1, False, False), 1)
             if readout_all:
                 w.connect(h1, out)
@@ -276,7 +317,7 @@ class Player:
     def act(self, state, meter=False):
         self.net.set_inputs("eye", encode(state, self.seen_channel))
         self.net.set_inputs("body", body(state))
-        total = np.zeros(len(ACTIONS))
+        total = np.zeros(len(self.actions))
         for _ in range(self.ticks):
             self.net.step()
             total += np.asarray(self.net.outputs())
@@ -290,18 +331,19 @@ class Player:
 
 class RandomPlayer:
     """The control: a uniformly random action every step."""
-    def __init__(self, seed):
+    def __init__(self, seed, p=None):
         self.rng = np.random.default_rng(seed)
+        self.n = len(actions(p or {}))
         self.spikes = self.ticks_seen = 0
 
     def act(self, state, meter=False):
-        return int(self.rng.integers(len(ACTIONS)))
+        return int(self.rng.integers(self.n))
 
 
 def play(game, player, p, seeds, meter=False):
     """Plays one episode per world seed; returns the means of reward, score, avatars lost, death, steps and,
     with the events reward, each event's count (as ev_<event>; ev_score is the score's own count)."""
-    index = [goe.ACTIONS.index(a) for a in ACTIONS]
+    index = game_actions(p)
     events = events_reward(p)
     stats = {k: [] for k in ("reward", "score", "avatars_lost", "dead", "steps")}
     for seed in seeds:
@@ -327,6 +369,10 @@ def play(game, player, p, seeds, meter=False):
 
 
 PARAMS = {
+    "directions": (8, "action directions: 8 moves and shots up, down, left, right and the diagonals (22 "
+                      "actions), or 4 without the diagonals (14 actions, the networks of G1 to G4)"),
+    "recovery": (0.9, "E-R recovery (threshold decay per silent tick): 0.9 as in G1 to G4, whatever the "
+                      "library default (0.5 since 2026-10-08)"),
     "radius": ("auto", "vision radius: the grid has 2r + 1 cells on each side; auto: the furthest the player's "
                        "growing sight reaches in an episode (6 for 2 minutes)"),
     "seen_channel": (False, "one more eye channel marking the cells in sight (the sight grows during the game)"),
@@ -370,7 +416,7 @@ PARAMS = {
 
 @nnt.experiment(
     name="goe_rl",
-    description="Gardens of Eris: vision grid (8 channels) + body -> E-R / relu / gate layer -> 14 action readouts; "
+    description="Gardens of Eris: vision grid (8 channels) + body -> E-R / relu / gate layer -> 22 action readouts; "
                 "untrained network against a random player on the same worlds (es.py trains it)",
     tags=["er", "dynamic", "control"],
     params=PARAMS,
@@ -390,7 +436,7 @@ def run(t):
         t.record(k, v)
     t.record("spikes_per_step", player.spikes / max(player.ticks_seen, 1) * p["ticks"])
     t.record("active_fraction", player.spikes / max(player.ticks_seen, 1) / player.neurons)
-    control = play(game, RandomPlayer(t.seed), p, seeds)
+    control = play(game, RandomPlayer(t.seed, p), p, seeds)
     for k, v in control.items():
         if k != "steps":
             t.record(k + "_random", v)

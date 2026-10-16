@@ -8,7 +8,7 @@ seeds = [4242 + i for i in range(30)]
 out = {}
 for run, cfg in (("er_rec", {"recurrent": True}), ("er_nohab", {"habituation": False})):
     p = es.params(cfg) if hasattr(es, "params") else None
-    p = dict({k: v[0] for k, v in e.PARAMS.items()}, evolve="all", **cfg)
+    p = dict({k: v[0] for k, v in e.PARAMS.items()}, evolve="all", directions=4, **cfg)  # G2: 14 actions
     p["radius"] = 6
     g = e.make_game(p)
     # consistency: best weights on the validation worlds give the logged best
@@ -23,7 +23,7 @@ for run, cfg in (("er_rec", {"recurrent": True}), ("er_nohab", {"habituation": F
         out[f"{run}/{name}"] = r
         print(run, name, {k: round(x, 2) for k, x in r.items()}, flush=True)
     g.close()
-p = dict({k: v[0] for k, v in e.PARAMS.items()}, radius=6)
+p = dict({k: v[0] for k, v in e.PARAMS.items()}, radius=6, directions=4)
 g = e.make_game(p)
 out["random"] = e.play(g, e.RandomPlayer(0), p, seeds)
 print("random", {k: round(x, 2) for k, x in out["random"].items()})

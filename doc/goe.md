@@ -22,7 +22,7 @@ state, so parallel players are separate processes.
 |---|---|
 | Senses: eye | the cells around the player, (2r + 1)² of them, in 8 channels: wall, free, enemy, collectible, danger, door, apple, moving; optionally a 9th, `seen` (the cell is in sight) |
 | Senses: body | energy / max energy, ammo (up to 10), spare avatars (up to 3) |
-| Actions | 14 readouts: move, shoot and interact × up, down, left, right; next gun; use. The largest is played |
+| Actions | `directions` 8 (default since G5): 22 readouts: move and shoot × 8 directions (the diagonals of Gardens-of-Eris PR #316), interact × up, down, left, right; next gun; use. `directions` 4 (G1 to G4): the 14 without the diagonals. The largest is played |
 | Time | one game step is one move (8 game ticks, 50 ticks a second); the network runs `ticks` (3) ticks on each step's view |
 | Reward | `reward` events (default since Gardens-of-Eris PR #289): the game's events weighed by `w_*`: +5 per item, +20 per golden apple, +2 per use, +10 per door opened, +5 per teleport, +10 per monster killed, +5 per mine set off, −0.2 per energy point lost, −`w_death` (50) per avatar lost, +0.1 per score point. `reward` score (G1): the game's score gained in the step (+1 per new cell visited, +1 per item, + the energy of what the player kills), −`w_death` (50) per avatar lost |
 | Episode | `episode_ticks` (6000: 2 minutes, 750 moves) unless the last avatar dies first |
@@ -200,7 +200,7 @@ eye: 13 x 13 cells x 12 channels -+-> retina: one E-R neuron per cell and channe
 column k   c<k>  Conv2D, 8 kernels 3 x 3 over retina + raw (shared weights)  <------+
            p<k>  max pool 3 x 3, stride 2 (8 x 7 x 7)
            h<k>  64 E-R neurons, fading habituation: read p<k>, the body, h<k-1>, themselves
-readouts   14 actions, reading h1 .. h<k> (a new column's lines start at zero)
+readouts   one per action (22, or 14 with directions 4), reading h1 .. h<k> (a new column's lines start at zero)
 ```
 
 **Senses.** The 8 channels of goe_rl, plus `avatar` (a spare avatar), `in_sight`,
@@ -549,6 +549,33 @@ Data: `results/goe/rules/`: `summary.md` (all tables, `summarize.py`),
 `es_final.npz` (the ES-trained weights, `online.build(agent, weights)`), and the
 diverged critic runs. The trained weights of every final run are in the
 project's `reports/goe-rules/final/`.
+
+### G5. Eight directions (2026-10-15/16)
+
+Gardens of Eris added diagonal moves and shots (its PR #316); goe_rl's
+`directions` 8 (now the default) gives the network 22 readouts, 4 keeps the 14
+of G1 to G4. The game was the Gardens-of-Eris main of 2026-10-15 (#318) with a
+local fix for a crash: a refresher (a shot golden apple) blowing up in an
+inventory freed itself mid-explosion, a double free after some dozens of
+episodes (explosives.cpp, inventory.cpp; found with AddressSanitizer).
+
+Untrained networks (net seeds 0-2) and random players (3 seeds) on the 30
+fresh mazes of G2 (seeds 4242-4271), radius 6, recovery 0.9
+(results/goe/directions/untrained.py, untrained.json):
+
+| player | reward, 4 → 8 directions | score | cells seen | deaths per game |
+|---|---|---|---|---|
+| E-R recurrent (G2 `er_rec`) | +5.6 → +9.2 | 45 → 66 | 119 → 184 | 0.19 → 0.22 |
+| E-R plain | −2.6 → −2.5 | 6 → 6 | 32 → 33 | 0.07 → 0.07 |
+| random | +11.7 → +9.3 | 74 → 76 | 158 → 209 | 0.28 → 0.46 |
+
+The diagonals help the untrained recurrent network explore; the random
+player explores more too but dies more often. The plain network is nearly
+silent (2 spikes a step), as in G1. On the same mazes G2 had the untrained
+`er_rec` at +10.1 and the random player at +13.8: the game has changed since
+(roaming monsters, eight-way chasers, refreshers), so the numbers do not
+compare directly. Evolution (es.py, `er_rec`, 4 against 8 directions, 300
+generations) follows in a later entry.
 
 ## Open questions
 
