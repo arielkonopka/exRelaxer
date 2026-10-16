@@ -458,7 +458,7 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   resonate-and-fire. The default `ER` is the original neuron. Habituation,
   every learning rule (e-prop and surrogate gradients through the model's
   membrane), growth, state taps and probes work with all of them.
-- Network format 21 saves the models and their state in a last section;
+- Network format 23 saves the models and their state in a last section;
   older files load unchanged.
 - `nl_static`, `nl_temporal` and `dyn_ladder` take the new models by name.
   See [doc/neuron_models.md](doc/neuron_models.md).

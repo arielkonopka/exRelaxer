@@ -42,10 +42,13 @@ does works with every model:
   cut (or faded) and the model sees 0.
 - **Learning rules**: all of them (see below).
 - **Growth**: grown neurons get the layer's model.
-- **Saving**: network format 21 saves each layer's model, and each neuron's
-  model state (neuron format 5), so a full-state load continues
+- **Saving**: network format 23 saves each layer's model, and each neuron's
+  model state in a last section, so a full-state load continues
   bit-identically; a weights-only load puts the model at rest. Files from
-  before format 21 load as `ER`, unchanged.
+  before format 23 load as `ER`, unchanged.
+- **Positive-only and 8-bit** layers work with every model: the output is
+  clamped to the value range (tanh stops at 0 in a positive layer) and then
+  put on the 8-bit grid.
 - **State taps** read a model neuron's *charge* in the threshold field (see
   below).
 - `network::describe` names the model in the E-R column (`sigm`, `tanh`,

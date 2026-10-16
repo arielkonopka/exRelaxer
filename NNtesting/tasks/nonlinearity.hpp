@@ -283,7 +283,9 @@ public:
     Mlp(const std::string& model, size_t inputs, size_t depth, size_t width, float gate,
         const ThresholdGrowth& growth = {}, const Spontaneous& spontaneous = {},
         std::optional<Habituation> habituation = std::nullopt, bool normalize = false,
-        bool normalizeReadout = false, bool stateReadout = false, std::optional<NeuronModel> neuronModel = std::nullopt)
+        bool normalizeReadout = false, bool stateReadout = false, const Precision& precision = {},
+        const Precision& readoutPrecision = {},
+        std::optional<NeuronModel> neuronModel = std::nullopt)
         : model_(model == "linear" ? "clamp" : model == "er_memoryless" ? "er" : model),
           memoryless_(model == "er_memoryless"), inputs_(inputs), depth_(depth), width_(width)
     {
@@ -310,11 +312,13 @@ public:
             if (neuronModel)
                 spec.neuronModel = *neuronModel;
             spec.learningRule = rule;
+            spec.precision = precision;
             hidden_.push_back(net_.addLayer("h" + std::to_string(l + 1), spec));
         }
         LayerSpec out = LayerSpec::Dense(1, false, false);
         out.normalize = normalizeReadout;  // the builder turns it on
         out.learningRule = rule;
+        out.precision = readoutPrecision;
         out_ = net_.addLayer("out", out);
         net_.addInputs(hidden_[0], inputs, "x");
         for (size_t l = 1; l < depth; ++l)

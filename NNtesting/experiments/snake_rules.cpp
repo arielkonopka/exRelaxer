@@ -20,6 +20,10 @@
 //                                         (r - y for the chosen action, 0 for the others)
 //   mix oja / bcm                         an unsupervised update (the reward is ignored)
 //
+// `positive` keeps layers positive-only (exr::ValueRange, LayerSpec::
+// positiveWeights): none, the mix, the readouts, or all; `positive_kind`
+// says what: values in [0, max_output], weights >= 0, or both.
+//
 // Metrics: apples and steps per test game (and while training), deaths,
 // best game, and the training cost in microseconds per step.
 #include <algorithm>
@@ -63,6 +67,21 @@ LearningRule ruleFor(const std::string& name, const nnt::Params& p)
     return rule.withDecay(static_cast<float>(p.getDouble("decay")));
 }
 
+// The `positive` / `positive_kind` options applied to a layer's spec.
+LayerSpec withPositive(LayerSpec spec, bool isMix, const nnt::Params& p)
+{
+    const std::string where = p.getString("positive"), kind = p.getString("positive_kind");
+    if (where != "none" && where != "mix" && where != "readouts" && where != "all")
+        throw std::invalid_argument("positive must be none, mix, readouts or all");
+    if (kind != "both" && kind != "values" && kind != "weights")
+        throw std::invalid_argument("positive_kind must be both, values or weights");
+    if (where == "all" || (where != "none" && (where == "mix") == isMix)) {
+        spec.positiveValues = kind != "weights";
+        spec.positiveWeights = kind != "values";
+    }
+    return spec;
+}
+
 struct Player
 {
     std::unique_ptr<network> net = std::make_unique<network>();
@@ -96,14 +115,14 @@ struct Player
                 spec.learningRule = mixRule;
             }
             spec.frozen = !mixLearns;
-            features = mix = net->addLayer("mix", spec);
+            features = mix = net->addLayer("mix", withPositive(spec, true, p));
             net->connect(eye, features);
         }
         const char* names[] = {"left", "straight", "right"};
         for (size_t a = 0; a < 3; ++a) {
             LayerSpec spec = LayerSpec::Dense(1, false, false);
             spec.learningRule = readoutRule;
-            readouts[a] = net->addLayer(names[a], spec);
+            readouts[a] = net->addLayer(names[a], withPositive(spec, false, p));
             net->connect(eye, readouts[a]);
             if (features != eye)
                 net->connect(features, readouts[a]);
@@ -251,6 +270,8 @@ nnt::Register experiment({
         {"noise", "0.1", "perturbation: exploration noise"},
         {"bcm_rate", "0.01", "bcm: sliding threshold rate"},
         {"winners", "0", "oja / bcm: neurons that learn per update (0: all)"},
+        {"positive", "none", "positive-only layers: none, mix, readouts or all"},
+        {"positive_kind", "both", "what is kept positive: both (values and weights), values or weights"},
     },
     .trials = 10,
     .expect = {{.metric = "apples_control", .max = 1.0}},

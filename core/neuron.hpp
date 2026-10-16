@@ -18,6 +18,8 @@
 // (activate()). step() and learn() run one neuron against caller-owned
 // weights, for experiments and tests.
 #pragma once
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <iosfwd>
 #include <limits>
@@ -55,7 +57,7 @@ inline constexpr float default_learning_gain = 2.0f;        // default per-neuro
 // of neurons append their learning rule and its state (network format 9);
 // 4: the same, and layers append the per-synapse rules' state and frozen
 // neurons and inputs (network format 18). The neuron model's state is not in
-// the record: networks save it after everything else (format 21).
+// the record: networks save it after everything else (format 23).
 inline constexpr std::uint32_t NEURON_FORMAT_VERSION = 4;
 // Upper bound for a serialized weight count, so corrupt data fails with an
 // error instead of an enormous allocation.
@@ -195,7 +197,7 @@ struct ThresholdGrowth
 //                 Im z > threshold, then z = 0 and `refractory` ticks ignore
 //                 the input. Input near its own frequency builds up; slow
 //                 or fast input cancels out.
-// Saved in network files (format 21): never renumber.
+// Saved in network files (format 23): never renumber.
 struct NeuronModel
 {
     enum class Type : std::uint8_t { ER = 0, Sigmoid = 1, Tanh = 2, Softplus = 3, LIF = 4, Izhikevich = 5, Resonator = 6 };
@@ -279,6 +281,58 @@ private:
 
 // "er", "sigmoid", "tanh", "softplus", "lif", "izhikevich", "resonator".
 const char* neuronModelName(NeuronModel::Type type);
+// The range of a neuron's values. The weighted sum, and so the output, is
+// clamped to [-ceiling, ceiling], or to [0, ceiling] when `positive` (then
+// the neuron never outputs a negative value: a negative sum counts as 0, and
+// spontaneous firing draws from [0, amplitude]). The default is the original
+// [-max_output, max_output].
+struct ValueRange
+{
+    bool positive = false;
+    float ceiling = max_output;  // finite, in (0, 1e6]
+
+    bool valid() const { return ceiling > 0.0f && ceiling <= 1e6f; }
+    float floor() const { return positive ? 0.0f : -ceiling; }
+    bool operator==(const ValueRange&) const = default;
+};
+
+// Number formats of a layer's weights and outputs (see doc/precision.md).
+// The default is float for both. 8-bit numbers are integer codes in
+// [-127, 127] times a power-of-two step, so a weighted sum of 8-bit values
+// and weights is integer arithmetic scaled once:
+//   int8Weights  each weight row has its own step, the smallest power of two
+//                that fits the row's largest |weight| in 127 codes; learning
+//                rounds every changed weight to its row's grid
+//                stochastically (up with probability equal to the
+//                remainder), so updates smaller than a step still count on
+//                average. Dense layers only.
+//   int8Values   every output is rounded to the nearest multiple of
+//                valueStep, at most 127 steps from 0 (127 / 16 = 7.94 for
+//                the default step). Layers with learned weights (Dense,
+//                Conv2D, LocallyConnected2D).
+// Neuron state (E-R thresholds, habituation, learning traces) stays float.
+struct Precision
+{
+    bool int8Weights = false;
+    bool int8Values = false;
+    float valueStep = 1.0f / 16.0f;  // int8Values: a power of two in [2^-12, 2^-3]
+
+    static Precision Float() { return {}; }
+    static Precision Int8(float valueStep = 1.0f / 16.0f) { return {true, true, valueStep}; }
+
+    bool valid() const
+    {
+        int exponent = 0;
+        return std::isfinite(valueStep) && valueStep >= 1.0f / 4096.0f && valueStep <= 0.125f &&
+               std::frexp(valueStep, &exponent) == 0.5f;
+    }
+    // `y` rounded to the 8-bit value grid.
+    float quantizeValue(float y) const
+    {
+        return std::clamp(std::nearbyint(y / valueStep), -127.0f, 127.0f) * valueStep;
+    }
+    bool operator==(const Precision&) const = default;
+};
 
 // Local derivatives of one activate() call, for gradient-based learning
 // rules (e-prop, surrogate gradients; see learning.hpp). s is the weighted
@@ -415,6 +469,10 @@ public:
     // A layer-level setting (LayerSpec::spontaneous), like the gate.
     const Spontaneous& spontaneous() const { return spontaneous_; }
     void setSpontaneous(const Spontaneous& value) { spontaneous_ = value; }
+    // The range of the sum and output (see ValueRange). A layer-level
+    // setting (LayerSpec::positiveValues, LayerSpec::ceiling), like the gate.
+    const ValueRange& valueRange() const { return range_; }
+    void setValueRange(const ValueRange& value) { range_ = value; }
     // E-R resting threshold (default baseline_threshold): where the
     // threshold relaxes towards, the learning-eligibility boundary, and half
     // the floor after a firing. A layer-level setting
@@ -504,6 +562,7 @@ private:
     float model_u_ = 0.0f;           // see recoveryVariable()
     std::uint32_t refractory_ = 0;   // LIF, Resonator: refractory ticks left
     float last_slope_ = 0.0f;        // see slope()
+    ValueRange range_;
     std::minstd_rand rng_;        // per neuron, so neurons can step in parallel; seeded from rng::spontaneousSeed()
 };
 

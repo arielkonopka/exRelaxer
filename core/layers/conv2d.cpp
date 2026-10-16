@@ -36,14 +36,15 @@ void conv2d::setKernel(size_t channel, const std::vector<float>& weights)
     if (weights.size() != windowSize())
         throw std::invalid_argument("conv2d::setKernel: the kernel has " + std::to_string(windowSize()) +
                                     " weights, got " + std::to_string(weights.size()));
-    std::ranges::copy(weights, kernels_.begin() + static_cast<std::ptrdiff_t>(channel * windowSize()));
+    std::vector<float> scratch;
+    std::ranges::copy(boundWeights(weights, scratch), kernels_.begin() + static_cast<std::ptrdiff_t>(channel * windowSize()));
     weightsChanged();
 }
 
 void conv2d::createWeights()
 {
     kernels_.resize(outputChannels() * windowSize());
-    rng::drawWeights(rng::WeightStream::Initial, kernels_);
+    drawWeights(rng::WeightStream::Initial, kernels_);
     weightsChanged();
 }
 
@@ -62,7 +63,7 @@ void conv2d::appendInputs(size_t count)
     // Each kernel gets `count` new weights at its end, drawn kernel after kernel.
     const size_t old_size = windowSize() - count;
     std::vector<float> added(outputChannels() * count);
-    rng::drawWeights(rng::WeightStream::Growth, added);
+    drawWeights(rng::WeightStream::Growth, added);
     std::vector<float> grown;
     grown.reserve(outputChannels() * windowSize());
     for (size_t c = 0; c < outputChannels(); ++c) {
@@ -187,7 +188,7 @@ void conv2d::updateWeights()
                     total += partial[(chunk * C + c) * K + j];
                 float& w = kernels_[c * K + j];
                 const float kept = scaled ? w * keep : w;
-                w = std::min(std::max(kept + total * scale, -max_weight), max_weight);
+                w = std::min(std::max(kept + total * scale, minWeight()), max_weight);
             }
         }
     });

@@ -49,6 +49,7 @@ from ._core import (  # noqa: F401
     Network,
     NeuronModel,
     PoolMode,
+    Precision,
     ResizeSpec,
     RetinaSpec,
     Sampling,

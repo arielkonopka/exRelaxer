@@ -8,6 +8,7 @@
 #include <vector>
 #include "../kernels.hpp"
 #include "../learning.hpp"
+#include "../random.hpp"
 #include "layer.hpp"
 
 namespace exr {
@@ -85,8 +86,35 @@ public:
     // std::invalid_argument on a layer that does not learn (fixed filters).
     void setNormalized(bool normalized);
     bool normalized() const { return normalized_; }
+    // Positive-only values: every neuron's sum and output is clamped to
+    // [0, ceiling] (see ValueRange); otherwise to [-ceiling, ceiling].
+    // `ceiling` (default max_output) applies either way. For every neuron,
+    // now and later. Throws std::invalid_argument for a ceiling outside
+    // (0, 1e6].
+    void setValueRange(const ValueRange& range);
+    const ValueRange& valueRange() const { return range_; }
+    // Positive-only weights: every learned weight (and bias) stays in
+    // [0, max_weight]. Turning it on folds the existing weights to their
+    // magnitude (|w|) and sets negative biases to 0; new weights are drawn
+    // the same way (|w|), learning clamps at 0, and weights set by hand are
+    // clamped at 0. Turning it off keeps the weights. Throws
+    // std::invalid_argument on a layer that does not learn (fixed filters).
+    void setPositiveWeights(bool positive);
+    bool positiveWeights() const { return positive_weights_; }
+    // The lowest value a weight may take: 0 with positive-only weights,
+    // else -max_weight.
+    float minWeight() const { return positive_weights_ ? 0.0f : -max_weight; }
+
     // The cached 1 / |w| of neuron `index` (1 when not normalised).
     float inverseNorm(size_t index);
+    // Number formats of the weights and outputs (see Precision in
+    // neuron.hpp), now and for neurons and weights added later. Turning
+    // int8Weights on rounds the current weights to the nearest code. Throws
+    // std::invalid_argument for an invalid step, int8Values on a layer type
+    // without learned weights, or int8Weights on a layer type other than
+    // Dense.
+    void setPrecision(const Precision& precision);
+    const Precision& precision() const { return precision_; }
 
     // --- Learning -------------------------------------------------------
     // The rule this layer learns with (see learning.hpp). Setting it resets
@@ -99,6 +127,8 @@ public:
     // eligibility traces and the surrogate-gradient history), e.g. between
     // episodes; weights, bias, baselines and the feedback matrix are kept.
     void clearTraces();
+    // Whether this layer type can keep 8-bit weights (Precision::int8Weights).
+    virtual bool supportsInt8Weights() const { return false; }
     // Whether this layer type can learn with a per-synapse rule
     // (Eligibility, EProp, Surrogate; see learning.hpp): Dense only.
     virtual bool supportsPerSynapse() const { return false; }
@@ -172,6 +202,13 @@ protected:
     neuron& newNeuron();
 
     // --- Hooks for the forward pass and learning --------------------------
+    // Draws new weights from `stream`; with positive-only weights, their
+    // magnitudes. Layers use it for every random weight they create.
+    void drawWeights(rng::WeightStream stream, std::span<float> out) const;
+    // Weights set from outside learning (by hand, ES): with positive-only
+    // weights, negative ones become 0. Returns `weights` unchanged otherwise.
+    std::span<const float> boundWeights(std::span<const float> weights, std::vector<float>& scratch) const;
+
     // Call once at the start of forward(): draws this tick's exploration noise.
     void beginForward()
     {
@@ -237,6 +274,13 @@ protected:
     virtual bool hasSharedWeights() const { return false; }
     virtual void copySharedWeights(std::vector<float>& out) const { out.clear(); }
     virtual void storeSharedWeights(std::span<const float>) {}
+    // 8-bit weights: precision() changed (round the weights to the nearest
+    // code when int8Weights is on).
+    virtual void precisionChanged() {}
+    // 8-bit weights: the seed for one stochastic rounding pass
+    // (kernels::weight_matrix::quantize8); never 0. Each call advances the
+    // layer's rounding generator, which is saved with the layer.
+    std::uint64_t roundingSeed();
     // Called after deserialize() rebuilt an unwired layer with a new count.
     virtual void neuronsReplaced() {}
     // Per-synapse rules: zero (or drop) the per-synapse state and history.
@@ -280,6 +324,15 @@ private:
     // keep, returns whether it learns.
     bool ruleStep(size_t i, float m, float learningRate, float& delta, float& keep) const;
     float fireWithRule(size_t i, float sum);
+    // The neuron's output y, rounded to the 8-bit grid (int8Values).
+    float emit(size_t i, float y)
+    {
+        if (!precision_.int8Values)
+            return y;
+        const float q = precision_.quantizeValue(y);
+        neurons_[i].setOutput(q);
+        return q;
+    }
     void drawNoise();
     void refreshNorms();
     // Sizes the rule's per-neuron state to the neuron count; new entries
@@ -300,15 +353,19 @@ private:
     float resting_ = baseline_threshold;                         // likewise
     bool binary_ = false;                                        // likewise
     NeuronModel model_;                                          // likewise
+    ValueRange range_;                                           // likewise
+    bool positive_weights_ = false;                              // every weight this layer creates or learns
     std::vector<std::uint8_t> frozen_;                           // per neuron: 1 = does not learn
     std::vector<std::uint32_t> growth_order_;                    // per neuron: 0 = built with the layer, else see growthOrder
     std::uint32_t grown_so_far_ = 0;                             // neurons growth has added, ever
 
     LearningRule rule_;
     bool normalized_ = false;         // likewise; see setNormalized
+    Precision precision_;             // likewise; see setPrecision
+    std::uint64_t rounding_state_ = 0;  // 8-bit weights: the stochastic-rounding generator (0 until int8Weights is first on)
     bool norms_stale_ = true;
     std::vector<float> inverse_norm_; // normalized_: 1 / |w| per neuron
-    bool plain_ = true;               // no bias, traces, noise or normalisation: fire() just activates
+    bool plain_ = true;               // no bias, traces, noise, normalisation or 8-bit outputs: fire() just activates
     std::vector<float> bias_;         // rule.bias
     std::vector<float> post_;         // output trace P (every rule but Sign)
     std::vector<float> noise_;        // Perturbation: this tick's noise

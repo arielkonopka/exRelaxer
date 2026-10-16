@@ -175,6 +175,10 @@ def main():
             raise ValueError("grow_to needs feedback_first_from all: a top-only rung would move to every new layer")
     state_path = os.path.join(args.out, "state.npz")
     if os.path.exists(state_path):
+        from experiment import saved_params
+        with open(os.path.join(args.out, "config.json")) as f:
+            if "directions" not in json.load(f)["params"]:
+                p["directions"] = saved_params({})["directions"]  # a run from before the diagonals
         saved = np.load(state_path)
         if "depth" in saved.files:
             p["depth"] = int(saved["depth"])  # a grown run resumes at its depth

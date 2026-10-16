@@ -91,3 +91,30 @@ def test_reset_traces_starts_an_episode_with_empty_traces():
         net.apply_error(np.array([1.0], np.float32), 0.1)
         dw = net.weights(layer, 0) - w0
         assert dw[0] == 0.0 and dw[1] > 0.0, dw
+
+
+def test_positive_only_values_and_weights():
+    exr.reseed(5)
+    spec = exr.LayerSpec.dense(8, learning_rule=exr.LearningRule.traced(0.5)).positive(4.0)
+    assert spec.positive_values and spec.positive_weights and spec.ceiling == pytest.approx(4.0)
+    assert not exr.LayerSpec.dense(8).positive_values
+    net = exr.Network()
+    hid = net.add_layer("hid", spec)
+    out = net.add_layer("out", exr.LayerSpec.dense(2, False, False).positive())
+    net.add_inputs(hid, 3)
+    net.connect(hid, out)
+    net.add_output(out)
+    rng = np.random.default_rng(1)
+    for _ in range(50):
+        net.set_inputs(rng.uniform(-1, 1, 3).astype(np.float32))
+        net.step()
+        assert (net.outputs() >= 0).all()
+        net.apply_reward(float(rng.uniform(-1, 1)), 0.05)
+    for layer in (hid, out):
+        for i in range(2):
+            assert (net.weights(layer, i) >= 0).all()
+    net.set_weights(out, 0, np.array([-1.0] * 8, np.float32))
+    assert (net.weights(out, 0) == 0).all()
+    loaded = exr.Network.from_bytes(net.to_bytes())
+    assert loaded.layer_spec(hid).positive_weights
+    assert loaded.layer_spec(hid).ceiling == pytest.approx(4.0)

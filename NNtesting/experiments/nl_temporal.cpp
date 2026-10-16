@@ -130,7 +130,7 @@ nnt::Register experiment({
             p.getDouble("spontaneous_below"), p.getDouble("spontaneous_amplitude"), p.getDouble("spontaneous_rate"));
         Mlp net(model, task.inputs(), depth, width, static_cast<float>(p.getDouble("gate")),
                 er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
-                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"), p.getBool("state_readout"),
+                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"), p.getBool("state_readout"), {}, {},
                 neuronModel(model, p));
         const float restingFactor = net.calibrateThresholds(p.getString("resting_threshold"));
         const std::string learnTicks = p.getString("learn_ticks");
@@ -217,7 +217,7 @@ nnt::Register experiment({
         if (pretrain > 0) {
             Mlp pre(pretrainModel, task.inputs(), depth, width, static_cast<float>(p.getDouble("gate")),
                     er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
-                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"), p.getBool("state_readout"),
+                habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"), p.getBool("state_readout"), {}, {},
                     neuronModel(pretrainModel, p));
             pre.calibrateThresholds(p.getString("resting_threshold"));
             cur = &pre;

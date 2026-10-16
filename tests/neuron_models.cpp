@@ -275,6 +275,35 @@ TEST(NeuronModels, SaveAndLoadKeepTheModelAndItsState)
     }
 }
 
+TEST(NeuronModels, CombineWithPositiveValuesAnd8Bit)
+{
+    // A positive-only layer cuts tanh at 0; 8-bit values put outputs on the
+    // value grid; both survive saving next to the model.
+    for (const NeuronModel& model : {NeuronModel::tanh(), NeuronModel::lif(0.8f, 0.5f)}) {
+        network net;
+        LayerSpec spec = LayerSpec::Dense(6, model).positive();
+        spec.precision = Precision::Int8();
+        const auto id = net.addLayer("h", spec);
+        net.addInputs(id, 2);
+        net.addOutput(id);
+        for (int t = 0; t < 30; ++t) {
+            net.setInputs({std::sin(0.4f * t), -std::cos(0.9f * t)});
+            net.step();
+            for (float y : net.outputs()) {
+                EXPECT_GE(y, 0.0f) << neuronModelName(model.type);
+                EXPECT_FLOAT_EQ(y * 16.0f, std::round(y * 16.0f)) << neuronModelName(model.type);
+            }
+        }
+        std::stringstream ss;
+        net.save(ss);
+        const auto restored = network::load(ss, DeserializeMode::FullState);
+        const LayerSpec& back = restored->layerSpec(id);
+        EXPECT_EQ(back.neuronModel, model);
+        EXPECT_TRUE(back.positiveValues);
+        EXPECT_EQ(back.precision, Precision::Int8());
+    }
+}
+
 TEST(NeuronModels, WeightsOnlyLoadPutsTheModelAtRest)
 {
     network net;

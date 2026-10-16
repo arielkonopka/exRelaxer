@@ -38,6 +38,7 @@ neuron& neuron_layer::newNeuron()
     n.setRestingThreshold(resting_);
     n.setBinary(binary_);
     n.setModel(model_);
+    n.setValueRange(range_);
     output_.push_back(n.output());
     frozen_.push_back(0);
     growth_order_.push_back(0);
@@ -165,6 +166,63 @@ void neuron_layer::setNeuronModel(const NeuronModel& model, bool rest)
         output_[i] = 0.0f;
         neurons_[i].setOutput(0.0f);
     }
+}
+
+void neuron_layer::setValueRange(const ValueRange& range)
+{
+    if (!range.valid() || !std::isfinite(range.ceiling))
+        throw std::invalid_argument("setValueRange: the ceiling must be in (0, 1e6]");
+    range_ = range;
+    for (neuron& n : neurons_)
+        n.setValueRange(range);
+}
+
+void neuron_layer::setPositiveWeights(bool positive)
+{
+    if (positive && !learns())
+        throw std::invalid_argument("setPositiveWeights: this layer type has fixed filters, not learned weights");
+    if (positive && !positive_weights_) {
+        std::vector<float> w;
+        const auto fold = [&w] {
+            for (float& x : w)
+                x = std::abs(x);
+        };
+        if (hasSharedWeights()) {
+            copySharedWeights(w);
+            fold();
+            if (!w.empty())
+                storeSharedWeights(w);
+        } else {
+            for (size_t i = 0; i < neurons_.size(); ++i) {
+                copyWeights(i, w);
+                fold();
+                if (!w.empty())
+                    storeWeights(i, w);
+            }
+        }
+        for (float& b : bias_)
+            b = std::max(b, 0.0f);
+        weightsChanged();
+    }
+    positive_weights_ = positive;
+}
+
+void neuron_layer::drawWeights(rng::WeightStream stream, std::span<float> out) const
+{
+    rng::drawWeights(stream, out);
+    if (positive_weights_)
+        for (float& x : out)
+            x = std::abs(x);
+}
+
+std::span<const float> neuron_layer::boundWeights(std::span<const float> weights, std::vector<float>& scratch) const
+{
+    if (!positive_weights_)
+        return weights;
+    scratch.resize(weights.size());
+    for (size_t i = 0; i < weights.size(); ++i)
+        scratch[i] = std::max(weights[i], 0.0f);
+    return scratch;
 }
 
 void neuron_layer::setNeuronsFrozen(size_t first, size_t count, bool frozen)
@@ -377,7 +435,8 @@ void neuron_layer::resizeLearningState()
     bias_elig_.resize(rule_.bias && (t == LearningRuleType::Eligibility || t == LearningRuleType::EProp) ? n : 0, 0.0f);
     bias_adapt_.resize(rule_.bias && t == LearningRuleType::EProp ? n : 0, 0.0f);
     bias_grad_.resize(rule_.bias && t == LearningRuleType::Surrogate ? n : 0, 0.0f);
-    plain_ = bias_.empty() && post_.empty() && noise_.empty() && !normalized_ && !rule_.perSynapse();
+    plain_ = bias_.empty() && post_.empty() && noise_.empty() && !normalized_ && !rule_.perSynapse() &&
+             !precision_.int8Values;
 }
 
 void neuron_layer::setNormalized(bool normalized)
@@ -388,6 +447,33 @@ void neuron_layer::setNormalized(bool normalized)
     norms_stale_ = true;
     inverse_norm_.clear();
     resizeLearningState();
+}
+
+void neuron_layer::setPrecision(const Precision& precision)
+{
+    if (!precision.valid())
+        throw std::invalid_argument("setPrecision: the value step must be a power of two in [2^-12, 2^-3]");
+    if (precision.int8Values && !learns())
+        throw std::invalid_argument("setPrecision: 8-bit values are for layers with learned weights");
+    if (precision.int8Weights && !supportsInt8Weights())
+        throw std::invalid_argument("setPrecision: 8-bit weights are for Dense layers only");
+    if (precision.int8Weights && rounding_state_ == 0)
+        rounding_state_ = ((std::uint64_t{rng::learning()()} << 32) | rng::learning()()) | 1u;  // never 0
+    precision_ = precision;
+    resizeLearningState();
+    precisionChanged();
+    norms_stale_ = true;
+}
+
+std::uint64_t neuron_layer::roundingSeed()
+{
+    // SplitMix64: a counter stepped by the golden ratio, then mixed.
+    rounding_state_ += 0x9E3779B97F4A7C15ull;
+    std::uint64_t z = rounding_state_;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    z ^= z >> 31;
+    return z | 1u;
 }
 
 float neuron_layer::squaredWeightNorm(size_t index) const
@@ -428,7 +514,7 @@ void neuron_layer::setBias(size_t index, float value)
 {
     if (bias_.empty())
         throw std::logic_error("setBias: the layer's learning rule has no bias");
-    bias_.at(index) = value;
+    bias_.at(index) = positive_weights_ ? std::max(value, 0.0f) : value;
 }
 
 std::vector<float> neuron_layer::feedbackRow(size_t index) const
@@ -452,7 +538,7 @@ float neuron_layer::fireWithRule(size_t i, float sum)
         sum += noise_[i];
     if (!dyds_.empty()) {
         Derivatives d;
-        const float y = neurons_[i].activate(sum, rule_.width, d);
+        const float y = emit(i, neurons_[i].activate(sum, rule_.width, d));  // 8-bit: straight-through derivatives
         dyds_[i] = d.dyds;
         dydthr_[i] = d.dydthr;
         dthrdthr_[i] = d.dthrdthr;
@@ -465,7 +551,7 @@ float neuron_layer::fireWithRule(size_t i, float sum)
         }
         return y;
     }
-    const float y = neurons_[i].activate(sum);
+    const float y = emit(i, neurons_[i].activate(sum));
     if (!bias_elig_.empty())
         bias_elig_[i] = rule_.trace * bias_elig_[i] + std::abs(y);
     if (!post_.empty()) {
@@ -611,7 +697,7 @@ void neuron_layer::learn(Modulator m, float learningRate)
                 // The bias's input is 1; per-synapse rules use its eligibility.
                 const float pre = bias_elig_.empty() ? 1.0f : bias_elig_[i];
                 bias_[i] = std::min(
-                    std::max(bias_[i] * (scaled ? step_keep_[i] : 1.0f) + step_delta_[i] * pre, -max_weight), max_weight);
+                    std::max(bias_[i] * (scaled ? step_keep_[i] : 1.0f) + step_delta_[i] * pre, minWeight()), max_weight);
             }
 }
 
@@ -622,7 +708,7 @@ void neuron_layer::applyBiasGradient(float learningRate)
     for (size_t i = 0; i < neurons_.size(); ++i) {
         if (!frozen_[i])
             bias_[i] = std::min(std::max(bias_[i] - learningRate * neurons_[i].learningGain() * bias_grad_[i],
-                                         -max_weight), max_weight);
+                                         minWeight()), max_weight);
         bias_grad_[i] = 0.0f;
     }
 }
@@ -792,6 +878,10 @@ void neuron_layer::writeLearningState(std::ostream& os) const
     writeFloats(os, bias_adapt_);
     std::vector<float> frozen(frozen_.begin(), frozen_.end());
     writeFloats(os, frozen);
+    // Only with 8-bit weights (a layer setting, like the gate): their
+    // rounding generator.
+    if (precision_.int8Weights)
+        binary_io::write(os, rounding_state_);
 }
 
 void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std::uint32_t neuronFormat)
@@ -820,12 +910,15 @@ void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std
     std::vector<float> traces = readFloats(is);
     const auto rng_state = binary_io::read<std::uint64_t>(is);
     std::vector<float> bias_elig, bias_adapt, frozen;
+    std::uint64_t rounding = rounding_state_;
     if (neuronFormat >= 4) {
         rule.width = binary_io::read<float>(is);
         rule.window = binary_io::read<std::uint32_t>(is);
         bias_elig = readFloats(is);
         bias_adapt = readFloats(is);
         frozen = readFloats(is);
+        if (precision_.int8Weights)
+            rounding = binary_io::read<std::uint64_t>(is);
         if (is) {
             try {
                 rule.validate();
@@ -866,6 +959,8 @@ void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std
         noise_state_ = rng_state;
         restore(bias_elig_, bias_elig);
         restore(bias_adapt_, bias_adapt);
+        if (rounding != 0)
+            rounding_state_ = rounding;
     }
 }
 

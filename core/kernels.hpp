@@ -26,9 +26,9 @@ inline float dot(std::span<const float> x, std::span<const float> w)
 inline float sign(float x) { return static_cast<float>((x > 0.0f) - (x < 0.0f)); }
 
 // The learning rule for one neuron: w[i] += sign(x[i]) * delta, clamped to
-// [-limit, limit], for every weight (x has at least w.size() entries). Only
+// [lo, hi], for every weight (x has at least w.size() entries). Only
 // the sign of each input counts (see neuron.hpp).
-void signRule(std::span<float> w, std::span<const float> x, float delta, float limit);
+void signRule(std::span<float> w, std::span<const float> x, float delta, float lo, float hi);
 
 // out[i] = sign(x[i]), the part of the inputs the sign rule uses.
 void signs(std::span<const float> x, std::span<float> out);
@@ -111,12 +111,12 @@ public:
     // every input (see signs()); `delta` and `active` have paddedRows()
     // entries. Inactive rows are untouched.
     void learn(std::span<const float> signs, std::span<const float> delta, std::span<const std::uint8_t> active,
-               float limit, size_t firstBlock, size_t lastBlock);
+               float lo, float hi, size_t firstBlock, size_t lastBlock);
     // The general rule for the same rows: w = clamp(w * keep[r] + pre[c] *
     // delta[r]). `pre` has cols() entries; `keep` has paddedRows() entries.
     // With every keep 1 and pre = signs it gives the same bits as learn().
     void learnScaled(std::span<const float> pre, std::span<const float> delta, std::span<const float> keep,
-                     std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock);
+                     std::span<const std::uint8_t> active, float lo, float hi, size_t firstBlock, size_t lastBlock);
 
     // --- Per-synapse state and gradients (rules with a value per weight) --
     // These treat a matrix with the weights' shape as one value per synapse
@@ -136,10 +136,21 @@ public:
     // w = clamp(w * keep[r] + delta[r] * e[r][c]) for every row r with
     // active[r] != 0; `e` has this matrix's shape.
     void learnFrom(const weight_matrix& e, std::span<const float> delta, std::span<const float> keep,
-                   std::span<const std::uint8_t> active, float limit, size_t firstBlock, size_t lastBlock);
+                   std::span<const std::uint8_t> active, float lo, float hi, size_t firstBlock, size_t lastBlock);
     // out[c] += sum over rows of w[r][c] * g[r] (backpropagation through
     // the weights); `g` has paddedRows() entries, `out` cols().
     void multiplyTransposed(std::span<const float> g, std::span<float> out) const;
+    // 8-bit weights (Precision::int8Weights): rounds every row r of blocks
+    // [firstBlock, lastBlock) with active[r] != 0 (every row when `active`
+    // is empty) to its grid, codes in [-127, 127] times step8(row).
+    // seed == 0 rounds to the nearest code (ties to even); any other seed
+    // rounds stochastically, up with probability equal to the remainder,
+    // the uniform draw a hash of (seed, row, column): the same bits for any
+    // thread count. A weight already on its row's grid never changes.
+    void quantize8(std::span<const std::uint8_t> active, std::uint64_t seed, size_t firstBlock, size_t lastBlock);
+    // Row `row`'s 8-bit step: the smallest power of two s with 127 * s >=
+    // the row's largest |weight| (0 for an all-zero row).
+    float step8(size_t row) const;
     // Every entry 0, shape kept.
     void zero();
     void copyColumn(size_t col, std::span<float> out) const;

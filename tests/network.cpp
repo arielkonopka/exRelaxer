@@ -27,6 +27,31 @@ void restoreCoutFormat()
     std::cout.precision(6);
 }
 
+// The bytes format 22 adds to every layer record with the default value
+// range: positive values off, ceiling max_output, positive weights off.
+std::string defaultValueRangeBytes()
+{
+    std::string bytes(1, '\0');
+    const float ceiling = exr::max_output;
+    bytes.append(reinterpret_cast<const char*>(&ceiling), sizeof ceiling);
+    bytes.push_back('\0');
+    return bytes;
+}
+
+// A saved network without those bytes, as format 20 and older wrote it;
+// `layers` is how many layer records it has.
+std::string withoutValueRanges(std::string bytes, size_t layers)
+{
+    const std::string range = defaultValueRangeBytes();
+    for (size_t k = 0; k < layers; ++k) {
+        const size_t at = bytes.find(range);
+        if (at == std::string::npos)
+            throw std::logic_error("withoutValueRanges: fewer value ranges than layers");
+        bytes.erase(at, range.size());
+    }
+    return bytes;
+}
+
 } // namespace
 
 // =============================================================================
@@ -645,8 +670,26 @@ TEST(NetworkSerializationTest, RejectsUnknownFormatVersions)
     }
 }
 
+// A current file as format 20 wrote it: drops the default number format
+// (format 21) of each of its `layers` layers.
+std::string withoutNumberFormats(std::string bytes, size_t layers)
+{
+    const float step = Precision{}.valueStep;
+    std::string format(2, '\0');
+    format.append(reinterpret_cast<const char*>(&step), sizeof step);
+    for (size_t i = 0; i < layers; ++i) {
+        const size_t at = bytes.find(format);
+        EXPECT_NE(at, std::string::npos);
+        if (at != std::string::npos)
+            bytes.erase(at, format.size());
+    }
+    EXPECT_EQ(bytes.find(format), std::string::npos);
+    return bytes;
+}
+
 TEST(NetworkSerializationTest, FilesBeforeFormat20KeepRecovery09)
 {
+    // (The value range bytes of format 22 are removed for the older versions.)
     // Format 20 changed the default recovery from 0.9 to 0.5 without new data:
     // a file marked 19 grows (and resets) neurons at 0.9, its saved neurons
     // keep their saved values.
@@ -665,7 +708,7 @@ TEST(NetworkSerializationTest, FilesBeforeFormat20KeepRecovery09)
 
     for (char version : {19, 20}) {
         SCOPED_TRACE("format version " + std::to_string(version));
-        std::string bytes = ss.str();
+        std::string bytes = withoutValueRanges(withoutNumberFormats(ss.str(), 2), 2);
         bytes[4] = version;
         std::stringstream s(bytes);
         const auto loaded = network::load(s);
@@ -1716,7 +1759,7 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
     // A format-13 file (no growth rule saved) loads with the log rule, the
     // only one it knew: drop this layer's rule bytes and the later fields
     // after them (fadeAfter, spontaneous below / amplitude / rate, resting
-    // threshold, normalize, binary, bus, minimum size, grown), and mark it version 13. (The layer
+    // threshold, normalize, binary, bus, minimum size, grown, number format), and mark it version 13. (The layer
     // data is then read as neuron format 3; the format-4 bytes after it are
     // never reached.)
     network plain;
@@ -1732,7 +1775,8 @@ TEST(ThresholdGrowthTest, RulesAndSaving)
     ASSERT_NE(at, std::string::npos);
     ASSERT_EQ(bytes.find(ruleBytes, at + 1), std::string::npos);
     bytes.erase(at, ruleBytes.size() + sizeof(std::uint32_t) + 4 * sizeof(float) + 3 * sizeof(std::uint8_t) +
-                        sizeof(std::uint64_t) + sizeof(std::uint8_t));
+                        sizeof(std::uint64_t) + sizeof(std::uint8_t) + 2 * sizeof(std::uint8_t) + sizeof(float) +
+                        defaultValueRangeBytes().size());
     const std::uint32_t v13 = 13;
     bytes.replace(4, sizeof v13, reinterpret_cast<const char*>(&v13), sizeof v13);
     std::stringstream old(bytes);

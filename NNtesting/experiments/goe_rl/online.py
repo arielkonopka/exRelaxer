@@ -157,7 +157,7 @@ class Learner:
         """One world, learning on every step when `learn`; (reward, events, steps)."""
         import columns as C
         net, n = self.net, self.net.net
-        index = [C.goe.ACTIONS.index(a) for a in C.ACTIONS]
+        index = C.game_actions(p)
         kind, seed = world
         C.prepare(game, kind, seed)
         net.reset(seed)
@@ -176,7 +176,7 @@ class Learner:
                 delta = n.temporal_difference(r + curiosity, False)
                 self._learn(delta, prev)
             if epsilon > 0 and self.rng.random() < epsilon:
-                a = int(self.rng.integers(len(C.ACTIONS)))
+                a = int(self.rng.integers(len(net.actions)))
             r = game.make_action(index[a])
             total += r
             steps += 1
@@ -236,7 +236,7 @@ def _game(p):
 def _params(agent_dir):
     import columns as C
     with open(os.path.join(agent_dir, "agent.json")) as f:
-        return C.defaults() | json.load(f)["params"]
+        return C.defaults() | C.saved_params(json.load(f)["params"])
 
 
 def evaluate(agent_dir, weights, worlds, technique=None, rate=0.0, online=False):

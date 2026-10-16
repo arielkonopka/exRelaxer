@@ -63,15 +63,15 @@ void dense::addGroup(Group group)
     for (size_t i = range.first; i < range.first + range.count; ++i)
         group_of_[i] = groups_.size();
     groups_.push_back(std::move(group));
-    weightsChanged();
+    wiringChanged();
 }
 
-void dense::initWeights(rng::WeightStream stream, WeightInit init, std::span<float> w)
+void dense::initWeights(rng::WeightStream stream, WeightInit init, std::span<float> w) const
 {
     if (init == WeightInit::Zero)
         std::fill(w.begin(), w.end(), 0.0f);
     else
-        rng::drawWeights(stream, w);
+        drawWeights(stream, w);
 }
 
 void dense::appendToGroups(const InputRange& range, Source source, rng::WeightStream stream)
@@ -90,7 +90,7 @@ void dense::appendToGroups(const InputRange& range, Source source, rng::WeightSt
             group.sources.push_back(*source);
     }
     history_.clear();
-    weightsChanged();
+    wiringChanged();
 }
 
 void dense::groupUnwired(const InputRange& range, Source source, rng::WeightStream stream)
@@ -306,7 +306,7 @@ void dense::sourceGrew(const layer& source, size_t offset, size_t count)
             group.frozen.resize(group.weights.cols(), 0);
     }
     history_.clear();
-    weightsChanged();
+    wiringChanged();
 }
 
 void dense::forward()
@@ -475,9 +475,11 @@ void dense::applyGradients(float learningRate)
         }
         const std::vector<float> saved = saveFrozen(group);
         parallelChunks(group.weights.blocks(), kernels::threadsFor(count * group.weights.cols()), [&](size_t b0, size_t b1) {
-            group.weights.learnFrom(group.grad, group.scratch, group.keep, group.active, max_weight, b0, b1);
+            group.weights.learnFrom(group.grad, group.scratch, group.keep, group.active, minWeight(), max_weight, b0, b1);
         });
         restoreFrozen(group, saved);
+        if (precision().int8Weights)
+            roundWeights(group, group.active, true);
         group.grad.zero();
     }
     applyBiasGradient(learningRate);
@@ -709,9 +711,11 @@ void dense::updateWeights()
             group.keep.assign(padded, 1.0f);
             std::copy_n(step_keep_.begin() + static_cast<std::ptrdiff_t>(first), count, group.keep.begin());
             parallelChunks(group.weights.blocks(), kernels::threadsFor(count * group.weights.cols()), [&](size_t b0, size_t b1) {
-                group.weights.learnFrom(group.elig, group.scratch, group.keep, group.active, max_weight, b0, b1);
+                group.weights.learnFrom(group.elig, group.scratch, group.keep, group.active, minWeight(), max_weight, b0, b1);
             });
             restoreFrozen(group, saved);
+            if (precision().int8Weights)
+                roundWeights(group, group.active, true);
             continue;
         }
         std::span<const float> pre;
@@ -735,11 +739,13 @@ void dense::updateWeights()
         }
         parallelChunks(group.weights.blocks(), kernels::threadsFor(count * pre.size()), [&](size_t b0, size_t b1) {
             if (scaled)
-                group.weights.learnScaled(pre, group.scratch, group.keep, group.active, max_weight, b0, b1);
+                group.weights.learnScaled(pre, group.scratch, group.keep, group.active, minWeight(), max_weight, b0, b1);
             else
-                group.weights.learn(pre, group.scratch, group.active, max_weight, b0, b1);
+                group.weights.learn(pre, group.scratch, group.active, minWeight(), max_weight, b0, b1);
         });
         restoreFrozen(group, saved);
+        if (precision().int8Weights)
+            roundWeights(group, group.active, true);
     }
 }
 
@@ -799,15 +805,37 @@ void dense::setWeights(size_t index, const std::vector<float>& weights)
         throw std::invalid_argument("dense::setWeights: neuron " + std::to_string(index) + " reads " +
                                     std::to_string(inputCount(index)) + " inputs, got " +
                                     std::to_string(weights.size()) + " weights");
+    std::vector<float> bounded;
     if (!weights.empty())
-        storeWeights(index, weights);
+        storeWeights(index, boundWeights(weights, bounded));
 }
 
 void dense::storeWeights(size_t index, std::span<const float> weights)
 {
     Group& group = groups_[group_of_.at(index)];
-    group.weights.setRow(index - group.neurons.first, weights);
+    const size_t row = index - group.neurons.first;
+    group.weights.setRow(row, weights);
+    if (precision().int8Weights) {
+        std::vector<std::uint8_t> only(group.weights.paddedRows(), 0);
+        only[row] = 1;
+        group.weights.quantize8(only, 0, row / kernels::weight_matrix::lanes, row / kernels::weight_matrix::lanes + 1);
+    }
     weightsChanged();
+}
+
+void dense::wiringChanged()
+{
+    if (precision().int8Weights)
+        for (Group& group : groups_)
+            roundWeights(group, {}, false);
+    weightsChanged();
+}
+
+void dense::roundWeights(Group& group, std::span<const std::uint8_t> active, bool stochastic)
+{
+    const std::uint64_t seed = stochastic ? roundingSeed() : 0;
+    parallelChunks(group.weights.blocks(), kernels::threadsFor(group.neurons.count * group.weights.cols()),
+                   [&](size_t b0, size_t b1) { group.weights.quantize8(active, seed, b0, b1); });
 }
 
 size_t dense::inputCount(size_t index) const

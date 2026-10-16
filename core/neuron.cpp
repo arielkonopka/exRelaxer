@@ -125,7 +125,7 @@ float neuron::activate(float weightedSum)
 {
     // Bounded before habituation and E-R see it, so recurrent loops can't
     // run away and the threshold (grown from this value) stays finite.
-    float sum = std::clamp(weightedSum, -max_output, max_output);
+    float sum = std::clamp(weightedSum, range_.floor(), range_.ceiling);
     last_sum_ = sum;
     last_threshold_ = model_.type == NeuronModel::Type::ER ? threshold_ : 0.0f;
 
@@ -149,7 +149,9 @@ float neuron::activate(float weightedSum)
     }
     output_ = sum;
     if (model_.type != NeuronModel::Type::ER) {
-        output_ = stepModel(sum);
+        // The model's output obeys the value range too (tanh is cut at 0
+        // in a positive layer, a spike at the ceiling).
+        output_ = std::clamp(stepModel(sum), range_.floor(), range_.ceiling);
         last_firing_ = output_ != 0.0f ? Firing::Fired : Firing::Silent;
         return output_;
     }
@@ -197,8 +199,8 @@ float neuron::activate(float weightedSum, float width, Derivatives& d)
 
     // How the effective sum (after the clamp and habituation) moves with
     // the given one.
-    float chain = std::abs(weightedSum) <= max_output ? 1.0f : 0.0f;
-    float s = std::clamp(weightedSum, -max_output, max_output);
+    float chain = weightedSum >= range_.floor() && weightedSum <= range_.ceiling ? 1.0f : 0.0f;
+    float s = std::clamp(weightedSum, range_.floor(), range_.ceiling);
     if (has_habituation_) {
         const int habituatedTicks = habituation_counter_ - static_cast<int>(habituation_.onset()) + 1;
         if (habituatedTicks > 0) {
@@ -482,7 +484,8 @@ void neuron::excite(float effectiveSum)
 
 float neuron::spontaneousOutput()
 {
-    std::uniform_real_distribution<float> distribution(-spontaneous_.amplitude, spontaneous_.amplitude);
+    std::uniform_real_distribution<float> distribution(range_.positive ? 0.0f : -spontaneous_.amplitude,
+                                                       spontaneous_.amplitude);
     return distribution(rng_);
 }
 
@@ -514,7 +517,7 @@ void neuron::learn(std::span<float> weights, std::span<const float> inputs, floa
 {
     if (eligible())
         kernels::signRule(weights.first(std::min(inputs.size(), weights.size())), inputs,
-                          learningDelta(reward, learningRate), max_weight);
+                          learningDelta(reward, learningRate), -max_weight, max_weight);
 }
 
 void neuron::serialize(std::ostream& os, std::span<const float> weights) const

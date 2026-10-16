@@ -400,6 +400,24 @@ NB_MODULE(_core, m)
                     "threshold"_a = 1.0f, "refractory"_a = 0)
         .def("__eq__", [](const NeuronModel& a, const NeuronModel& b) { return a == b; })
         .def("__repr__", [](const NeuronModel& m) { return std::string("<NeuronModel ") + neuronModelName(m.type) + ">"; });
+    nb::class_<Precision>(m, "Precision",
+                          "Number formats of a layer's weights and outputs (default float). 8-bit numbers are codes "
+                          "in [-127, 127] times a power-of-two step: int8_weights (Dense) gives each weight row its own "
+                          "step and rounds learning updates stochastically; int8_values rounds outputs to value_step.")
+        .def(nb::init<>())
+        .def("__init__",
+             [](Precision* p, bool weights, bool values, float step) { new (p) Precision{weights, values, step}; },
+             "int8_weights"_a = false, "int8_values"_a = false, "value_step"_a = 1.0f / 16.0f)
+        .def_static("float32", &Precision::Float, "Float weights and outputs (the default).")
+        .def_static("int8", &Precision::Int8, "value_step"_a = 1.0f / 16.0f, "8-bit weights and outputs.")
+        .def_rw("int8_weights", &Precision::int8Weights)
+        .def_rw("int8_values", &Precision::int8Values)
+        .def_rw("value_step", &Precision::valueStep, "int8_values: a power of two in [2^-12, 2^-3].")
+        .def("__eq__", [](const Precision& a, const Precision& b) { return a == b; })
+        .def("__repr__", [](const Precision& p) {
+            return std::string("<Precision weights ") + (p.int8Weights ? "int8" : "float") + ", values " +
+                   (p.int8Values ? "int8 step " + std::to_string(p.valueStep) : std::string("float")) + ">";
+        });
 
     nb::class_<Jitter>(m, "Jitter", "Random per-neuron variation of E-R recovery, learning gain or alpha.")
         .def(nb::init<>())
@@ -514,10 +532,20 @@ NB_MODULE(_core, m)
                 "Neurons without E-R: output the sign of a sum that passes the gate (1 / 0 with rectify).")
         .def_rw("neuron_model", &LayerSpec::neuronModel,
                 "What turns sums into outputs (NeuronModel; default ER). Other models need has_er = False.")
+        .def_rw("positive_values", &LayerSpec::positiveValues,
+                "Neurons: sums and outputs in [0, ceiling] instead of [-ceiling, ceiling].")
+        .def_rw("ceiling", &LayerSpec::ceiling,
+                "Neurons: the largest magnitude a sum or output takes (default max_output, 10).")
+        .def_rw("positive_weights", &LayerSpec::positiveWeights,
+                "Dense, Conv2D, LocallyConnected2D: weights and bias stay in [0, max_weight] (new weights drawn as |w|).")
+        .def("positive", &LayerSpec::positive, "ceiling"_a = max_output,
+             "This spec with positive-only values in [0, ceiling] and, for layers with weights, positive-only weights.")
         .def_ro("bus", &LayerSpec::bus, "The layer is a bus (Network.add_bus).")
         .def_rw("minimum_size", &LayerSpec::minimumSize,
                 "Dense: pruning never leaves fewer neurons (Network.set_minimum_size); 0 = no floor.")
         .def_rw("grown", &LayerSpec::grown, "A tag: the layer was added by structural growth (doc/development.md).")
+        .def_rw("precision", &LayerSpec::precision,
+                "Number formats of weights and outputs (Precision; default float). doc/precision.md.")
         .def_rw("window", &LayerSpec::window)
         .def_rw("pool", &LayerSpec::pool)
         .def_rw("retina_spec", &LayerSpec::retina)

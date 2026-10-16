@@ -117,7 +117,7 @@ def play(task):
     theta, worlds = task
     w = _worker
     if theta is None:
-        rewards, events = C.play(w["game"], C.RandomPlayer(), w["p"], worlds)
+        rewards, events = C.play(w["game"], C.RandomPlayer(w["p"]), w["p"], worlds)
         return rewards, events, {}
     # a fresh network (fresh E-R and habituation state) for every world, so a world's score does not
     # depend on which worlds the same process played before it
@@ -176,7 +176,7 @@ def check(args):
     assert np.allclose(a_rewards, b_rewards) and a_events == b_events, "the grown network plays differently"
     # the check can see a change: the same grown network with non-zero new readout lines
     theta3 = theta2.copy()
-    n_read = len(C.ACTIONS) * 2 * p["width"]
+    n_read = len(C.actions(p)) * 2 * p["width"]
     theta3[:n_read] += np.random.default_rng(1).standard_normal(n_read) * 0.5
     c_rewards, _ = C.play(game, C.Net(p, 2, frozen, theta3, 0), p, worlds)
     print("perturbed  :", np.round(c_rewards, 2))
@@ -222,6 +222,11 @@ def main():
         config = json.loads(args.config)
     p = params(config)
     os.makedirs(args.out, exist_ok=True)
+    old_config = os.path.join(args.out, "config.json")
+    if os.path.exists(os.path.join(args.out, "state.npz")) and "directions" not in config:
+        with open(old_config) as f:
+            if "directions" not in json.load(f)["params"]:
+                p["directions"] = 4  # a run from before the diagonals resumes with its 14 readouts
     log_path = os.path.join(args.out, "log.jsonl")
     state_path, frozen_path = os.path.join(args.out, "state.npz"), os.path.join(args.out, "frozen.npz")
 
