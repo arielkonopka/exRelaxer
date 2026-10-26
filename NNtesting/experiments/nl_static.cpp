@@ -57,6 +57,7 @@ nnt::Register experiment({
         {"gate", "0.2", "gate model: the fixed threshold (default: E-R's resting threshold, baseline_threshold)"},
         {"growth", "linear", "E-R threshold growth on firing: linear (default), log (original), fixed, multiplicative"},
         {"growth_amount", "0.5", "E-R threshold growth amount (linear, fixed, multiplicative)"},
+        {"recovery", "default", "E-R recovery of the hidden layers: default (the library's, 0.5 since format 20) or a number (0.9: as before format 20)"},
         {"spontaneous_below", "1e-10", "E-R: a silent neuron fires spontaneously once its threshold is at or below this"},
         {"spontaneous_amplitude", "0.1", "E-R: spontaneous output drawn uniformly in +- this"},
         {"spontaneous_rate", "0", "E-R: extra probability of a spontaneous firing on any silent tick"},
@@ -120,6 +121,9 @@ nnt::Register experiment({
                 er_options::precision(p.getString("precision"), p.getDouble("value_step")),
                 er_options::precision(p.getString("readout_precision"), p.getDouble("value_step")),
                 neuronModel(model, p));
+        const auto recovery = er_options::recovery(p.getString("recovery"));
+        if (recovery)
+            net.setRecovery(*recovery);
         const float restingFactor = net.calibrateThresholds(p.getString("resting_threshold"));
         const std::string learnTicks = p.getString("learn_ticks");
         if (learnTicks != "last" && learnTicks != "all")
@@ -168,6 +172,8 @@ nnt::Register experiment({
                     er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), spontaneousSetting,
                 habituationRule, p.getBool("normalize"), p.getBool("readout_normalize"), false, {}, {},
                     neuronModel(pretrainModel, p));
+            if (recovery)
+                pre.setRecovery(*recovery);
             pre.calibrateThresholds(p.getString("resting_threshold"));
             cur = &pre;
             trainSamples(pretrain);
@@ -301,7 +307,7 @@ nnt::Register experiment({
         t.record("er_alpha", default_alpha);
         t.record("er_resting_threshold", baseline_threshold * restingFactor);
         t.record("er_threshold_floor_after_firing", 2.0 * baseline_threshold * restingFactor);
-        t.record("er_recovery", recovery_factor);
+        t.record("er_recovery", recovery ? *recovery->mean : recovery_factor);
         t.record("er_spontaneous_below_threshold", min_threshold);
         t.record("er_spontaneous_amplitude", p.getDouble("spontaneous_amplitude"));
         t.record("habituation", habituationRule ? 1.0 : 0.0);
