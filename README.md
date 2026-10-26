@@ -490,6 +490,16 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-26: `recovery` for every E-R experiment
+
+- nl_static, nl_temporal, dyn_ladder, snake_rules (`mix_er`) and
+  bar_orientation (`readout_er`) had no recovery setting, so since
+  2026-10-08 they ran E-R at the new library default 0.5 and their §14-§24
+  commands no longer gave the recorded numbers. Their `recovery` option
+  (`default`: the library's; a number: every hidden E-R neuron) reproduces
+  those runs exactly with `--set recovery=0.9` (results/reproduce/). The
+  default stays the library's, so §33 and §34 (run at 0.5) are unchanged.
+
 ### 2026-10-16: neuron comparison pipeline
 
 - `.github/workflows/compare.yml` and `NNtesting/pipeline/`: neuron models x

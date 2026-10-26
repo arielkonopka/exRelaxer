@@ -366,6 +366,16 @@ public:
     // The `resting_threshold` option on every hidden layer (see
     // er_options::calibrateRestingThreshold). With "auto", a gate model's
     // gate is scaled by the same factor. Returns the mean factor.
+    // Every hidden E-R neuron's recovery (er_options::recovery); nothing for
+    // other models.
+    void setRecovery(const Jitter& jitter)
+    {
+        if (model_ != "er")
+            return;
+        for (const network::LayerId id : hidden_)
+            net_.setRecoveryJitter(id, jitter);
+    }
+
     float calibrateThresholds(const std::string& setting)
     {
         double sum = 0.0;

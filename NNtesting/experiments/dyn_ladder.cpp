@@ -73,6 +73,7 @@ nnt::Register experiment({
         {"gate", "0.2", "gate model: the fixed threshold"},
         {"growth", "linear", "E-R threshold growth: linear (default), log, fixed, multiplicative"},
         {"growth_amount", "0.5", "E-R threshold growth amount"},
+        {"recovery", "default", "E-R recovery of the hidden layers: default (the library's, 0.5 since format 20) or a number (0.9: as before format 20)"},
         {"depth", "1", "hidden layers"},
         {"width", "32", "neurons per hidden layer"},
         {"lr", "0.003", "learning rate"},
@@ -106,6 +107,8 @@ nnt::Register experiment({
         Mlp net(model, inputs, depth, width, static_cast<float>(p.getDouble("gate")),
                 er_options::thresholdGrowth(p.getString("growth"), p.getDouble("growth_amount")), {}, std::nullopt,
                 false, false, p.getBool("state_readout"));
+        if (const auto recovery = er_options::recovery(p.getString("recovery")))
+            net.setRecovery(*recovery);
         const size_t hold = net.hold(static_cast<size_t>(p.getInt("settle")));
         const size_t warmup = isCatch ? 0 : std::max<size_t>(static_cast<size_t>(p.getInt("warmup")), window + 1);
 
