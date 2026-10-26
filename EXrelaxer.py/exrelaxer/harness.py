@@ -440,8 +440,11 @@ def describe_command(args):
         raise UsageError(f"no experiment named '{args.name}' (see list)")
     e = matches[0]
     print(f"{e.name}: {e.description}\nsource: {e.source}\ndefault trials: {e.trials}\nparameters:")
+    # Columns wide enough that a long name or default never runs into the next column.
+    nw = max([18] + [len(p.name) + 2 for p in e.params])
+    vw = max([10] + [len(to_text(p.default)) + 2 for p in e.params])
     for p in e.params:
-        print(f"  {p.name:<18}{to_text(p.default):<10}{p.help}")
+        print(f"  {p.name:<{nw}}{to_text(p.default):<{vw}}{p.help}")
     if e.expect:
         print("checks (default parameters):")
         for metric, (lo, hi) in e.expect.items():

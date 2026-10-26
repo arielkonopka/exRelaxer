@@ -361,8 +361,15 @@ void describeCommand(const std::string& name)
 {
     const Experiment& e = find(name);
     std::cout << e.name << ": " << e.description << "\ndefault trials: " << e.trials << "\nparameters:\n";
+    // Columns wide enough that a long name or default never runs into the next column.
+    std::size_t nameWidth = 18, valueWidth = 10;
+    for (const nnt::ParamSpec& p : e.params) {
+        nameWidth = std::max(nameWidth, p.name.size() + 2);
+        valueWidth = std::max(valueWidth, p.defaultValue.size() + 2);
+    }
     for (const nnt::ParamSpec& p : e.params)
-        std::cout << "  " << std::left << std::setw(18) << p.name << std::setw(10) << p.defaultValue << p.help << "\n";
+        std::cout << "  " << std::left << std::setw(static_cast<int>(nameWidth)) << p.name
+                  << std::setw(static_cast<int>(valueWidth)) << p.defaultValue << p.help << "\n";
     if (!e.expect.empty()) {
         std::cout << "checks (default parameters):\n";
         for (const nnt::Expect& c : e.expect) {

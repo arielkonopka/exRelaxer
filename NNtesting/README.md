@@ -17,6 +17,7 @@ NNtesting/
   datasets/      fetch.py: downloads public datasets into one format (see datasets/README.md)
   tools/         compare.py: tables and comparisons of result files
                  capacity.py: minimum architectures and capacity curves (nl_static)
+                 reproduce.py: reruns recorded trials (results/) on the current build, diffs their metrics
                  spiral.py: spiral sampling of images, exactly as the Spiral retina
                  check_spiral.py, retina_dump.cpp: the test that spiral.py matches the retina
                  *_summary.py, state_output_sweep.sh: summaries and sweeps of single experiments
