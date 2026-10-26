@@ -243,6 +243,30 @@ void network::growLayer(LayerId id, size_t count, WeightInit outgoing, bool free
     layerGrew(id, old_size, count);
 }
 
+void network::copyNeuron(LayerId id, size_t from, size_t to, float noise, float split)
+{
+    dense& target = denseLayer(id, "copyNeuron");
+    if (from >= target.size() || to >= target.size() || from == to)
+        throw std::invalid_argument("network::copyNeuron: layer '" + this->nodes[id].name + "' needs two different "
+                                    "neurons below " + std::to_string(target.size()));
+    if (!(noise >= 0.0f) || !(split >= 0.0f && split <= 1.0f))
+        throw std::invalid_argument("network::copyNeuron: noise must be >= 0 and split in [0, 1]");
+    target.copyNeuron(from, to, noise);
+    if (split == 0.0f)
+        return;
+    const InputRange a(target.outputBuffer(), from, 1), b(target.outputBuffer(), to, 1);
+    std::vector<dense*> readers;
+    for (const Edge& e : this->edges_) {
+        if (e.from != id)
+            continue;
+        auto* reader = dynamic_cast<dense*>(this->nodes[e.to].impl.get());
+        if (reader && std::ranges::find(readers, reader) == readers.end())
+            readers.push_back(reader);
+    }
+    for (dense* reader : readers)
+        reader->splitInput(a, b, split);
+}
+
 void network::pruneNeurons(LayerId id, std::vector<size_t> indices)
 {
     dense& target = denseLayer(id, "pruneNeurons");

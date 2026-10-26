@@ -108,6 +108,31 @@ def saturate(net, h, monitor, ticks=150):
         tick(net, h, monitor, 0.5)
 
 
+def test_copy_init_growth_copies_and_splits():
+    net, h, out = watched(4, recovery=0.999)
+    for i in range(4):
+        net.set_weights(h, i, [1.0 + 0.1 * i])
+    net.set_weights(out, 0, [0.1, 0.2, 0.9, 0.3])
+    net.set_weights(out, 1, [0.1, 0.2, -0.4, 0.3])
+    m = exr.ActivityMonitor(exr.ActivitySpec(window=100))
+    width = WidthGrowth(increment=1, init="copy", source="read", noise=0.0, split=0.5)
+    saturate(net, h, m)
+    assert m.fatigued_ticks()[0] > 0
+    assert width.update(net, h, m, tick=7) == 1
+    assert width.copies == [(7, [(2, 4)])]
+    np.testing.assert_allclose(net.weights(h, 4), [1.2])
+    np.testing.assert_allclose(net.weights(out, 0), [0.1, 0.2, 0.45, 0.3, 0.45])
+    np.testing.assert_allclose(net.weights(out, 1), [0.1, 0.2, -0.2, 0.3, -0.2])
+    with pytest.raises(ValueError):
+        WidthGrowth(init="clone")
+    # Default init keeps the old behaviour: random incoming, zero outgoing.
+    net2, h2, out2 = watched(4, recovery=0.999)
+    m2 = exr.ActivityMonitor(exr.ActivitySpec(window=100))
+    saturate(net2, h2, m2)
+    WidthGrowth(increment=1).update(net2, h2, m2)
+    assert net2.weights(out2, 0)[4] == 0.0
+
+
 def test_width_growth_adds_plastic_neurons_and_keeps_old_ones():
     net, h, out = watched(4, recovery=0.999)
     m = exr.ActivityMonitor(exr.ActivitySpec(window=100))

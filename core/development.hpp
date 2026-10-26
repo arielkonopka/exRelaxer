@@ -64,6 +64,9 @@ public:
     // reset); fatigued and habituated ticks are not counted.
     size_t inactiveTicks(size_t index) const { return inactive_.at(index); }
     size_t firings(size_t index) const { return firings_.at(index); }  // since the reset
+    // Ticks it was fatigued (input present, held back by its own raised
+    // threshold) since the reset: how overloaded the neuron is.
+    size_t fatiguedTicks(size_t index) const { return fatigued_.at(index); }
 
     // --- Population -----------------------------------------------------
     bool saturatedTick() const { return last_saturated_; }  // the last tick
@@ -77,7 +80,7 @@ public:
 private:
     ActivitySpec spec_;
     std::vector<TickState> state_;
-    std::vector<size_t> inactive_, firings_;
+    std::vector<size_t> inactive_, firings_, fatigued_;
     std::vector<std::uint8_t> window_;  // ring buffer: 1 = saturated tick
     size_t next_ = 0, filled_ = 0, saturated_count_ = 0, ticks_ = 0;
     bool last_saturated_ = false;

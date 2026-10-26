@@ -46,6 +46,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [32. 8-bit weights and values](#32-8-bit-weights-and-values)
 - [33. Positive-only values and weights](#33-positive-only-values-and-weights)
 - [34. Neuron models on the nonlinearity tasks](#34-neuron-models-on-the-nonlinearity-tasks)
+- [35. Copy-init: grown neurons copy existing ones](#35-copy-init-grown-neurons-copy-existing-ones)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2197,6 +2198,63 @@ recovery 0.5, so its row is not its best (at 0.9 it solved delayed XOR with
 - Izhikevich at gain 10 hardly fires on these normalised sums; its input
   scale needs calibrating before the comparison is fair.
 
+## 35. Copy-init: grown neurons copy existing ones
+
+Question (user): when the network grows, should new neurons start with
+weights copied from existing neurons instead of random ones? Prior art:
+Net2Net's function-preserving widening (copy a unit, split its outgoing
+weights between the two, add a little noise to break the symmetry).
+
+New in the library ([development](development.md#copy-init-new-neurons-copy-existing-ones)):
+`network::copyNeuron` / `net.copy_neuron(layer, source, target, noise, split)`
+gives a grown neuron the source's incoming weights and bias plus noise
+(× the source's weight RMS × U[−1, 1]) and hands `split` of the readers'
+weight on the source over to the copy; `WidthGrowth(init="copy", source=...)`
+chooses the sources (most fatigued, most active, most read, random);
+`ActivityMonitor.fatigued_ticks` counts each neuron's fatigued ticks.
+
+Setup: `snake_growth` at its defaults (recovery 0.9, increment 2, max
+width 16, old neurons frozen, depth growth on plateau), ER(1) and ER(4)
+starts, 10 seeds, 1,500 and 5,000 games
+(`NNtesting/experiments/snake_growth/copy_init.py`; tables in
+`results/snake-copy-init/`). Final = mean of the last three 50-game
+windows; Δ = paired by seed against random init.
+
+| start, games | random init | copy fatigued | copy active | copy, split 0 | copy, noise 1.0 |
+|---|---|---|---|---|---|
+| ER(1), 1,500: apples (Δ) | 3.91 | 3.31 (−0.60 ± 0.39) | 3.81 (−0.10 ± 0.39) | 3.91 (−0.00 ± 0.48) | 3.55 (−0.36 ± 0.39) |
+| ER(1), 1,500: neurons / widths | 7.8 / 1.4 | 14.0 / 4.8 | 13.4 / 4.3 | 14.2 / 4.7 | 9.0 / 2.3 |
+| ER(1), 5,000: apples (Δ) | 3.91 | 3.23 (−0.68 ± 0.38) | 3.73 (−0.18 ± 0.49) | 3.87 (−0.04 ± 0.57) | 3.45 (−0.46 ± 0.37) |
+| ER(4), 1,500: apples (Δ) | 5.62 | 5.57 (−0.05 ± 0.10) | 5.59 (−0.03 ± 0.06) | 5.64 (+0.02 ± 0.27) | 5.58 (−0.04 ± 0.07) |
+| ER(4), 5,000: apples (Δ) | 5.71 | 5.62 (−0.09 ± 0.13) | 5.57 (−0.15 ± 0.08) | | |
+
+- **Copy-init never beat random init.** No source choice, split or noise
+  level is above random init on any start; copying the most-read neuron
+  is the worst (ER(1) −1.15 ± 0.36). From ER(4) all arms are within noise
+  (5.4–5.7).
+- **Copies make growth run away.** A copy reads the same input as its
+  source, so the two fatigue together and the population stays saturated:
+  growth fires again every 200-tick window (one seed: 1 → 13 neurons by
+  tick 1,654, against 1 → 3 → 5 over 4,800 ticks with random init).
+  Copy-init ends with about twice as many neurons for the same or a lower
+  score. More noise means fewer growths (4.8 → 2.3 as noise goes 0.05 →
+  1.0) and scores back towards random init. For E-R, what relieves
+  saturation is a new receptive field, which random weights give and a copy
+  does not.
+- **Function preservation does not survive normalisation.** With plain
+  weighted sums a noiseless split copy leaves the readers' sums exactly as
+  they were (unit test). Dense layers normalise by default (`w·x / |w|`);
+  a split keeps `w·x` and shrinks `|w|`, so the readers' sums grow. Only
+  `split=1` (the copy takes all of the source's reading) preserves them,
+  and it plays no better (ER(1) −0.71 ± 0.38).
+- Copying incoming weights without splitting (`split 0`) is the only
+  variant that ties random init on score, but it still doubles the size.
+
+Not tested: copy-init on a layer that is not E-R or not saturation-driven
+(e.g. widening on a plateau), copying the source's E-R state, and copies
+that also invert or permute the source's weights to force a new receptive
+field.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -2364,6 +2422,12 @@ recovery 0.5, so its row is not its best (at 0.9 it solved delayed XOR with
 28. **Other neuron state does E-R's job as memory** (§34): a leaky tanh
     solves delayed XOR with 8 neurons, LIF and the resonator reach further
     back than E-R at recovery 0.5, at a fraction of the activity.
+
+29. **Grown E-R neurons should not copy existing ones** (§35): a copy
+    fatigues with its source, so saturation persists and growth runs away
+    (about twice the neurons); random init plays as well or better on
+    Snake from ER(1) and ER(4). Net2Net's split is not function-preserving
+    with normalised readers.
 
 ## Open questions and next steps
 

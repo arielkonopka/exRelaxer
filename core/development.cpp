@@ -27,6 +27,7 @@ void activity_monitor::reset()
 {
     std::fill(inactive_.begin(), inactive_.end(), 0);
     std::fill(firings_.begin(), firings_.end(), 0);
+    std::fill(fatigued_.begin(), fatigued_.end(), 0);
     std::fill(state_.begin(), state_.end(), TickState::NoInput);
     std::fill(window_.begin(), window_.end(), 0);
     next_ = filled_ = saturated_count_ = ticks_ = 0;
@@ -67,6 +68,7 @@ void activity_monitor::observe(const neuron_layer& layer)
         state_.assign(neurons.size(), TickState::NoInput);
         inactive_.assign(neurons.size(), 0);
         firings_.assign(neurons.size(), 0);
+        fatigued_.assign(neurons.size(), 0);
         reset();
     }
     size_t fired = 0, fatigued = 0;
@@ -81,6 +83,7 @@ void activity_monitor::observe(const neuron_layer& layer)
             break;
         case TickState::Fatigued:
             ++fatigued;
+            ++fatigued_[i];
             break;  // temporary: neither counted nor reset
         case TickState::Habituated:
             break;
