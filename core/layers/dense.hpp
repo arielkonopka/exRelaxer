@@ -71,6 +71,19 @@ public:
     // std::logic_error for a reader that cannot follow, before changing
     // anything.
     void removeNeurons(std::span<const size_t> indices);
+    // Copy-init of a grown neuron (Net2Net-style widening): neuron `to`
+    // reads with neuron `from`'s weights and bias, each weight plus `noise`
+    // x the RMS of `from`'s weights x a uniform draw in [-1, 1] (the Growth
+    // stream), so the two can drift apart. Both must read the same number of
+    // inputs; throws std::invalid_argument otherwise. The neurons' state
+    // (threshold, output) is not copied.
+    void copyNeuron(size_t from, size_t to, float noise);
+    // Hands `share` of the weight with which each neuron reads entry `from`
+    // over to entry `to` (single entries of one layer's output buffer): w_to
+    // = share x w_from, then w_from *= 1 - share, in every group reading
+    // both. share 0.5 with to a copy of from leaves this layer's sums as
+    // they were. Returns the neurons changed.
+    size_t splitInput(const InputRange& from, const InputRange& to, float share);
 
     // --- Freezing inputs ----------------------------------------------------
     // The weights reading `inputs` (entries of a layer's output buffer or of

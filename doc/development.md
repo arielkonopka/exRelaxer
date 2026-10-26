@@ -51,6 +51,35 @@ input -> E-R population (4)          saturated              input -> E-R populat
 `WidthGrowth(increment=2, max_size=16)` decides when: on persistent saturation (section 3). The
 increment is a parameter of the policy, not a constant in the library.
 
+### Copy-init: new neurons copy existing ones
+
+Instead of random weights, a new neuron can start as a copy of an existing one (Net2Net-style
+widening):
+
+```python
+net.grow_layer(h, 1)                                  # neuron n = the new one
+net.copy_neuron(h, source=2, target=n, noise=0.05, split=0.5)
+WidthGrowth(increment=2, init="copy", source="fatigued", noise=0.05, split=0.5)
+```
+
+- the copy reads with the source's weights and bias, each weight plus `noise` x the source's weight
+  RMS x U[-1, 1] (so the two can drift apart); its state (threshold, output) starts fresh;
+- every Dense layer reading the layer (the layer itself too, when recurrent) hands `split` of the
+  weight with which it reads the source over to the copy: 0 leaves the copy unread (as random init
+  does), 0.5 makes the pair read like the source alone did, 1 moves all of it to the copy;
+- `source` picks which neurons `WidthGrowth` copies: the most `fatigued` since the monitor's reset
+  (ActivityMonitor.fatigued_ticks), the most `active` (firings), the most `read` (read strength),
+  or `random`.
+
+With plain weighted sums a noiseless split copy changes nothing the readers see. Normalised readers
+(`w·x / |w|`, the Dense default) cannot be preserved by a split: it keeps `w·x` and shrinks `|w|`;
+only `split=1` (the copy takes over) keeps both.
+
+On Snake (research log §35) copy-init never beat random init: a copy reads the same input as its
+source, so the two fatigue together, the population stays saturated and growth repeats every
+window (1 -> 13 neurons in ~1,400 ticks, against one growth with random init). Random incoming
+weights give a new neuron its own receptive field, and that is what relieves E-R saturation.
+
 ## 2. Depth growth
 
 Depth growth answers a different question: has the current representation learned something useful
@@ -277,11 +306,12 @@ C++ (`network.hpp`, `development.hpp`, `neuron_layer.hpp`):
 ```cpp
 net.setMinimumSize(id, n);  net.minimumSize(id);
 net.growLayer(id, count, WeightInit::Zero, /*freezeExisting=*/true);
+net.copyNeuron(id, from, to, /*noise=*/0.05f, /*split=*/0.5f);  // copy-init a grown neuron
 net.grownNeurons(id);       layer.growthOrder(i);  layer.neuronGrown(i);
 net.pruneNewest(id, count);
 net.pruneCandidates(id, &monitor, inactiveAfter);  // PruneCandidate{index, reasons}
 activity_monitor m({.window = 200, .saturatedShare = 0.5f});
-m.observe(net.layerAs<neuron_layer>(id));  m.saturated();  m.inactiveTicks(i);
+m.observe(net.layerAs<neuron_layer>(id));  m.saturated();  m.inactiveTicks(i);  m.fatiguedTicks(i);
 ```
 
 Python (`exrelaxer`, `exrelaxer.development`):
@@ -291,6 +321,8 @@ net.set_minimum_size(h, 1); net.grow_layer(h, 2, freeze_existing=True)
 net.growth_order(h); net.grown_neurons(h); net.prune_newest(h, 2); net.prune_candidates(h, monitor)
 monitor = exr.ActivityMonitor(exr.ActivitySpec(window=200, saturated_share=0.5))
 WidthGrowth(increment=2, max_size=16).update(net, h, monitor)
+net.copy_neuron(h, source, target, noise=0.05, split=0.5); monitor.fatigued_ticks()
+WidthGrowth(increment=2, init="copy", source="fatigued").update(net, h, monitor)
 Pruning(reasons=("invalid", "inactive")).update(net, h, monitor)
 net.read_strength(h); Pruning(reasons=("weak",), weak_fraction=0.2, weak_after=20000).update(net, h, tick=t)
 Plateau(baseline=b, patience=4).update(score); grow_depth(net, h, readers=[out])

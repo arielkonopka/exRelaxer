@@ -490,6 +490,16 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-26: copy-init for grown neurons
+
+- `network::copyNeuron` / `net.copy_neuron(layer, source, target, noise,
+  split)`: a grown neuron copies an existing neuron's incoming weights and
+  bias (plus noise), and the readers split the source's outgoing weight
+  with it (Net2Net-style widening). `WidthGrowth(init="copy", source=...)`
+  and `ActivityMonitor.fatigued_ticks`; `snake_growth` params
+  `growth_init`, `copy_source`, `copy_noise`, `copy_split`. On Snake it
+  never beat random init and doubles the grown size (research log §35).
+
 ### 2026-10-16: neuron comparison pipeline
 
 - `.github/workflows/compare.yml` and `NNtesting/pipeline/`: neuron models x

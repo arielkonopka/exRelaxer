@@ -60,6 +60,11 @@ DEFAULTS = {
     "weak_fraction": 0.2, "weak_after": 20000,
     "freeze_from": 2,                   # adding adaptive layer number >= this freezes every older
                                         # layer; earlier depth growth leaves them learning
+    "growth_init": "random",            # width growth: "random" new weights, or "copy" existing neurons
+                                        # (Net2Net-style, WidthGrowth init="copy")
+    "copy_source": "fatigued",          # which neurons are copied: fatigued, active, read or random
+    "copy_noise": 0.05,                 # noise on the copied weights, x their RMS
+    "copy_split": 0.5,                  # share of the source's outgoing weights the copy takes
     "undo": 3,                          # evaluations after a width growth before an unhelpful one is
                                         # undone (LIFO); 0: never undo
     "lr": 0.03, "explore": 0.05,
@@ -104,7 +109,8 @@ class Agent:
         self.tune(self.er)
         self.monitor = self.new_monitor()
         self.width = WidthGrowth(increment=p["increment"], max_size=p["max_width"],
-                                 freeze_existing=p["freeze_old"])
+                                 freeze_existing=p["freeze_old"], init=p["growth_init"],
+                                 source=p["copy_source"], noise=p["copy_noise"], split=p["copy_split"])
         self.pruning = Pruning(reasons=("invalid", "inactive") + (("weak",) if p["prune_weak"] else ()),
                                inactive_after=5000, only_grown=not p["prune_base"],
                                weak_fraction=p["weak_fraction"], weak_after=p["weak_after"])

@@ -764,6 +764,15 @@ NB_MODULE(_core, m)
                 return out;
             },
             "Per neuron: firings on its input since the reset.")
+        .def(
+            "fatigued_ticks",
+            [](const activity_monitor& a) {
+                std::vector<size_t> out;
+                for (size_t i = 0; i < a.size(); ++i)
+                    out.push_back(a.fatiguedTicks(i));
+                return out;
+            },
+            "Per neuron: ticks it was fatigued (input present, below its own raised threshold) since the reset.")
         .def_prop_ro("saturated_tick", &activity_monitor::saturatedTick, "Whether the last tick was saturated.")
         .def_prop_ro("saturated_ticks", &activity_monitor::saturatedTicks, "Saturated ticks in the window.")
         .def_prop_ro("saturation", &activity_monitor::saturation, "Share of the window's ticks that were saturated.")
@@ -816,6 +825,11 @@ NB_MODULE(_core, m)
              "count new neurons in a Dense layer, reading what its wiring group `group` reads; readers get\n"
              "them with `outgoing` weights (Zero: nothing changes until they learn). freeze_existing freezes\n"
              "the layer's current neurons.")
+        .def("copy_neuron", &network::copyNeuron, "layer"_a, "source"_a, "target"_a, "noise"_a = 0.05f,
+             "split"_a = 0.5f,
+             "Copy-init (Net2Net-style): neuron `target` of a Dense layer gets `source`'s incoming weights and\n"
+             "bias plus noise x their RMS (uniform), and the layer's Dense readers hand `split` of the weight\n"
+             "with which they read `source` over to `target` (0: readers unchanged).")
         .def("prune_neurons", &network::pruneNeurons, "layer"_a, "indices"_a,
              "Removes neurons from a Dense layer; Dense readers drop the matching inputs.")
         .def("freeze_neurons", &network::freezeNeurons, "layer"_a, "first"_a, "count"_a, "frozen"_a = true,
