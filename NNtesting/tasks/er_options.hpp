@@ -1,5 +1,6 @@
 #pragma once
 // E-R options shared by experiments: the threshold growth rule and number formats by name.
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include "neuron.hpp"
@@ -35,6 +36,21 @@ inline exr::Spontaneous spontaneous(double below, double amplitude, double rate)
     if (!s.valid())
         throw std::invalid_argument("spontaneous_below and _amplitude in [0, max_output], spontaneous_rate in [0, 1]");
     return s;
+}
+
+// The `recovery` option: "default" keeps the library's recovery_factor (0.5
+// since network format 20) and returns nothing; a number gives every E-R
+// neuron that recovery. 0.9, the default before format 20, is set exactly
+// (no jitter), so results recorded before the change reproduce; any other
+// value gets a spread too small to matter, as in the activity experiments.
+inline std::optional<exr::Jitter> recovery(const std::string& setting)
+{
+    if (setting == "default")
+        return std::nullopt;
+    const float r = std::stof(setting);
+    if (!(r >= 0.0f && r < 1.0f))
+        throw std::invalid_argument("recovery must be default or a number in [0, 1)");
+    return (r != exr::legacy_recovery_factor ? exr::Jitter::uniform(1e-7f) : exr::Jitter::none()).around(r);
 }
 
 // Number formats by name: "float" (the default), "int8" (8-bit weights and

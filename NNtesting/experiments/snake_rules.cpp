@@ -32,6 +32,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "er_options.hpp"
 #include "experiment.hpp"
 #include "layers/dense.hpp"
 #include "network.hpp"
@@ -107,6 +108,8 @@ struct Player
         network::LayerId features = eye;
         if (mix_size > 0) {
             LayerSpec spec = LayerSpec::Dense(mix_size, false, p.getBool("mix_er"));
+            if (const auto recovery = er_options::recovery(p.getString("recovery")); recovery && p.getBool("mix_er"))
+                spec.recoveryJitter = *recovery;
             mixLearns = mix_name != "frozen";
             if (mixLearns) {
                 mixRule = ruleFor(mix_name, p);
@@ -251,6 +254,7 @@ nnt::Register experiment({
         {"mix", "frozen", "mix layer: frozen, or a rule: sign, trace, fa, perturbation, oja, bcm"},
         {"mix_size", "64", "mixing neurons (0: readouts read the state only)"},
         {"mix_er", "false", "E-R in the mixing neurons"},
+        {"recovery", "default", "E-R recovery of the mixing neurons: default (the library's, 0.5 since format 20) or a number (0.9: as before format 20)"},
         {"width", "10", "field width in cells (inside the walls)"},
         {"height", "10", "field height in cells"},
         {"train", "200", "training games"},

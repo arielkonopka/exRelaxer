@@ -9,6 +9,7 @@
 #include <random>
 #include <vector>
 #include "bars.hpp"
+#include "er_options.hpp"
 #include "experiment.hpp"
 #include "filters.hpp"
 #include "network.hpp"
@@ -33,7 +34,10 @@ struct Net
         const size_t pool = static_cast<size_t>(p.getInt("pool"));
         const auto pooled = net->addLayer("pool", LayerSpec::Pool2D(Window2D::square(pool, pool)));
         const auto mix = net->addLayer("mix", LayerSpec::Dense(static_cast<size_t>(p.getInt("mix")), false, false));
-        const auto out = net->addLayer("out", LayerSpec::Dense(1, false, p.getBool("readout_er")));
+        LayerSpec readout = LayerSpec::Dense(1, false, p.getBool("readout_er"));
+        if (const auto recovery = er_options::recovery(p.getString("recovery")); recovery && p.getBool("readout_er"))
+            readout.recoveryJitter = *recovery;
+        const auto out = net->addLayer("out", readout);
         net->addInputs(eye, image);
         net->connect(eye, v1);
         net->connect(v1, pooled);
@@ -93,6 +97,7 @@ nnt::Register experiment({
         {"pool", "6", "max-pooling window and stride"},
         {"mix", "64", "frozen random mixing neurons"},
         {"readout_er", "false", "E-R in the learned readout"},
+        {"recovery", "default", "E-R recovery of the readout: default (the library's, 0.5 since format 20) or a number (0.9: as before format 20)"},
         {"train", "1500", "training images"},
         {"test", "200", "test images"},
         {"lr", "0.01", "learning rate"},

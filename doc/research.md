@@ -47,6 +47,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [33. Positive-only values and weights](#33-positive-only-values-and-weights)
 - [34. Neuron models on the nonlinearity tasks](#34-neuron-models-on-the-nonlinearity-tasks)
 - [35. Copy-init: grown neurons copy existing ones](#35-copy-init-grown-neurons-copy-existing-ones)
+- [36. Reproducibility and the new default recovery](#36-reproducibility-and-the-new-default-recovery)
 - [37. Growth re-evaluated: new recovery, more seeds, from one neuron](#37-growth-re-evaluated-new-recovery-more-seeds-from-one-neuron)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
@@ -2256,6 +2257,53 @@ Not tested: copy-init on a layer that is not E-R or not saturation-driven
 that also invert or permute the source's weights to force a new receptive
 field.
 
+## 36. Reproducibility and the new default recovery
+
+Question (user, 2026-10-26): many changes landed since the earlier experiments
+ran; do their results still hold?
+
+**What still reproduces** (`NNtesting/tools/reproduce.py`,
+`results/reproduce/`): one recorded trial from every result file was rerun on
+main with its parameters and seed. Everything recorded from §24 on is
+bit-identical or within float rounding, including all 24 runs of §30 and all
+60 of §31. Older files (§11–§19) differ, as expected: they were recorded with
+alpha 1.2, the log growth rule, raw sums or the Sign rule before its timing
+fix, and §24 already reran them under the new defaults (those reruns
+reproduce). One gap: nl_static, nl_temporal, dyn_ladder, snake_rules and
+bar_orientation had no recovery setting and have run E-R at 0.5 since
+2026-10-08, so their documented commands gave different numbers. They now
+have `recovery` (default: the library's), and `--set recovery=0.9`
+reproduces the recorded runs exactly.
+
+**What 0.5 changes** (`results/recovery/`, every C++ experiment with E-R
+neurons, current defaults, same seeds, recovery 0.9 against 0.5):
+
+| finding (section) | 0.9 | 0.5 |
+|---|---|---|
+| delayed XOR, best E-R network (§16, §18) | 0.999 | 0.736 |
+| hidden active fraction, er_economy (§13) | 0.47 | 0.72 |
+| active fraction of the matched fixed threshold | 0.48 | 0.74 |
+| history: pattern change after all paths' use (§13) | 0.79 | 0.40 |
+| history: decision change after all paths' use | 0.16 | 0 |
+| fatigue of all paths: first active fraction / accuracy (§13) | 0.05 / 0.90 | 0.51 / 1.00 |
+| dyn_ladder change detection, test score (§20) | 0.59 | 0.69 |
+| nl_static l0 / l4, best test MSE (§14) | 0.048 / 0.12 | 0.0013 / 0.19 |
+| snake_rules, E-R mix, sign readouts (§11) | 12.8 | 13.4 |
+| bar_orientation, E-R readout (§11) | 0.43 | 0.52 |
+
+- **E-R's state findings belong to recovery 0.9.** At 0.5 the one-step memory
+  that solves delayed XOR is gone (as §34 found for the default model), the
+  history effect halves and no longer changes a decision, and fatiguing every
+  path barely registers. Conclusions 10, 13 and 14 hold at 0.9, not at the
+  default.
+- **E-R's activity saving shrinks with it**: 72% of hidden neurons active
+  instead of 47%, the same as a fixed threshold matched to it (74%).
+- **Control and simple mappings gain**: change detection, the E-R readout on
+  bars, the l0 regression and Snake with an E-R mix are equal or better at
+  0.5, which is why 0.5 is the default (§31); harder static tasks (l3, l4)
+  lose.
+- The dyn_ladder runs here use the experiment's defaults (width 32), not
+  §20's best setting, so their absolute scores are lower than §20's.
 ## 37. Growth re-evaluated: new recovery, more seeds, from one neuron
 
 Question (user, 2026-10-26): the growth mechanism was never tested to its
@@ -2492,6 +2540,11 @@ ER(4) with the caps lifted and with every §31 option on; copy-init (§35).
     (about twice the neurons); random init plays as well or better on
     Snake from ER(1) and ER(4). Net2Net's split is not function-preserving
     with normalised readers.
+30. **E-R's memory, history and fatigue effects need slow recovery** (§36):
+    at the default 0.5 delayed XOR is no longer solved, the history effect
+    halves and stops changing decisions, and E-R is as active as a matched
+    fixed threshold; control tasks are as good or better. Every result
+    recorded from §24 on still reproduces on main.
 31. **Growth does not reach the right size from a small start** (§37): at
     the default recovery the saturation trigger rarely fires below two
     neurons; retuned (25%, 4 neurons) one cell grows to 7.5 apples at 17-53
