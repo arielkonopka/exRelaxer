@@ -41,6 +41,7 @@ and `NNtesting/tools/capacity.py`.
 | `neuron-models/` | §34 | `nl_static` and `nl_temporal` with every neuron model ([doc/neuron_models.md](../doc/neuron_models.md)); `summary.md` (from `analyze.py`), `raw/`, `run.sh` |
 | `reproduce/` | §36 | `reproduce.py` scan: one recorded trial per result file rerun on main (`scan.jsonl.gz`, `scan_legacy.jsonl.gz` with old settings for later parameters); `summary.md` |
 | `recovery/` | §36 | every C++ experiment with E-R neurons at recovery 0.9 and 0.5; `summary.md` (from `analyze.py`), `raw/`, `run.sh` |
+| `growth-reeval/` | §37 | `snake_growth` again: §30 at recovery 0.5 / 0.75 / 0.9 with 10 seeds, the growth trigger, 8-bit, long runs from ER(1) / ER(4) / ER(16) with every option, copy-init; `summary.md`, `short.jsonl.gz`, `long.jsonl.gz`; commands in `NNtesting/experiments/snake_growth/reeval.py` |
 
 Runs recorded before 2026-09-27 evening used the logarithmic threshold
 growth rule, the default at the time; pass `--set growth=log` to reproduce

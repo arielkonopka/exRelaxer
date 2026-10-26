@@ -166,6 +166,8 @@ which the whole population was saturated falls with its size:
 |---|---|---|---|---|---|
 | 0.9 (the default then) | 75% | 38% | 19% | 0% | 0% |
 | 0.99 | 90% | 76% | 65% | 39% | 11% |
+| 0.75 | 55% | 14% | 8% | 1% | 0% |
+| 0.5 (the default since 2026-10-08) | 45% | 9% | 2% | 0% | 0% |
 
 So saturation is a real signal, and width growth limits itself: growing makes saturation rarer.
 The trigger (`saturated_share`) decides where growth stops; with the default 0.9 nothing grows at
@@ -278,7 +280,9 @@ Results for the Snake example are in the guide.
 
 - **Thresholds of the trigger.** Whether a population grows depends on `saturated_share`, `window`
   and the neurons' recovery. With recovery 0.9 (the default until 2026-10-08) and the default share 0.9, a Snake
-  population never grows. These are experimental knobs, not derived quantities.
+  population never grows. At the default recovery 0.5 even one neuron is saturated on fewer than
+  half the ticks, so snake_growth's share of 0.5 rarely fires; 0.25 with 4 neurons per growth works
+  (research log §37). These are experimental knobs, not derived quantities.
 - **Saturation measures silence, not usefulness.** A population can be busy and still too small for
   the task. Width growth only answers "is it silent while input arrives?".
 - **Frozen is not safe from drift.** Frozen neurons keep their weights, but readers of them still

@@ -48,6 +48,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [34. Neuron models on the nonlinearity tasks](#34-neuron-models-on-the-nonlinearity-tasks)
 - [35. Copy-init: grown neurons copy existing ones](#35-copy-init-grown-neurons-copy-existing-ones)
 - [36. Reproducibility and the new default recovery](#36-reproducibility-and-the-new-default-recovery)
+- [37. Growth re-evaluated: new recovery, more seeds, from one neuron](#37-growth-re-evaluated-new-recovery-more-seeds-from-one-neuron)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2303,6 +2304,68 @@ neurons, current defaults, same seeds, recovery 0.9 against 0.5):
   lose.
 - The dyn_ladder runs here use the experiment's defaults (width 32), not
   §20's best setting, so their absolute scores are lower than §20's.
+## 37. Growth re-evaluated: new recovery, more seeds, from one neuron
+
+Question (user, 2026-10-26): the growth mechanism was never tested to its
+full extent, and much changed since §30-§31. Every §30 and §31 run still
+reproduces bit-exactly on main (§36). New runs (`reeval.py`,
+`results/growth-reeval/`): §30's 1,500-game sweep at recovery 0.5 / 0.75 /
+0.9 with 10 seeds; the growth trigger at 0.5; 8-bit growing layers; long
+runs (until the size is unchanged for 10,000 games, 5 seeds) from ER(1) and
+ER(4) with the caps lifted and with every §31 option on; copy-init (§35).
+
+**1,500 games, 10 seeds** (apples/game, last three windows):
+
+| network | 0.9 | 0.75 | 0.5 |
+|---|---|---|---|
+| ER(1) fixed | 0.25 | 0.27 | 0.46 |
+| ER(1) + growth | 3.91 | 4.09 | 2.14 |
+| ER(1) + growth, 8-bit | 3.71 | 3.14 | 1.06 |
+| ER(4) fixed / + growth | 5.32 / 5.62 | 7.06 / 6.98 | 7.58 / 7.72 |
+| ER(8) fixed | 7.28 | 8.62 | 9.34 |
+| ER(16) fixed | 8.89 | 9.31 | 9.82 |
+
+- **At the default recovery, growth from one neuron mostly fails**: an
+  untrained ER(1) is saturated on 45% of ticks at 0.5 (75% at 0.9), under
+  the 50% trigger, so in half the seeds the layer stays at 1-3 neurons.
+  ER(2) and larger are almost never saturated at 0.5, so width growth from
+  four neurons never fires either.
+- **With 10 seeds, growth from ER(4) adds nothing** at any recovery (§30's
+  5.1 → 5.8 from 3 seeds is within noise: 5.32 → 5.62 ± 0.2).
+- **Retuning the trigger fixes the start**: at 0.5, triggering at 25%
+  saturated ticks and adding 4 neurons per growth gives 7.28 ± 0.28 (about
+  a fixed ER(4)); 25% alone 3.74, 10% 4.89, a 50-tick window 3.47, 4
+  neurons alone 3.91.
+- 8-bit growing layers cost little at 0.9 and a lot at 0.5 (1.06).
+
+**Long runs** (5 seeds; last 500 games; fixed ER(16) for reference: 8.2 at
+0.9, 9.7 at 0.75 and 0.5, §31):
+
+| start, policy | 0.9 | 0.75 | 0.5 |
+|---|---|---|---|
+| ER(1), caps lifted | 4.37 (11-21 neurons) | 3.66 (11-17) | 3.42 (9-15) |
+| ER(1), caps lifted, trigger 25% + 4 neurons | | | 7.54 (17-53) |
+| ER(1), every §31 option | 0.86 (2-4) | 1.25 (2-8) | 1.23 (2-4) |
+| ER(4), caps lifted | 5.60 (10-18) | 6.69 (12-20) | 6.71 (12-16) |
+| ER(4), every §31 option | 5.22 (7-11) | 6.85 (10-13) | 7.10 (10-13) |
+| ER(16), every §31 option | 8.48 (19-39) | 9.72 (19-37) | 9.43 (30-40) |
+
+- **No growing network catches the right size**, even after 10,000-40,000
+  games. The best one-cell start (retuned trigger) reaches 7.54, below a
+  fixed ER(8) at 1,500 games; plain growth from one neuron ends at 9-21
+  neurons and 3.4-4.4 apples.
+- **The §31 options that let ER(16) match the fixed network break a small
+  start.** Wide depth growth copies the width of the layer it grows
+  behind, so ER(1) becomes a chain of 1-2 neuron layers (0.9-1.3 apples);
+  where width growth fires, weak pruning removes what it adds (at 0.75:
+  177 widenings, 180 prunings; with a 10% trigger 3,121 / 3,133).
+- At 0.9 the same churn hits ER(16) (719 widenings, 784 prunings), which
+  ends level with the fixed network (8.48 vs 8.2); at 0.75 / 0.5 it matches
+  §31.
+- **Copy-init** (§35, copying active neurons): 7.42 vs 7.28 at 1,500 games
+  (noise), 6.89 vs 7.54 in the long run, and at 0.9 with every option it
+  runs away (up to 216 neurons, 1,096 widenings) at an unchanged score. From
+  ER(16) at 0.5 width growth never fires, so it changes nothing.
 
 ## Conclusions
 
@@ -2482,6 +2545,12 @@ neurons, current defaults, same seeds, recovery 0.9 against 0.5):
     halves and stops changing decisions, and E-R is as active as a matched
     fixed threshold; control tasks are as good or better. Every result
     recorded from §24 on still reproduces on main.
+31. **Growth does not reach the right size from a small start** (§37): at
+    the default recovery the saturation trigger rarely fires below two
+    neurons; retuned (25%, 4 neurons) one cell grows to 7.5 apples at 17-53
+    neurons, still below a fixed ER(8) or ER(16), and the options that make
+    growth from 16 neurons match the fixed network (wide depth growth, weak
+    pruning) break growth from one or four.
 
 ## Open questions and next steps
 
