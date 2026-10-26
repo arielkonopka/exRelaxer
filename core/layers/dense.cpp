@@ -2,7 +2,9 @@
 #include "../binary_io.hpp"
 #include "../parallel.hpp"
 #include <algorithm>
+#include <cmath>
 #include <istream>
+#include <limits>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -233,6 +235,60 @@ void dense::removeNeurons(std::span<const size_t> indices)
     history_.clear();
     weightsChanged();
     outputShrank(indices);
+}
+
+void dense::copyNeuron(size_t from, size_t to, float noise)
+{
+    if (from >= neurons_.size() || to >= neurons_.size())
+        throw std::out_of_range("dense::copyNeuron: the layer has " + std::to_string(neurons_.size()) + " neurons");
+    std::vector<float> w = weights(from);
+    if (w.size() != inputCount(to))
+        throw std::invalid_argument("dense::copyNeuron: neuron " + std::to_string(from) + " reads " +
+                                    std::to_string(w.size()) + " inputs, neuron " + std::to_string(to) + " " +
+                                    std::to_string(inputCount(to)));
+    if (noise > 0.0f && !w.empty()) {
+        double square = 0.0;
+        for (float v : w)
+            square += static_cast<double>(v) * v;
+        const float scale = noise * static_cast<float>(std::sqrt(square / static_cast<double>(w.size())));
+        std::vector<float> u(w.size());
+        drawWeights(rng::WeightStream::Growth, u);
+        for (size_t k = 0; k < w.size(); ++k)
+            w[k] += scale * u[k];
+    }
+    setWeights(to, w);
+    if (hasBias())
+        setBias(to, bias(from));
+}
+
+size_t dense::splitInput(const InputRange& from, const InputRange& to, float share)
+{
+    if (from.count != 1 || to.count != 1 || !from.sameBuffer(to))
+        throw std::invalid_argument("dense::splitInput: from and to must be single entries of one buffer");
+    // The columns of `entry` in a group's pool (none when it does not read it).
+    const auto column = [](const Group& group, const InputRange& entry) {
+        size_t col = 0;
+        for (const InputRange& range : group.inputs) {
+            if (range.sameBuffer(entry) && entry.offset >= range.offset && entry.offset < range.offset + range.count)
+                return col + entry.offset - range.offset;
+            col += range.count;
+        }
+        return std::numeric_limits<size_t>::max();
+    };
+    size_t changed = 0;
+    for (const Group& group : groups_) {
+        const size_t a = column(group, from), b = column(group, to);
+        if (a == std::numeric_limits<size_t>::max() || b == std::numeric_limits<size_t>::max())
+            continue;
+        for (size_t i = group.neurons.first; i < group.neurons.first + group.neurons.count; ++i) {
+            std::vector<float> w = weights(i);
+            w[b] = share * w[a];
+            w[a] *= 1.0f - share;
+            setWeights(i, w);
+            ++changed;
+        }
+    }
+    return changed;
 }
 
 void dense::sourceShrank(const layer& source, std::span<const size_t> removed)

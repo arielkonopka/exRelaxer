@@ -17,11 +17,13 @@ struct Population
     network net;
     network::LayerId h, out;
 
-    explicit Population(size_t size = 4)
+    explicit Population(size_t size = 4, bool normalize = true)
     {
         reseed(5);
-        h = net.addLayer("h", LayerSpec::Dense(size, false, true));
-        out = net.addLayer("out", LayerSpec::Dense(3, false, false));
+        LayerSpec hs = LayerSpec::Dense(size, false, true), os = LayerSpec::Dense(3, false, false);
+        hs.normalize = os.normalize = normalize;
+        h = net.addLayer("h", hs);
+        out = net.addLayer("out", os);
         net.addInputs(h, 4, "x");
         net.connect(h, out);
         net.addOutput(out);
@@ -260,6 +262,8 @@ TEST(PruneCandidatesTest, PersistentInactivityButNotFatigue)
     EXPECT_EQ(m.state(1), TickState::Fatigued);
     EXPECT_GE(m.inactiveTicks(0), 300u);
     EXPECT_EQ(m.inactiveTicks(1), 0u);  // silent for 300 ticks, but only fatigued
+    EXPECT_EQ(m.fatiguedTicks(0), 0u);
+    EXPECT_GE(m.fatiguedTicks(1), 290u);
     const auto c = w.net.pruneCandidates(w.h, &m, 200);
     EXPECT_TRUE(has(c, 0, network::Inactive));
     EXPECT_FALSE(has(c, 1, network::Inactive));
@@ -341,4 +345,69 @@ TEST(SaturationTest, PersistentSilenceWithRaisedThresholdsAndInput)
     EXPECT_EQ(m.ticks(), 1u);
     EXPECT_FALSE(m.saturated());
     EXPECT_EQ(m.state(4), TickState::Fired);  // fresh threshold: the input fires it
+}
+
+TEST(CopyInitTest, SplitCopyKeepsTheNetworksOutputs)
+{
+    // Net2Net widening: a noiseless copy whose readers split the source's
+    // weight between the two changes nothing the readers see, with plain
+    // weighted sums. (Normalised readers, w.x / |w|, cannot be preserved:
+    // the split keeps w.x but shrinks |w|.)
+    Population ref(4, false), p(4, false);
+    p.net.growLayer(p.h, 2);
+    p.net.copyNeuron(p.h, 1, 4, 0.0f, 0.5f);
+    p.net.copyNeuron(p.h, 3, 5, 0.0f, 0.5f);
+    const auto& h = dynamic_cast<const dense&>(p.net.getLayer(p.h));
+    EXPECT_EQ(h.weights(4), h.weights(1));
+    EXPECT_EQ(h.weights(5), h.weights(3));
+    const auto& out = dynamic_cast<const dense&>(p.net.getLayer(p.out));
+    const auto& before = dynamic_cast<const dense&>(ref.net.getLayer(ref.out));
+    for (size_t r = 0; r < out.size(); ++r) {
+        const std::vector<float> w = out.weights(r), w0 = before.weights(r);
+        EXPECT_FLOAT_EQ(w[1], 0.5f * w0[1]);
+        EXPECT_FLOAT_EQ(w[4], 0.5f * w0[1]);
+        EXPECT_FLOAT_EQ(w[5], 0.5f * w0[3]);
+        EXPECT_FLOAT_EQ(w[0], w0[0]);
+    }
+    const std::vector<float> a = ref.run(ref.net, 50), b = p.run(p.net, 50);
+    ASSERT_EQ(a.size(), b.size());
+    for (size_t k = 0; k < a.size(); ++k)
+        EXPECT_NEAR(a[k], b[k], 1e-5f) << k;
+}
+
+TEST(CopyInitTest, NoiseIsBoundedAndSplitZeroLeavesReaders)
+{
+    Population p(4);
+    p.net.growLayer(p.h, 1);
+    const auto& out = dynamic_cast<const dense&>(p.net.getLayer(p.out));
+    const std::vector<float> read = out.weights(0);
+    p.net.copyNeuron(p.h, 2, 4, 0.1f, 0.0f);
+    EXPECT_EQ(out.weights(0), read);  // the copy starts unread (Zero outgoing)
+    const auto& h = dynamic_cast<const dense&>(p.net.getLayer(p.h));
+    const std::vector<float> src = h.weights(2), copy = h.weights(4);
+    double square = 0.0;
+    for (float v : src)
+        square += double(v) * v;
+    const float bound = 0.1f * float(std::sqrt(square / src.size())) + 1e-6f;
+    bool differs = false;
+    for (size_t k = 0; k < src.size(); ++k) {
+        EXPECT_LE(std::abs(copy[k] - src[k]), bound);
+        differs |= copy[k] != src[k];
+    }
+    EXPECT_TRUE(differs);
+    EXPECT_THROW(p.net.copyNeuron(p.h, 2, 2), std::invalid_argument);
+    EXPECT_THROW(p.net.copyNeuron(p.h, 2, 4, 0.0f, 1.5f), std::invalid_argument);
+}
+
+TEST(CopyInitTest, CopiedWeightsAreSaved)
+{
+    Population p(4);
+    p.net.growLayer(p.h, 1, WeightInit::Zero, true);
+    p.net.copyNeuron(p.h, 0, 4, 0.05f, 0.5f);
+    auto loaded = roundTrip(p.net);
+    const auto& a = dynamic_cast<const dense&>(p.net.getLayer(p.h));
+    const auto& b = dynamic_cast<const dense&>(loaded->getLayer(p.h));
+    EXPECT_EQ(a.weights(4), b.weights(4));
+    EXPECT_EQ(dynamic_cast<const dense&>(p.net.getLayer(p.out)).weights(0),
+              dynamic_cast<const dense&>(loaded->getLayer(p.out)).weights(0));
 }

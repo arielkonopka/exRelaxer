@@ -143,6 +143,15 @@ public:
     // the new ones learn.
     void growLayer(LayerId id, size_t count, WeightInit outgoing = WeightInit::Zero, bool freezeExisting = false,
                    size_t group = 0);
+    // Copy-init (Net2Net-style widening): neuron `to` of Dense layer `id`
+    // (typically one growLayer just added) gets neuron `from`'s incoming
+    // weights and bias plus `noise` (a share of their RMS, uniform), and
+    // every Dense layer reading `id` (the layer itself too, when recurrent)
+    // hands `split` of the weight with which it reads `from` over to `to`
+    // (dense::splitInput; 0: readers unchanged, 0.5: the copy and its source
+    // share the source's influence). Not a structural change: the weights
+    // are saved as any others.
+    void copyNeuron(LayerId id, size_t from, size_t to, float noise = 0.05f, float split = 0.5f);
     // Removes neurons (by index) from a Dense layer; every layer reading it
     // must be Dense, and drops the matching inputs. The critic and the
     // curiosity model drop their features too. Throws std::invalid_argument,

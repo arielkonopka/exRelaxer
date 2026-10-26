@@ -166,6 +166,7 @@ public:
 
     // Learned bias of a neuron (0 when the rule has no bias).
     float bias(size_t index) const { return bias_.empty() ? 0.0f : bias_.at(index); }
+    bool hasBias() const { return !bias_.empty(); }
     // Throws std::logic_error when the rule has no bias.
     void setBias(size_t index, float value);
 
