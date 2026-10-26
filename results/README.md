@@ -39,6 +39,7 @@ and `NNtesting/tools/capacity.py`.
 | `snake-copy-init/` | §35 | `snake_growth` width growth with copy-init (new neurons copy the most fatigued / active / read / a random neuron, noise and split variants) against random init, ER(1) and ER(4), 10 seeds, 1,500 and 5,000 games; `summary.md`, `runs.jsonl.gz`; commands in `NNtesting/experiments/snake_growth/copy_init.py` |
 | `precision/` | §32 | 8-bit weights and outputs: `nl_static` (E-R and ReLU, four formats; `nl_static_summary.txt` from `nl_summary.py`) and Snake ER(16) (`snake_er16.txt`); commands in `run.sh` |
 | `neuron-models/` | §34 | `nl_static` and `nl_temporal` with every neuron model ([doc/neuron_models.md](../doc/neuron_models.md)); `summary.md` (from `analyze.py`), `raw/`, `run.sh` |
+| `growth-reeval/` | §37 | `snake_growth` again: §30 at recovery 0.5 / 0.75 / 0.9 with 10 seeds, the growth trigger, 8-bit, long runs from ER(1) / ER(4) / ER(16) with every option, copy-init; `summary.md`, `short.jsonl.gz`, `long.jsonl.gz`; commands in `NNtesting/experiments/snake_growth/reeval.py` |
 
 Runs recorded before 2026-09-27 evening used the logarithmic threshold
 growth rule, the default at the time; pass `--set growth=log` to reproduce
