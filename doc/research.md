@@ -50,6 +50,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [36. Reproducibility and the new default recovery](#36-reproducibility-and-the-new-default-recovery)
 - [37. Growth re-evaluated: new recovery, more seeds, from one neuron](#37-growth-re-evaluated-new-recovery-more-seeds-from-one-neuron)
 - [38. Grown neurons that start easier to fire](#38-grown-neurons-that-start-easier-to-fire)
+- [39. A critical period: grown neurons that mature](#39-a-critical-period-grown-neurons-that-mature)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2423,6 +2424,77 @@ neurons per growth), up to 30 seeds and 5,000 games
 - Still below fixed networks: the best one-cell start reaches 7.98 at
   5,000 games, a fixed ER(8) 9.34 at 1,500 (§37).
 
+## 39. A critical period: grown neurons that mature
+
+Question (user, 2026-10-26, after §38): adult-born hippocampal neurons are
+hyperexcitable and more plastic for a few weeks, then mature into ordinary
+granule cells. Can that be simulated, and does layer diversity (entropy)
+matter more than what the layer already knows? New in the library:
+`neuron_layer::setNeuronLearningGain` / `net.set_learning_gain` (one
+neuron's learning gain, saved), `development.Maturation` (a newborn
+grown neuron starts at a resting threshold × r₀ and a learning gain × g₀
+and moves linearly to the mature values over N ticks; optionally frozen at
+maturity) and `development.PatternDiversity` (entropy of a layer's binary
+firing patterns, distinct patterns, per-neuron entropy, redundancy);
+`WidthGrowth.grow` grows on another trigger. `snake_growth` params
+`mature_*`, `trigger` (`saturation`, `entropy`, `either`), `entropy_min`,
+`entropy_window`; every run records the diversity per evaluation window.
+
+Setup: §37/§38's one-cell start (ER(1), recovery 0.5, trigger 25%, 4
+neurons per growth), 30 seeds × 1,500 games (~90,000 ticks) and 20 seeds
+× 5,000 games (~314,000 ticks) (`snake_growth/maturation.py`, tables in
+`results/snake-maturation/`). Δ = paired by seed against random init
+(7.13 at 1,500 games, 7.24 at 5,000); "all" = mean over every window.
+
+| arm | 1,500 games | Δ final | Δ all | 5,000 games | Δ final |
+|---|---|---|---|---|---|
+| rest × 0.5 for good (§38) | 7.45 | +0.32 ± 0.14 | +0.40 ± 0.08 | | |
+| gain × 3 for good | 7.46 | +0.33 ± 0.15 | +0.68 ± 0.10 | | |
+| rest × 0.5 + gain × 3 for good | 7.43 | +0.30 ± 0.15 | +0.75 ± 0.12 | 7.57 | +0.33 ± 0.20 |
+| matures over 2k / 10k ticks (both) | 7.00 / 7.08 | −0.13 / −0.05 | +0.20 / +0.48 | | |
+| matures over 50k ticks (both) | 7.49 | +0.36 ± 0.17 | +0.72 ± 0.11 | 7.22 | −0.02 ± 0.20 |
+| matures over 100k ticks (both) | | | | 7.64 | +0.41 ± 0.20 |
+| nothing frozen at growth | 7.75 | +0.62 ± 0.19 | +0.65 ± 0.15 | 7.60 | +0.36 ± 0.16 |
+| nothing frozen, young for good | 7.89 | +0.77 ± 0.23 | +1.29 ± 0.17 | 7.91 | +0.67 ± 0.22 |
+| critical period closes at 20k / 50k | 7.39 / 7.79 | +0.27 / +0.66 ± 0.19 | +0.96 / +1.17 | — / 7.73 | — / +0.50 ± 0.17 |
+| critical period closes at 100k | | | | 7.68 | +0.44 ± 0.22 |
+| growth on falling entropy (0.85-0.95) | 2.40-4.10 | −3.0 to −4.7 | | | |
+| growth on saturation or entropy 0.9 | 7.57 | +0.44 ± 0.22 | +0.53 ± 0.20 | | |
+
+("critical period closes": matured neurons freeze, and growth no longer
+freezes the older ones.)
+
+- **Being young helps; maturing does not.** A larger learning gain for
+  grown neurons speeds learning as much as §38's lower threshold (Δ all
+  +0.68 vs +0.40), and the two together are the fastest. Every maturation
+  that finishes inside the run gives the gain back: over 2k-10k ticks it
+  is noise, and over 50k ticks it helps at 1,500 games (when it has barely
+  finished) and not at 5,000. Only a period as long as half the run
+  (100k) keeps most of it.
+- **Freezing old neurons at growth is the larger cost.** Letting every
+  neuron keep learning adds +0.36 to +0.62 alone, and with the grown
+  neurons young for good it is the best one-cell start so far (7.91 at
+  5,000 games, 20 seeds; §38's best 7.98 with 10 seeds). A critical period
+  that closes (mature neurons freeze, nothing frozen at growth) is between
+  the two (7.68-7.73), −0.17 to −0.23 ± 0.2 against never closing: on
+  Snake, with one task, nothing needs protecting, so freezing is only a
+  cost. Whether closing protects old skills is a question for a task
+  switch, not for Snake.
+- **Diversity does not predict the score.** The E-R layer at recovery 0.5
+  is near maximum entropy (0.88 bits per neuron at 1,500 games, every one
+  of 2⁵ patterns seen with 5 neurons); learning slowly makes neurons
+  redundant (0.03 → 0.21 over 5,000 games; 0.30 with young neurons and
+  nothing frozen, the best arm). Across saturation-triggered runs, entropy,
+  entropy per neuron, distinct patterns and redundancy correlate with the
+  score at |r| ≤ 0.38, and about 0 once the layer size is accounted for.
+- **Entropy is a poor growth trigger.** Alone it fails (2.4-4.1): one E-R
+  neuron already fires at ~1 bit, so in half the seeds the first layer
+  never grows, depth growth puts a layer behind one neuron, and that
+  layer, whose neurons all read the same input, stays low-entropy and
+  grows to its cap. Added to the saturation trigger it gains +0.44 to
+  +0.57 at almost twice the neurons (17-19 against 9.5).
+- Still below the fixed right size (ER(8) 9.34 at 1,500 games, §37).
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -2614,8 +2686,19 @@ neurons per growth), up to 30 seeds and 5,000 games
     eligible for feedback alignment on almost every tick and adds 0.3-0.7
     apples at recovery 0.5, nothing at 0.9; copies stay no better than
     random init.
+33. **New neurons should stay plastic; a critical period costs on one
+    task** (§39): a larger learning gain for grown neurons helps as much as
+    a lower threshold, maturing them back gives it away, and not freezing
+    older neurons at growth helps more (7.91 from one cell, the best so
+    far). Layer entropy neither predicts the score nor works as a growth
+    trigger.
 
 ## Open questions and next steps
+
+- **Does a closing critical period protect old skills?** (§39) On one
+  task freezing is only a cost. Test growth with maturation-then-freeze
+  against "young for good, nothing frozen" across a task switch (a new
+  board size or reward, then back), the always-on-learning goal.
 
 - **State output in hidden layers and Doom** (§26): the State layer was
   tested only in front of readouts and one learning neuron. Next: a hidden

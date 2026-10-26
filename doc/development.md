@@ -89,6 +89,22 @@ not saved: a loaded layer gives every neuron the layer's value. On Snake (resear
 start threshold is undone by the first firing; a lower resting threshold keeps the new neurons
 eligible to learn (feedback alignment) on almost every tick and helps at recovery 0.5, not at 0.9.
 
+### Young neurons that mature
+
+Adult-born neurons in the hippocampus are hyperexcitable and more plastic for a few weeks, then
+mature. `Maturation(ticks=50000, resting_scale=0.5, gain_scale=3.0)` does the same for grown
+neurons: called every tick (`update(net, layer, tick)`), it gives each newborn neuron (told apart
+by its growth order) a resting threshold of × 0.5 the layer's and 3 × its learning gain
+(`net.set_learning_gain(layer, neuron, value)`, saved with the network), and moves both linearly
+to `mature_resting` / `mature_gain` (default × 1) over `ticks`; `freeze=True` freezes a neuron at
+maturity (the critical period closes). On Snake (research log §39) the young values help and
+maturing gives them back; not freezing older neurons at growth helps more.
+
+`PatternDiversity` measures how diverse a layer's firing is: `observe(net, layer)` each tick,
+`summary()` gives the entropy of its binary firing patterns, distinct patterns, mean per-neuron
+entropy, redundancy and activity. `WidthGrowth.grow(net, layer, monitor)` grows on any trigger
+(e.g. falling entropy, `snake_growth` `trigger="entropy"`, which does not work on its own, §39).
+
 ## 2. Depth growth
 
 Depth growth answers a different question: has the current representation learned something useful
@@ -321,6 +337,7 @@ net.setMinimumSize(id, n);  net.minimumSize(id);
 net.growLayer(id, count, WeightInit::Zero, /*freezeExisting=*/true);
 net.copyNeuron(id, from, to, /*noise=*/0.05f, /*split=*/0.5f);  // copy-init a grown neuron
 layer.setNeuronRestingThreshold(i, 0.1f);  layer.setNeuronThreshold(i, 0.0f);  // one neuron, not saved
+layer.setNeuronLearningGain(i, 6.0f);  // one neuron, saved
 net.grownNeurons(id);       layer.growthOrder(i);  layer.neuronGrown(i);
 net.pruneNewest(id, count);
 net.pruneCandidates(id, &monitor, inactiveAfter);  // PruneCandidate{index, reasons}
@@ -339,6 +356,8 @@ net.copy_neuron(h, source, target, noise=0.05, split=0.5); monitor.fatigued_tick
 WidthGrowth(increment=2, init="copy", source="fatigued").update(net, h, monitor)
 net.set_resting_threshold(h, i, 0.1); net.set_threshold(h, i, 0.0)
 WidthGrowth(increment=2, resting_scale=0.5, start_threshold=None).update(net, h, monitor)
+net.set_learning_gain(h, i, 6.0); Maturation(ticks=50000, resting_scale=0.5, gain_scale=3.0).update(net, h, tick)
+d = PatternDiversity(); d.observe(net, h); d.summary(); WidthGrowth().grow(net, h, monitor)
 Pruning(reasons=("invalid", "inactive")).update(net, h, monitor)
 net.read_strength(h); Pruning(reasons=("weak",), weak_fraction=0.2, weak_after=20000).update(net, h, tick=t)
 Plateau(baseline=b, patience=4).update(score); grow_depth(net, h, readers=[out])

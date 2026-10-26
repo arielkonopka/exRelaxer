@@ -490,6 +490,19 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-26: young grown neurons that mature
+
+- `neuron_layer::setNeuronLearningGain` / `net.set_learning_gain` (one
+  neuron, saved); `development.Maturation` (newborn grown neurons start
+  with a lower resting threshold and a larger learning gain and move to
+  the layer's values over N ticks, optionally frozen at maturity),
+  `development.PatternDiversity` (firing-pattern entropy of a layer),
+  `WidthGrowth.grow`; `snake_growth` params `mature_*`, `trigger`,
+  `entropy_min`, `entropy_window`. On Snake young neurons help, maturing
+  them back does not, and not freezing older neurons at growth gives the
+  best one-cell start (7.91); layer entropy does not predict the score
+  (research log §39).
+
 ### 2026-10-26: grown neurons that fire more easily
 
 - `neuron_layer::setNeuronRestingThreshold` / `setNeuronThreshold`,

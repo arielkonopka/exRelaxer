@@ -105,6 +105,10 @@ class WidthGrowth:
         """Grows if the monitor (watching `layer`) is saturated; returns the neurons added."""
         if not monitor.saturated:
             return 0
+        return self.grow(net, layer, monitor, tick)
+
+    def grow(self, net, layer, monitor, tick=None):
+        """Grows now, whatever the monitor says (another trigger decided); returns the neurons added."""
         size = net.layer_size(layer)
         count = self.increment
         if self.max_size is not None:
@@ -129,6 +133,123 @@ class WidthGrowth:
         monitor.reset()
         self.events.append((tick, size, size + count))
         return count
+
+
+@dataclass
+class Maturation:
+    """A critical period for grown neurons: newborn neurons are hyperexcitable and more plastic,
+    then mature into neurons like the rest (as adult-born hippocampal granule cells do over a few
+    weeks; doc/development.md, research log §39).
+
+    ticks           the critical period: ticks from growth to maturity
+    resting_scale   a newborn's E-R resting threshold, x the layer's (below 1: fires more easily)
+    gain_scale      a newborn's learning gain, x its gain at birth (above 1: learns faster)
+    mature_resting  the resting threshold at maturity, x the layer's
+    mature_gain     the learning gain at maturity, x its gain at birth (0: it stops learning)
+    freeze          at maturity the neuron is frozen (the critical period closes for good)
+    every           ticks between updates (the values move in steps of every / ticks)
+
+    Both values move linearly with age, from the newborn's to the mature value. A neuron's birth
+    is the first update that sees it (call update every tick, or right after growth); neurons are
+    told apart by their growth order, so pruning and undoing growth do not confuse ages.
+    `matured` counts neurons that reached maturity. The per-neuron resting threshold is not saved
+    with the network (see Network.set_resting_threshold).
+    """
+
+    ticks: int = 20000
+    resting_scale: float = 0.5
+    gain_scale: float = 1.0
+    mature_resting: float = 1.0
+    mature_gain: float = 1.0
+    freeze: bool = False
+    every: int = 20
+    births: dict = field(default_factory=dict)
+    matured: int = 0
+
+    def __post_init__(self):
+        if self.ticks <= 0 or self.every <= 0:
+            raise ValueError("ticks and every must be positive")
+        if min(self.resting_scale, self.mature_resting) <= 0 or min(self.gain_scale, self.mature_gain) < 0:
+            raise ValueError("resting scales must be > 0 and gain scales >= 0")
+
+    def update(self, net, layer, tick):
+        """Registers newborn neurons and, every `every` ticks (and at each birth), moves every
+        maturing neuron's values; returns how many neurons are still maturing."""
+        order = [int(o) for o in net.growth_order(layer)]
+        born = [i for i, o in enumerate(order) if o and (layer, o) not in self.births]
+        if not born and tick % self.every:
+            return sum(1 for o in order if o and self.births[(layer, o)][0] is not None)
+        if born:
+            resting = net.state_probe(layer)["resting_threshold"]
+            gains = net.neuron_state(layer)["learning_gain"]
+            base = [resting[i] for i, o in enumerate(order) if o == 0]
+            for i in born:   # [birth tick, the layer's resting threshold, the gain at birth]
+                self.births[(layer, order[i])] = [tick, float(base[0] if base else resting[i]), float(gains[i])]
+        maturing = 0
+        for i, o in enumerate(order):
+            entry = self.births.get((layer, o)) if o else None
+            if entry is None or entry[0] is None:
+                continue
+            birth, resting, gain = entry
+            f = min(1.0, (tick - birth) / self.ticks)
+            net.set_resting_threshold(layer, i, resting * (self.resting_scale + (self.mature_resting - self.resting_scale) * f))
+            net.set_learning_gain(layer, i, gain * (self.gain_scale + (self.mature_gain - self.gain_scale) * f))
+            if f < 1.0:
+                maturing += 1
+                continue
+            entry[0] = None   # mature: left alone from now on
+            self.matured += 1
+            if self.freeze:
+                net.freeze_neurons(layer, i, 1)
+        return maturing
+
+
+@dataclass
+class PatternDiversity:
+    """How diverse a layer's firing is: the distribution of its binary firing patterns (which
+    neurons have a non-zero output) over the ticks observed since the last reset.
+
+    summary() gives
+        entropy     Shannon entropy of the pattern distribution, bits (at most log2(ticks) and the
+                    layer size)
+        distinct    how many different patterns occurred
+        neuron_entropy  mean over neurons of each neuron's own firing entropy (bits, at most 1):
+                    how evenly each fires and stays silent
+        redundancy  1 - entropy / sum of the neurons' entropies (0: independent neurons; near 1:
+                    they fire together, the layer acts like fewer neurons)
+        active      mean share of neurons firing per tick
+    A change of the layer's size resets the counts.
+    """
+
+    counts: dict = field(default_factory=dict)
+    fired: np.ndarray | None = None
+    ticks: int = 0
+
+    def observe(self, net, layer):
+        on = np.asarray(net.layer_output(layer)).ravel() != 0
+        if self.fired is None or self.fired.size != on.size:
+            self.reset()
+            self.fired = np.zeros(on.size)
+        key = np.packbits(on).tobytes()
+        self.counts[key] = self.counts.get(key, 0) + 1
+        self.fired += on
+        self.ticks += 1
+
+    def reset(self):
+        self.counts, self.fired, self.ticks = {}, None, 0
+
+    def summary(self):
+        if not self.ticks:
+            return {"entropy": 0.0, "distinct": 0, "neuron_entropy": 0.0, "redundancy": 0.0, "active": 0.0}
+        p = np.array(list(self.counts.values()), dtype=np.float64) / self.ticks
+        entropy = float(-(p * np.log2(p)).sum())
+        q = np.clip(self.fired / self.ticks, 1e-12, 1 - 1e-12)
+        each = -(q * np.log2(q) + (1 - q) * np.log2(1 - q))
+        each[(self.fired == 0) | (self.fired == self.ticks)] = 0.0
+        total = float(each.sum())
+        return {"entropy": entropy, "distinct": len(self.counts), "neuron_entropy": float(each.mean()),
+                "redundancy": 1.0 - entropy / total if total > 0 else 0.0,
+                "active": float(self.fired.mean() / self.ticks)}
 
 
 @dataclass

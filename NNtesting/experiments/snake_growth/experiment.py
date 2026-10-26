@@ -25,7 +25,7 @@ import numpy as np
 
 import exrelaxer as exr
 from exrelaxer import harness as nnt
-from exrelaxer.development import Plateau, Pruning, WidthGrowth, grow_depth
+from exrelaxer.development import Maturation, PatternDiversity, Plateau, Pruning, WidthGrowth, grow_depth
 
 _game_file = Path(__file__).resolve().parent.parent / "snake" / "game.py"
 _spec = importlib.util.spec_from_file_location("snake_game", _game_file)
@@ -68,6 +68,18 @@ DEFAULTS = {
     "grown_resting": 1.0,               # width-grown neurons' E-R resting threshold, x the layer's
     "grown_start": -1.0,                # width-grown neurons' threshold right after growth; < 0: their
                                         # resting threshold (0: the minimum)
+    "mature_ticks": 0,                  # > 0: grown neurons mature over this many ticks (Maturation):
+                                        # they start at mature_resting / mature_gain and drift to
+                                        # the layer's values (research log §39)
+    "mature_resting": 0.5,              # a newborn's resting threshold, x the layer's
+    "mature_gain": 1.0,                 # a newborn's learning gain, x its gain at birth
+    "mature_end_resting": 1.0,          # the resting threshold at maturity, x the layer's
+    "mature_end_gain": 1.0,             # the learning gain at maturity, x the gain at birth
+    "mature_freeze": False,             # matured neurons are frozen
+    "trigger": "saturation",            # width growth on E-R saturation; "entropy": when the layer's
+                                        # firing-pattern entropy per neuron over entropy_window ticks
+                                        # falls below entropy_min (PatternDiversity); "either": both
+    "entropy_min": 0.9, "entropy_window": 1000,
     "undo": 3,                          # evaluations after a width growth before an unhelpful one is
                                         # undone (LIFO); 0: never undo
     "lr": 0.03, "explore": 0.05,
@@ -119,6 +131,13 @@ class Agent:
         self.pruning = Pruning(reasons=("invalid", "inactive") + (("weak",) if p["prune_weak"] else ()),
                                inactive_after=5000, only_grown=not p["prune_base"],
                                weak_fraction=p["weak_fraction"], weak_after=p["weak_after"])
+        self.maturation = Maturation(ticks=max(p["mature_ticks"], 1), resting_scale=p["mature_resting"],
+                                     gain_scale=p["mature_gain"], mature_resting=p["mature_end_resting"],
+                                     mature_gain=p["mature_end_gain"],
+                                     freeze=p["mature_freeze"]) if p["mature_ticks"] > 0 else None
+        self.diversity = PatternDiversity()      # per evaluation window (metrics)
+        self.trigger_diversity = PatternDiversity()  # per growth window (trigger "entropy")
+        self.diversity_log = []                  # per evaluation: PatternDiversity.summary() + size
         self.depth_events, self.undo_events = [], []
         self.pending = None       # the last width growth: (evaluation, neurons added, score before,
                                   # neurons frozen before)
@@ -156,6 +175,9 @@ class Agent:
         self.net.step()
         if self.p["grow"]:
             self.monitor.observe(self.net, self.newest)
+        self.diversity.observe(self.net, self.newest)
+        if self.p["trigger"] != "saturation":
+            self.trigger_diversity.observe(self.net, self.newest)
         self.y = y = self.net.outputs()
         best = snake.STRAIGHT
         for a in (snake.LEFT, snake.RIGHT):
@@ -180,12 +202,22 @@ class Agent:
         size = self.net.layer_size(layer)
         if self.evaluation >= self.hold_until:
             frozen = set(self.net.frozen_neurons(layer))
-            added = self.width.update(self.net, layer, self.monitor, self.ticks)
+            added = 0
+            if self.p["trigger"] != "entropy":
+                added = self.width.update(self.net, layer, self.monitor, self.ticks)
+            if self.p["trigger"] != "saturation" and self.trigger_diversity.ticks >= self.p["entropy_window"]:
+                h = self.trigger_diversity.summary()["entropy"] / size
+                self.trigger_diversity.reset()
+                if not added and h < self.p["entropy_min"]:
+                    added = self.width.grow(self.net, layer, self.monitor, self.ticks)
             if added:
                 self.pending = (self.evaluation, added, self.last_score, frozen)
         self.pruning.update(self.net, layer, self.monitor, self.ticks)
+        if self.maturation is not None:
+            self.maturation.update(self.net, layer, self.ticks)
         if self.net.layer_size(layer) != size:
             self.monitor = self.new_monitor()
+            self.trigger_diversity.reset()
 
     def evaluated(self, score):
         """After each evaluation window: undo a width growth that did not raise the score (LIFO:
@@ -203,6 +235,8 @@ class Agent:
                     self.monitor = self.new_monitor()
                     self.hold_until = self.evaluation + 1 + self.p["undo"]
                 self.pending = None
+        self.diversity_log.append(dict(self.diversity.summary(), size=self.net.layer_size(self.newest)))
+        self.diversity.reset()
         self.last_score = score
         self.evaluation += 1
 
@@ -296,6 +330,7 @@ def develop(p, seed, report=None):
         "prune_events": len(agent.pruning.events) + len(agent.undo_events),
         "depth_events": len(agent.depth_events),
         "curve": curve,
+        "diversity": agent.diversity_log,
     }
 
 
@@ -311,7 +346,7 @@ def run(t):
     p = dict(DEFAULTS, **t.params)
     _, m = develop(p, t.seed)
     for key, value in m.items():
-        if key != "curve":
+        if key not in ("curve", "diversity"):
             t.record(key, float(value))
 
 
@@ -327,7 +362,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     params = {key: getattr(args, key) for key in DEFAULTS}
     agent, metrics = develop(params, args.seed, report=print)
-    print({k: (round(v, 2) if isinstance(v, float) else v) for k, v in metrics.items() if k != "curve"})
+    print({k: (round(v, 2) if isinstance(v, float) else v) for k, v in metrics.items() if k not in ("curve", "diversity")})
     print(agent.net.describe())
     if args.save:
         agent.net.save(args.save)
