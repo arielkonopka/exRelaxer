@@ -490,6 +490,15 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-26: grown neurons that fire more easily
+
+- `neuron_layer::setNeuronRestingThreshold` / `setNeuronThreshold`,
+  `net.set_resting_threshold` / `net.set_threshold` (one neuron; the
+  per-neuron resting value is not saved); `WidthGrowth(resting_scale,
+  start_threshold)`; `snake_growth` params `grown_resting`, `grown_start`.
+  A lower resting threshold for grown neurons adds 0.3-0.7 apples on Snake
+  at recovery 0.5 (research log §38).
+
 ### 2026-10-26: `recovery` for every E-R experiment
 
 - nl_static, nl_temporal, dyn_ladder, snake_rules (`mix_er`) and

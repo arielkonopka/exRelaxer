@@ -1,5 +1,7 @@
 """Copy-init for width growth (research log §35): new neurons copy an existing neuron
-(Net2Net-style widening, WidthGrowth init="copy") instead of starting from random weights.
+(Net2Net-style widening, WidthGrowth init="copy") instead of starting from random weights; and
+grown neurons that start easier to fire (§38: a lower resting threshold, `rest*` arms, or a
+threshold at the minimum right after growth, `start0` arms).
 
     python NNtesting/experiments/snake_growth/copy_init.py OUT_DIR                  # every setup
     python NNtesting/experiments/snake_growth/copy_init.py OUT_DIR --summary        # the table
@@ -30,8 +32,25 @@ ARMS = {
     "copy_noise02": {"growth_init": "copy", "copy_noise": 0.2},
     "copy_noise05": {"growth_init": "copy", "copy_noise": 0.5},
     "copy_noise10": {"growth_init": "copy", "copy_noise": 1.0},
+    # §38: grown neurons start easier to fire.
+    "random_start0": {"grown_start": 0.0},
+    "random_rest05": {"grown_resting": 0.5},
+    "random_rest01": {"grown_resting": 0.1},
+    "random_rest025": {"grown_resting": 0.25},
+    "random_rest075": {"grown_resting": 0.75},
+    "random_rest01_start0": {"grown_resting": 0.1, "grown_start": 0.0},
+    "copy_fatigued_start0": {"growth_init": "copy", "grown_start": 0.0},
+    "copy_fatigued_rest01": {"growth_init": "copy", "grown_resting": 0.1},
+    "copy_fatigued_rest01_start0": {"growth_init": "copy", "grown_resting": 0.1, "grown_start": 0.0},
+    "copy_active_start0": {"growth_init": "copy", "copy_source": "active", "grown_start": 0.0},
+    "copy_active_rest01": {"growth_init": "copy", "copy_source": "active", "grown_resting": 0.1},
 }
-STARTS = {"one": {"start": 1}, "four": {"start": 4}}
+STARTS = {
+    "one": {"start": 1},
+    "four": {"start": 4},
+    # §37's retuned trigger at the default recovery: 25% saturated ticks, 4 neurons per growth.
+    "one05t": {"start": 1, "recovery": 0.5, "saturated_share": 0.25, "increment": 4},
+}
 
 
 def setups():

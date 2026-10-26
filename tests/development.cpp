@@ -411,3 +411,18 @@ TEST(CopyInitTest, CopiedWeightsAreSaved)
     EXPECT_EQ(dynamic_cast<const dense&>(p.net.getLayer(p.out)).weights(0),
               dynamic_cast<const dense&>(loaded->getLayer(p.out)).weights(0));
 }
+
+TEST(GrownThresholdTest, OneNeuronRestsLowerAndStartsAtTheMinimum)
+{
+    Population p(4);
+    p.net.growLayer(p.h, 1);
+    auto& h = dynamic_cast<neuron_layer&>(p.net.getLayer(p.h));
+    h.setNeuronRestingThreshold(4, 0.05f);
+    EXPECT_FLOAT_EQ(h.neurons()[4].restingThreshold(), 0.05f);
+    EXPECT_FLOAT_EQ(h.neurons()[4].threshold(), 0.05f);  // at rest: moves with it
+    EXPECT_FLOAT_EQ(h.neurons()[0].restingThreshold(), h.restingThreshold());
+    h.setNeuronThreshold(4, -1.0f);
+    EXPECT_FLOAT_EQ(h.neurons()[4].threshold(), min_threshold);
+    EXPECT_THROW(h.setNeuronRestingThreshold(4, 0.0f), std::invalid_argument);
+    EXPECT_THROW(h.setNeuronThreshold(9, 0.1f), std::out_of_range);
+}

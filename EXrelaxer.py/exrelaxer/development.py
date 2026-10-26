@@ -49,6 +49,11 @@ class WidthGrowth:
     noise            init="copy": each copied weight gets noise x the source's weight RMS x U[-1, 1]
     split            init="copy": share of the source's outgoing weights handed to the copy (0.5:
                      the pair together reads like the source alone did; 0: the copy starts unread)
+    resting_scale    the new neurons' E-R resting threshold is the layer's times this (1: the same;
+                     below 1 they fire more easily for good, Network.set_resting_threshold; not
+                     saved with the network)
+    start_threshold  the new neurons' threshold right after growth (None: their resting threshold;
+                     e.g. 0: the minimum, they fire on any input until it relaxes back)
 
     The monitor starts again after growth (the layer's size changed), so the next growth needs a
     whole new window of saturation. `events` lists (tick, old size, new size) per growth, and
@@ -63,6 +68,8 @@ class WidthGrowth:
     source: str = "fatigued"
     noise: float = 0.05
     split: float = 0.5
+    resting_scale: float = 1.0
+    start_threshold: float | None = None
     seed: int = 0
     events: list = field(default_factory=list)
     copies: list = field(default_factory=list)
@@ -112,6 +119,13 @@ class WidthGrowth:
             for src, new in pairs:
                 net.copy_neuron(layer, src, new, self.noise, self.split)
             self.copies.append((tick, pairs))
+        if self.resting_scale != 1.0 or self.start_threshold is not None:
+            resting = net.state_probe(layer)["resting_threshold"]
+            for i in range(size, size + count):
+                if self.resting_scale != 1.0:
+                    net.set_resting_threshold(layer, i, float(resting[i]) * self.resting_scale)
+                if self.start_threshold is not None:
+                    net.set_threshold(layer, i, self.start_threshold)
         monitor.reset()
         self.events.append((tick, size, size + count))
         return count

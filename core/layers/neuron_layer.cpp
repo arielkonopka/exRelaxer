@@ -107,6 +107,20 @@ void neuron_layer::setRestingThreshold(float resting)
         n.setRestingThreshold(resting);
 }
 
+void neuron_layer::setNeuronRestingThreshold(size_t index, float resting)
+{
+    if (!(resting > 0.0f) || !(resting <= max_output))
+        throw std::invalid_argument("setNeuronRestingThreshold: the resting threshold must be in (0, max_output]");
+    neurons_.at(index).setRestingThreshold(resting);
+}
+
+void neuron_layer::setNeuronThreshold(size_t index, float threshold)
+{
+    if (!std::isfinite(threshold))
+        throw std::invalid_argument("setNeuronThreshold: the threshold must be finite");
+    neurons_.at(index).setThreshold(std::clamp(threshold, min_threshold, max_output));
+}
+
 void neuron_layer::setSpontaneous(const Spontaneous& spontaneous)
 {
     if (!spontaneous.valid() || !std::isfinite(spontaneous.below) || !std::isfinite(spontaneous.amplitude))
