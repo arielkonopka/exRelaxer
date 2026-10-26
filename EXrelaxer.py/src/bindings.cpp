@@ -1239,6 +1239,20 @@ NB_MODULE(_core, m)
             "no habituation streak);\n"
             "weights, bias, learning-rule state and per-neuron dynamics are kept.")
         .def(
+            "set_resting_threshold", [](network& net, LayerId id, size_t index, float value) {
+                neuronLayer(net, id).setNeuronRestingThreshold(index, value);
+            },
+            "layer"_a, "neuron"_a, "value"_a,
+            "One neuron's E-R resting threshold (a neuron at rest moves to it). Not saved: a loaded layer gives\n"
+            "every neuron the layer's resting threshold.")
+        .def(
+            "set_threshold", [](network& net, LayerId id, size_t index, float value) {
+                neuronLayer(net, id).setNeuronThreshold(index, value);
+            },
+            "layer"_a, "neuron"_a, "value"_a,
+            "One neuron's current E-R threshold (clamped to [min_threshold, max_output]); it relaxes towards\n"
+            "the resting threshold as usual.")
+        .def(
             "set_output", [](network& net, LayerId id, size_t index, float value) {
                 neuronLayer(net, id).setOutput(index, value);
             },

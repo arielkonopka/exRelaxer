@@ -79,6 +79,14 @@ public:
     // std::invalid_argument outside (0, max_output].
     void setRestingThreshold(float resting);
     float restingThreshold() const { return resting_; }
+    // One neuron's E-R resting threshold, e.g. a grown neuron that should
+    // fire more easily than the rest (neurons at rest move to it); in
+    // (0, max_output]. Not saved: a loaded layer gives every neuron the
+    // layer's resting threshold. Throws std::out_of_range for a bad index.
+    void setNeuronRestingThreshold(size_t index, float resting);
+    // One neuron's current E-R threshold, clamped to [min_threshold,
+    // max_output]; it relaxes back towards the resting threshold as usual.
+    void setNeuronThreshold(size_t index, float threshold);
     // Normalised weighted sum: each neuron's sum is divided by the length
     // (L2 norm) of its weight vector before bias, habituation and E-R, so
     // only the weights' direction matters and |sum| <= |inputs|. The norms

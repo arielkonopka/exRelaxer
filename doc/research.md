@@ -49,6 +49,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [35. Copy-init: grown neurons copy existing ones](#35-copy-init-grown-neurons-copy-existing-ones)
 - [36. Reproducibility and the new default recovery](#36-reproducibility-and-the-new-default-recovery)
 - [37. Growth re-evaluated: new recovery, more seeds, from one neuron](#37-growth-re-evaluated-new-recovery-more-seeds-from-one-neuron)
+- [38. Grown neurons that start easier to fire](#38-grown-neurons-that-start-easier-to-fire)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2367,6 +2368,61 @@ ER(4) with the caps lifted and with every §31 option on; copy-init (§35).
   runs away (up to 216 neurons, 1,096 widenings) at an unchanged score. From
   ER(16) at 0.5 width growth never fires, so it changes nothing.
 
+## 38. Grown neurons that start easier to fire
+
+Question (user, 2026-10-26): make the threshold of new neurons minimal and
+try again (§35's copy-init and random init). New in the library: one
+neuron's resting threshold and current threshold can be set
+(`neuron_layer::setNeuronRestingThreshold` / `setNeuronThreshold`,
+`net.set_resting_threshold` / `net.set_threshold`; a per-neuron resting
+threshold is not saved), and `WidthGrowth(resting_scale=..., start_threshold=...)`
+applies them to width-grown neurons (`snake_growth` params `grown_resting`,
+`grown_start`). Two readings of "minimal":
+
+- **start**: the threshold is set to the minimum right after growth and
+  relaxes as usual (the resting threshold stays 0.2);
+- **rest × k**: the grown neurons' resting threshold is the layer's × k
+  for good (k = 0.75 … 0.1), so they fire on weaker sums and their floor
+  after a firing (2 × resting) is lower.
+
+Setups: §35's (recovery 0.9, ER(1) and ER(4), 10 seeds, 1,500 games) and
+§37's best one-cell start (recovery 0.5, trigger 25% saturated ticks, 4
+neurons per growth), up to 30 seeds and 5,000 games
+(`snake_growth/copy_init.py`; tables in `results/snake-grown-threshold/`).
+Δ = paired by seed against random init with the current threshold; "all"
+= the mean over every 50-game window (how fast it learns).
+
+| setup | random init | start at min | rest × 0.5 | rest × 0.1 | copy, rest × 0.1 |
+|---|---|---|---|---|---|
+| ER(1), 0.9, 1,500 games | 3.91 | 4.03 (+0.12 ± 0.28) | 3.57 (−0.33 ± 0.31) | 3.48 (−0.43 ± 0.26) | 2.92 fatigued / 3.45 active |
+| ER(4), 0.9, 1,500 games | 5.62 | 5.62 (±0) | 5.48 (−0.14 ± 0.13) | 5.51 (−0.11 ± 0.13) | 5.60 / 5.48 |
+| ER(1), 0.5 retuned, 1,500 games, 30 seeds | 7.13 | 7.55 (+0.26 ± 0.15, 10 seeds) | 7.45 (+0.32 ± 0.14; all +0.40 ± 0.08) | 7.22 (+0.09 ± 0.14; all +0.29 ± 0.09) | 7.30 active (+0.17 ± 0.21) |
+| ER(1), 0.5 retuned, 5,000 games | 7.28 | | 7.98 (+0.70 ± 0.17; all +0.55 ± 0.09) | 7.50 (+0.22 ± 0.18) | |
+
+- **Starting at the minimum threshold changes almost nothing.** The first
+  firing lifts the threshold to max(threshold, 2 × resting, grown), the
+  same value it reaches from rest unless the first sum is below 0.2, so
+  after one tick the neuron is where it would have been (from ER(4)
+  every run is identical to random init).
+- **A lower resting threshold helps only at fast recovery.** At 0.9 it is
+  neutral to slightly worse; at 0.5 (with the retuned trigger) × 0.25 to
+  × 0.75 raise the score by 0.3-0.4 apples over 30 seeds and × 0.5 by 0.7
+  after 5,000 games (7.98 vs 7.28). It learns faster (Δ all +0.40) rather
+  than reaching a higher ceiling at 1,500 games; × 0.1 gains less.
+- **The gain is more learning, not more firing.** Grown neurons fire on
+  about as many ticks (0.59 vs 0.57 of ticks), but feedback alignment
+  updates an E-R neuron only while it is eligible (threshold above its
+  resting value): with rest × 0.5 the grown neurons are eligible on 97% of
+  ticks, × 0.1 on 100%, against 88% with the layer's threshold. A lower
+  resting threshold is a longer learning window for the new neurons, a
+  per-neuron learning-rate boost.
+- **Copies stay no better than random init**: a low threshold lifts copies
+  at 0.5 as much as random ones (copy active, rest × 0.1: +0.17 ± 0.21) and
+  makes the fatigued copies at 0.9 worse (−0.98 ± 0.34): the copies still
+  run away (11-14 neurons against 9-10).
+- Still below fixed networks: the best one-cell start reaches 7.98 at
+  5,000 games, a fixed ER(8) 9.34 at 1,500 (§37).
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -2551,6 +2607,13 @@ ER(4) with the caps lifted and with every §31 option on; copy-init (§35).
     neurons, still below a fixed ER(8) or ER(16), and the options that make
     growth from 16 neurons match the fixed network (wide depth growth, weak
     pruning) break growth from one or four.
+
+32. **New neurons gain from a longer learning window, not a lower start**
+    (§38): starting a grown neuron at the minimum threshold is undone by
+    its first firing; a lower resting threshold (× 0.25-0.75) keeps it
+    eligible for feedback alignment on almost every tick and adds 0.3-0.7
+    apples at recovery 0.5, nothing at 0.9; copies stay no better than
+    random init.
 
 ## Open questions and next steps
 

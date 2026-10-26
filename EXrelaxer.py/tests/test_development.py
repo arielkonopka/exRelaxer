@@ -133,6 +133,21 @@ def test_copy_init_growth_copies_and_splits():
     assert net2.weights(out2, 0)[4] == 0.0
 
 
+def test_grown_neurons_can_start_easier_to_fire():
+    net, h, out = watched(4, recovery=0.999)
+    m = exr.ActivityMonitor(exr.ActivitySpec(window=100))
+    width = WidthGrowth(increment=2, resting_scale=0.25, start_threshold=0.0)
+    saturate(net, h, m)
+    assert width.update(net, h, m) == 2
+    probe = net.state_probe(h)
+    base = exr.constants.baseline_threshold
+    np.testing.assert_allclose(probe["resting_threshold"], [base] * 4 + [0.25 * base] * 2, rtol=1e-6)
+    assert probe["threshold"][4] == probe["threshold"][5] == pytest.approx(exr.constants.min_threshold)
+    assert probe["threshold"][0] > base
+    with pytest.raises(ValueError):
+        net.set_resting_threshold(h, 0, 0.0)
+
+
 def test_width_growth_adds_plastic_neurons_and_keeps_old_ones():
     net, h, out = watched(4, recovery=0.999)
     m = exr.ActivityMonitor(exr.ActivitySpec(window=100))

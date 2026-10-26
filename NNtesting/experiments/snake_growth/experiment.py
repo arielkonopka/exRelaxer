@@ -65,6 +65,9 @@ DEFAULTS = {
     "copy_source": "fatigued",          # which neurons are copied: fatigued, active, read or random
     "copy_noise": 0.05,                 # noise on the copied weights, x their RMS
     "copy_split": 0.5,                  # share of the source's outgoing weights the copy takes
+    "grown_resting": 1.0,               # width-grown neurons' E-R resting threshold, x the layer's
+    "grown_start": -1.0,                # width-grown neurons' threshold right after growth; < 0: their
+                                        # resting threshold (0: the minimum)
     "undo": 3,                          # evaluations after a width growth before an unhelpful one is
                                         # undone (LIFO); 0: never undo
     "lr": 0.03, "explore": 0.05,
@@ -110,7 +113,9 @@ class Agent:
         self.monitor = self.new_monitor()
         self.width = WidthGrowth(increment=p["increment"], max_size=p["max_width"],
                                  freeze_existing=p["freeze_old"], init=p["growth_init"],
-                                 source=p["copy_source"], noise=p["copy_noise"], split=p["copy_split"])
+                                 source=p["copy_source"], noise=p["copy_noise"], split=p["copy_split"],
+                                 resting_scale=p["grown_resting"],
+                                 start_threshold=None if p["grown_start"] < 0 else p["grown_start"])
         self.pruning = Pruning(reasons=("invalid", "inactive") + (("weak",) if p["prune_weak"] else ()),
                                inactive_after=5000, only_grown=not p["prune_base"],
                                weak_fraction=p["weak_fraction"], weak_after=p["weak_after"])

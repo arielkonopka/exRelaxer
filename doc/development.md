@@ -80,6 +80,15 @@ source, so the two fatigue together, the population stays saturated and growth r
 window (1 -> 13 neurons in ~1,400 ticks, against one growth with random init). Random incoming
 weights give a new neuron its own receptive field, and that is what relieves E-R saturation.
 
+### New neurons that fire more easily
+
+`WidthGrowth(resting_scale=0.5)` gives the grown neurons an E-R resting threshold of half the
+layer's (`net.set_resting_threshold(layer, neuron, value)`), and `start_threshold=0` sets their
+threshold to the minimum right after growth (`net.set_threshold`). A per-neuron resting threshold is
+not saved: a loaded layer gives every neuron the layer's value. On Snake (research log §38) the
+start threshold is undone by the first firing; a lower resting threshold keeps the new neurons
+eligible to learn (feedback alignment) on almost every tick and helps at recovery 0.5, not at 0.9.
+
 ## 2. Depth growth
 
 Depth growth answers a different question: has the current representation learned something useful
@@ -311,6 +320,7 @@ C++ (`network.hpp`, `development.hpp`, `neuron_layer.hpp`):
 net.setMinimumSize(id, n);  net.minimumSize(id);
 net.growLayer(id, count, WeightInit::Zero, /*freezeExisting=*/true);
 net.copyNeuron(id, from, to, /*noise=*/0.05f, /*split=*/0.5f);  // copy-init a grown neuron
+layer.setNeuronRestingThreshold(i, 0.1f);  layer.setNeuronThreshold(i, 0.0f);  // one neuron, not saved
 net.grownNeurons(id);       layer.growthOrder(i);  layer.neuronGrown(i);
 net.pruneNewest(id, count);
 net.pruneCandidates(id, &monitor, inactiveAfter);  // PruneCandidate{index, reasons}
@@ -327,6 +337,8 @@ monitor = exr.ActivityMonitor(exr.ActivitySpec(window=200, saturated_share=0.5))
 WidthGrowth(increment=2, max_size=16).update(net, h, monitor)
 net.copy_neuron(h, source, target, noise=0.05, split=0.5); monitor.fatigued_ticks()
 WidthGrowth(increment=2, init="copy", source="fatigued").update(net, h, monitor)
+net.set_resting_threshold(h, i, 0.1); net.set_threshold(h, i, 0.0)
+WidthGrowth(increment=2, resting_scale=0.5, start_threshold=None).update(net, h, monitor)
 Pruning(reasons=("invalid", "inactive")).update(net, h, monitor)
 net.read_strength(h); Pruning(reasons=("weak",), weak_fraction=0.2, weak_after=20000).update(net, h, tick=t)
 Plateau(baseline=b, patience=4).update(score); grow_depth(net, h, readers=[out])

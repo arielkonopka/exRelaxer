@@ -480,6 +480,9 @@ public:
     // to the scale of its sums (e.g. normalised ones). With
     // `moveThreshold`, a neuron now at rest moves to the new resting value.
     float restingThreshold() const { return resting_; }
+    // Sets the current E-R threshold (no bounds here; see
+    // neuron_layer::setNeuronThreshold).
+    void setThreshold(float value) { threshold_ = value; }
     void setRestingThreshold(float value, bool moveThreshold = true)
     {
         if (moveThreshold && threshold_ == resting_)
