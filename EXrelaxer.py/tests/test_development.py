@@ -98,7 +98,7 @@ def test_fatigue_is_not_saturation_but_persistent_silence_is():
     assert all("inactive" not in reasons for reasons in found.values())
 
 
-from exrelaxer.development import Plateau, Pruning, WidthGrowth, grow_depth  # noqa: E402
+from exrelaxer.development import Maturation, PatternDiversity, Plateau, Pruning, WidthGrowth, grow_depth  # noqa: E402
 
 
 def saturate(net, h, monitor, ticks=150):
@@ -146,6 +146,47 @@ def test_grown_neurons_can_start_easier_to_fire():
     assert probe["threshold"][0] > base
     with pytest.raises(ValueError):
         net.set_resting_threshold(h, 0, 0.0)
+
+
+def test_maturation_moves_newborns_to_the_layers_values():
+    net, h, out = watched(2, recovery=0.999)
+    m = Maturation(ticks=100, resting_scale=0.5, gain_scale=3.0, freeze=True, every=10)
+    base = exr.constants.baseline_threshold
+    gain = exr.constants.default_learning_gain
+    net.grow_layer(h, 2, freeze_existing=False)
+    assert m.update(net, h, 0) == 2
+    probe, state = net.state_probe(h), net.neuron_state(h)
+    np.testing.assert_allclose(probe["resting_threshold"], [base, base, 0.5 * base, 0.5 * base], rtol=1e-6)
+    np.testing.assert_allclose(state["learning_gain"], [gain, gain, 3 * gain, 3 * gain], rtol=1e-6)
+    net.grow_layer(h, 1, freeze_existing=False)
+    assert m.update(net, h, 50) == 3                     # the newest is born at 50
+    np.testing.assert_allclose(net.state_probe(h)["resting_threshold"][2:], [0.75 * base] * 2 + [0.5 * base],
+                               rtol=1e-6)
+    np.testing.assert_allclose(net.neuron_state(h)["learning_gain"][2:], [2 * gain] * 2 + [3 * gain], rtol=1e-6)
+    net.prune_newest(h, 1)
+    assert m.update(net, h, 55) == 2                     # off the update grid: nothing moves
+    assert m.update(net, h, 100) == 0
+    assert m.matured == 2
+    np.testing.assert_allclose(net.state_probe(h)["resting_threshold"], [base] * 4, rtol=1e-6)
+    assert net.frozen_neurons(h) == [2, 3]
+    with pytest.raises(ValueError):
+        net.set_learning_gain(h, 0, -1.0)
+
+
+def test_pattern_diversity():
+    net, h, _ = watched(2)
+    d = PatternDiversity()
+    for x in (1.0, 0.0, 1.0, 0.0):
+        net.set_inputs("x", np.array([x], np.float32))
+        net.step()
+        d.observe(net, h)
+    s = d.summary()
+    assert d.ticks == 4 and s["distinct"] <= 4
+    assert 0.0 <= s["entropy"] <= 2.0 and 0.0 <= s["neuron_entropy"] <= 1.0
+    d.counts, d.fired, d.ticks = {b"a": 2, b"b": 2}, np.array([2.0, 2.0]), 4   # two neurons firing together
+    s = d.summary()
+    assert s["entropy"] == pytest.approx(1.0) and s["redundancy"] == pytest.approx(0.5)
+    assert s["neuron_entropy"] == pytest.approx(1.0) and s["active"] == pytest.approx(0.5)
 
 
 def test_width_growth_adds_plastic_neurons_and_keeps_old_ones():

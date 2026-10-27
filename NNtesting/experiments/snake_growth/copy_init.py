@@ -76,7 +76,8 @@ def job(args):
     p = dict(sg.DEFAULTS, **setups()[name], **extra)
     log = []
     agent, m = sg.develop(p, seed, report=log.append)
-    m = {k: ([float(x) for x in v] if isinstance(v, list) else float(v)) for k, v in m.items()}
+    m = {k: (v if k == "diversity" else [float(x) for x in v] if isinstance(v, list) else float(v))
+         for k, v in m.items()}
     m.update(setup=name, seed=seed, params=p, sizes=agent.sizes(), log=log,
              growth=growth_windows(log, m["curve"]), copies=agent.width.copies)
     (Path(out) / f"{name}_s{seed}.json").write_text(json.dumps(m))

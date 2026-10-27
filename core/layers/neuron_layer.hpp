@@ -87,6 +87,10 @@ public:
     // One neuron's current E-R threshold, clamped to [min_threshold,
     // max_output]; it relaxes back towards the resting threshold as usual.
     void setNeuronThreshold(size_t index, float threshold);
+    // One neuron's learning gain (multiplies its weight and bias updates),
+    // e.g. a young grown neuron that learns faster than the rest; >= 0 and
+    // finite (0: it stops learning). Saved with the neuron.
+    void setNeuronLearningGain(size_t index, float gain);
     // Normalised weighted sum: each neuron's sum is divided by the length
     // (L2 norm) of its weight vector before bias, habituation and E-R, so
     // only the weights' direction matters and |sum| <= |inputs|. The norms

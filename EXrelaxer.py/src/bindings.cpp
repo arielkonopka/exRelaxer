@@ -1253,6 +1253,13 @@ NB_MODULE(_core, m)
             "One neuron's current E-R threshold (clamped to [min_threshold, max_output]); it relaxes towards\n"
             "the resting threshold as usual.")
         .def(
+            "set_learning_gain", [](network& net, LayerId id, size_t index, float value) {
+                neuronLayer(net, id).setNeuronLearningGain(index, value);
+            },
+            "layer"_a, "neuron"_a, "value"_a,
+            "One neuron's learning gain (multiplies its weight updates; default constants.default_learning_gain,\n"
+            "0: it stops learning). Saved with the network.")
+        .def(
             "set_output", [](network& net, LayerId id, size_t index, float value) {
                 neuronLayer(net, id).setOutput(index, value);
             },

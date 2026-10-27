@@ -121,6 +121,13 @@ void neuron_layer::setNeuronThreshold(size_t index, float threshold)
     neurons_.at(index).setThreshold(std::clamp(threshold, min_threshold, max_output));
 }
 
+void neuron_layer::setNeuronLearningGain(size_t index, float gain)
+{
+    if (!(gain >= 0.0f) || !std::isfinite(gain))
+        throw std::invalid_argument("setNeuronLearningGain: the gain must be finite and >= 0");
+    neurons_.at(index).setLearningGain(gain);
+}
+
 void neuron_layer::setSpontaneous(const Spontaneous& spontaneous)
 {
     if (!spontaneous.valid() || !std::isfinite(spontaneous.below) || !std::isfinite(spontaneous.amplitude))

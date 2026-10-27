@@ -426,3 +426,17 @@ TEST(GrownThresholdTest, OneNeuronRestsLowerAndStartsAtTheMinimum)
     EXPECT_THROW(h.setNeuronRestingThreshold(4, 0.0f), std::invalid_argument);
     EXPECT_THROW(h.setNeuronThreshold(9, 0.1f), std::out_of_range);
 }
+
+TEST(GrownThresholdTest, OneNeuronLearnsFasterAndIsSaved)
+{
+    Population p(4);
+    p.net.growLayer(p.h, 1);
+    auto& h = dynamic_cast<neuron_layer&>(p.net.getLayer(p.h));
+    h.setNeuronLearningGain(4, 6.0f);
+    EXPECT_FLOAT_EQ(h.neurons()[4].learningGain(), 6.0f);
+    EXPECT_FLOAT_EQ(h.neurons()[0].learningGain(), default_learning_gain);
+    auto loaded = roundTrip(p.net);
+    EXPECT_FLOAT_EQ(dynamic_cast<const neuron_layer&>(loaded->getLayer(p.h)).neurons()[4].learningGain(), 6.0f);
+    EXPECT_THROW(h.setNeuronLearningGain(4, -1.0f), std::invalid_argument);
+    EXPECT_THROW(h.setNeuronLearningGain(9, 1.0f), std::out_of_range);
+}
