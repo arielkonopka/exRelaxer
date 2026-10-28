@@ -29,7 +29,7 @@ SETUPS = {
 
 def job(args):
     out, name, seed = args
-    p = dict(sg.DEFAULTS, **SETUPS[name])
+    p = dict(sg.DEFAULTS, **sg.OLD_TRIGGER, **SETUPS[name])
     log = []
     agent, m = sg.develop(p, seed, report=log.append)
     m = {k: (v if k == "diversity" else [float(x) for x in v] if isinstance(v, list) else float(v))

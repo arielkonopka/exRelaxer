@@ -78,7 +78,7 @@ def long_run(p, seed, stable, max_games):
 
 def job(args):
     out, name, seed, stable, max_games = args
-    p = dict(sg.DEFAULTS, **SETUPS[name])
+    p = dict(sg.DEFAULTS, **sg.OLD_TRIGGER, **SETUPS[name])
     agent, m = long_run(p, seed, stable, max_games)
     m.update(setup=name, seed=seed, params=p)
     (Path(out) / f"{name}_s{seed}.json").write_text(json.dumps(m, default=lambda o: o.item() if hasattr(o, "item") else list(o)))

@@ -490,6 +490,14 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-28: snake_growth grows at 25% saturated ticks, 4 neurons at a time
+
+- `snake_growth` defaults `saturated_share` 0.25 (was 0.5) and `increment` 4
+  (was 2): at recovery 0.5 even one neuron stays under a 50% share, and this
+  trigger took ER(1) from 2.1 to 7.3 apples (research log §37). sweep.py,
+  long_run.py and copy_init.py start from the old trigger
+  (`experiment.OLD_TRIGGER`), so §30, §31 and §35 reproduce exactly.
+
 ### 2026-10-26: young grown neurons that mature
 
 - `neuron_layer::setNeuronLearningGain` / `net.set_learning_gain` (one
