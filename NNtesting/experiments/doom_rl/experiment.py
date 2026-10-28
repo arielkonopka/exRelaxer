@@ -148,6 +148,9 @@ class Player:
                 spec.gate = p["gate"]
             if model == "er":
                 spec.spontaneous = exr.Spontaneous(amplitude=p.get("spontaneous_amplitude", 0.01))
+                # Pinned: every Doom agent was evolved at 0.9, the library default
+                # until 2026-10-08 (0.5 since); saved settings without the key mean 0.9.
+                spec.recovery_jitter = exr.Jitter.none().around(p.get("recovery", 0.9))
             return normalized(spec)
 
         # Settings saved before the 2026-09-28 defaults lack these keys: they
@@ -550,6 +553,8 @@ PARAMS = {
     "ticks": (3, "network ticks per game step (the sound is split across them)"),
     "normalize": (True, "weighted sums divided by the weights' length (the library default since 2026-09-28)"),
     "spontaneous_amplitude": (0.1, "E-R spontaneous firing amplitude (the library default since 2026-09-28)"),
+    "recovery": (0.9, "E-R recovery (threshold decay per silent tick): 0.9 as in D1 to D14, whatever the "
+                      "library default (0.5 since 2026-10-08)"),
     "readout": ("last", "action values: last (the last tick of the step) or sum (the readouts summed over the step's ticks; "
                         "scores lower, doc/doom.md D11)"),
     "readout_from": ("top", "which hidden layers the readouts read: top, or all (every layer, bottom first)"),
