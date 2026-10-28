@@ -73,7 +73,7 @@ def growth_windows(log, curve):
 
 def job(args):
     out, name, seed, extra = args
-    p = dict(sg.DEFAULTS, **setups()[name], **extra)
+    p = dict(sg.DEFAULTS, **sg.OLD_TRIGGER, **setups()[name], **extra)
     log = []
     agent, m = sg.develop(p, seed, report=log.append)
     m = {k: (v if k == "diversity" else [float(x) for x in v] if isinstance(v, list) else float(v))

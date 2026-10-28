@@ -39,11 +39,13 @@ DEFAULTS = {
     "start": 4,                         # E-R neurons at the start (1: start from one cell)
     "minimum": 0,                       # protected core; 0: the starting size
     "recovery": 0.9,                    # E-R threshold recovery of the adaptive layers
-    "increment": 2,                     # neurons per width growth
+    "increment": 4,                     # neurons per width growth (2 before 2026-10-28)
     "freeze_old": True,                 # width growth freezes the neurons the layer had
     "max_width": 16,                    # no layer grows past this
     "window": 200,                      # ticks the saturation is judged over
-    "saturated_share": 0.5,             # share of saturated ticks in the window that triggers growth
+    "saturated_share": 0.25,            # share of saturated ticks in the window that triggers growth
+                                        # (0.5 before 2026-10-28: at recovery 0.5 even ER(1) stays
+                                        # under it, research log §37)
     "eval_games": 50,                   # games per evaluation window (one score = their mean apples)
     "games": 1500,                      # games played (and learned from) in all
     "patience": 4,                      # evaluations without a new best before a plateau
@@ -90,6 +92,11 @@ DEFAULTS = {
     "readout_precision": "float",       # the readouts' number format (as precision)
     "value_step": 0.0625,               # 8-bit outputs: the step (a power of two)
 }
+
+
+# The growth trigger before 2026-10-28. sweep.py, long_run.py and copy_init.py start from it, so
+# their setups reproduce the runs behind research log §30, §31 and §35.
+OLD_TRIGGER = {"saturated_share": 0.5, "increment": 2}
 
 
 def precision(name, step):
