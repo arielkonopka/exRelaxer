@@ -174,6 +174,15 @@ class Player:
         # Profiling (online.py profile): a dict here collects seconds spent in act() by part:
         # senses (screen pooling, sound), network (the ticks) and readout (choosing the action).
         self.timing = None
+        # es.py width growth: an ActivityMonitor on h1 during validation games.
+        self.monitor = None
+        # Grown neurons (es.py --grow-width): h1's neurons from `young_from` on
+        # rest at young_resting x the layer's resting threshold, for good.
+        if p.get("young_from") is not None and p.get("young_resting", 1.0) != 1.0:
+            h = self.layers[0]
+            rest = net.layer_spec(h).resting_threshold
+            for i in range(p["young_from"], net.layer_size(h)):
+                net.set_resting_threshold(h, i, rest * p["young_resting"])
 
     def _build_stack(self, p, neurons, normalized):
         net, width = self.net, p["width"]
@@ -433,6 +442,8 @@ class Player:
                 self.net.set_inputs(f"thr_{self.net.layer_name(h)}", self.net.neuron_state(h)["threshold"])
             self.net.step()
             total += np.asarray(self.net.outputs())
+            if self.monitor is not None:
+                self.monitor.observe(self.net, self.layers[0])
             if meter:
                 for layer in self.metered:
                     self.spikes += np.count_nonzero(np.abs(self.net.layer_output(layer)) > 1e-6)

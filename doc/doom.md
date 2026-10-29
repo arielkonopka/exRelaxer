@@ -577,6 +577,62 @@ fresh games (seed 4242, until death or 30 minutes).
 Data: `results/dynamic/doom_agent/untildeath_d1/recovery_retest.json`
 (`recovery_retest.py`).
 
+### D16. A layer that grows when it saturates, from one neuron (2026-10-28/29)
+
+**Question.** The Snake growth findings (research
+[§37-§39](research.md#37-growth-re-evaluated-new-recovery-more-seeds-from-one-neuron)):
+a layer that starts with one E-R neuron and gains 4 whenever it is
+saturated in 25 % of ticks, with grown neurons "young for good" (resting
+threshold × 0.5, learning gain × 3) and nothing frozen. Do they carry over
+to Doom, where evolution, not a learning rule, sets the weights?
+
+**Setup.** `es.py --grow-width 128` (h1 widens between generations when the
+10 validation games saw it saturated in ≥ 25 % of ticks; the new neurons
+are read with weight zero, so play does not change; every weight keeps
+evolving, so nothing is frozen). "Young": `--young-resting 0.5
+--young-gain 3` (ES noise and steps × 3 on the grown neurons' weights, the
+evolution analogue of a learning gain). Against fixed layers of 128 (D12's
+size) and 8. All at recovery 0.5 (the library default), 1 E-R layer with
+fading habituation, sound, `defend_the_center`, 1-minute games, σ 0.05,
+lr 0.02, 12 pairs × 3 games, 10 validation games, 300 generations; 3 seeds
+(ES seed = network seed = 1, 2, 3). The best validation weights of each
+run then played 30 fresh games (seed 4242).
+
+| Arm | Neurons at the end | Reward, 1-minute games (seeds 1/2/3) | Mean | Until death: survives | Spikes per step |
+|-----|--------------------|---------------------------------------|------|-----------------------|-----------------|
+| fixed 128 | 128 | 7.5 / 7.2 / 1.2 | +5.3 | 79 s | 325-338 |
+| fixed 8 | 8 | 11.9 / 8.9 / 0.9 | +7.2 | 85 s | 17-24 |
+| grows from 1 | 5 (all seeds) | 12.8 / 6.0 / 4.4 | +7.7 | 111 s | 13-17 |
+| grows from 1, young | 5 (all seeds) | 0.5 / 10.6 / 1.9 | +4.3 | 233 s* | 17-18 |
+| untrained (any arm) | | −4.7 to −5.7 | | 9-13 s | |
+
+\* one seed survives long; the other two rush in, kill about 6 and die in
+under 20 s.
+
+How often the untrained layer is saturated (10 validation games of 1
+minute): 36 % of ticks with 1 neuron, 33 % with 2, 5 % with 4, 1 % with 8,
+never with 16 or more (at recovery 0.9: 63 % with 1, 36 % with 4).
+
+**Conclusion.**
+- **The saturation trigger stops at 5 neurons.** In every seed the layer
+  grew once, in the first generation (1 → 5), and never again: with the
+  screen and sound always present, some neuron fires on most ticks. On
+  Doom the trigger is a one-off size finder, not ongoing growth.
+- **Five to eight evolved E-R neurons play as well as 128**, with 15 to
+  20 times fewer spikes. The differences in reward between the arms are
+  within the spread between seeds (1 to 13 for the same arm); the
+  difference in activity is not.
+- **Young grown neurons do not help under evolution.** Their arm is the
+  most erratic; with ES there is no learning rule for a gain to speed up,
+  and larger noise on 4 of 5 neurons mostly makes the search coarser.
+- The D12 agent (+16.5 until death) remains the best; it was evolved at
+  recovery 0.9 for 300 more generations from a trained start, so it is not
+  a like-for-like comparison.
+
+Data: `results/dynamic/doom_agent/growth_d16/` (per run `config.json`,
+`best.json`, `best_theta.npy`, `log.jsonl.gz`; `fresh30.jsonl` from
+`fresh.py`; `run.sh`, `run_seeds.sh`).
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

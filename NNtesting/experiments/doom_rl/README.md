@@ -138,7 +138,16 @@ and adds a hidden layer on top, up to N, as soon as the current network
 learns (the mean validation reward of the last `--grow-window`
 generations beats the first window at this depth by `--grow-margin`).
 The readouts then read every layer (`readout_from` `all`), and their
-weights from a new layer start at zero, so growing does not change play. The best topology found so far is one E-R layer with
+weights from a new layer start at zero, so growing does not change play.
+`--grow-width N` (depth 1, no feedback, `evolve` `all`) widens h1 instead:
+by `--width-increment` neurons (4), up to N, whenever h1 was saturated
+(no neuron fired on its input, at least half held back by their own
+threshold) in at least `--saturated-share` (0.25) of the validation ticks,
+research §37's trigger. New neurons start as the wider network's random
+ones and are read with weight zero, so play does not change;
+`--young-resting` and `--young-gain` keep them young for good (a lower
+resting threshold; larger ES noise and steps on their weights, research
+§38/§39). The best topology found so far is one E-R layer with
 fading habituation (tolerance 0.05, decay 0.9 from the 2nd repeat) and no
 feedback: the defaults plus `--config '{"depth": 1, "feedback": "none"}'`.
 
