@@ -2534,6 +2534,15 @@ without §38/§39's young neurons, against fixed layers:
 - Young neurons do not help under evolution (most erratic arm); the gain
   in §39 speeds a learning rule, and ES has none.
 
+**Growth on Gardens of Eris** ([G7](goe.md#g7-g3-regrown-with-older-columns-evolving-and-young-new-columns-2026-10-29)).
+G3's growing column network rerun from its first growth with every column
+evolving and grown columns young (resting × 0.5, ES steps × 3), on G3's
+game, one run: 69.4 per maze on 30 fresh mazes against 57.8 with older
+columns frozen (+11.6 ± 12.6 paired) and 49.1 for one column (+20.3 ±
+8.6); rooms unchanged; the doors stage took 400 generations against 170.
+On today's harder mazes 45.7 against 48.0. Not freezing does not hurt and
+may help, as on Snake (§39), but within the noise of one run.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -2735,7 +2744,9 @@ without §38/§39's young neurons, against fixed layers:
     5-8 evolved E-R neurons match 128 at 15-20× fewer spikes; the
     saturation trigger grows once and stops, and young neurons do not
     help evolution. Saved Doom and GoE agents need the recovery (0.9) they
-    were trained at.
+    were trained at. On GoE, columns grown with nothing frozen and young
+    play mazes at least as well as frozen ones (69.4 vs 57.8, within the
+    noise of one run) but learn a new stage more slowly.
 
 ## Open questions and next steps
 
