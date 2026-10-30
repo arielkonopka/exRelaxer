@@ -9,7 +9,7 @@ and its prediction error
 replaces the raw reward as the modulator of the actor's readouts: one
 global scalar, the analogue of phasic dopamine, so learning stays local
 (pre × post × δ) but is no longer sparse or late. Results: research log
-§41, Doom log D17.
+§41 (phase 2, drives: §42), Doom log D17 (D18).
 
 ```
 input -> frozen features (Gabor + centre-surround bank, max-pooled)
@@ -42,6 +42,13 @@ python3 doom_td.py --out runs/basic_td --scenario basic --arm td --episodes 3000
 of M minutes) and logs survival seconds; `--scenario map01` plays the
 whole level with doom_rl's 8 buttons and shaped reward; `--checkpoint N`
 saves the learner every N games and resumes from it after a restart.
+
+Phase 2, homeostatic drives (`--scenario health_gathering`): `--set drives=1`
+feeds health / 100 into the reservoir (weights × `drive_gain`) and into the
+features; `--set reward=drive` replaces the scenario's reward by drive
+reduction r = D(h_prev) − D(h_now), D(h) = |target − h| / 100
+(`reward=drive_level`: −D(h) × `drive_cost` every step). The log counts the
+medkits picked up.
 
 `doom_td.py --arm reward` is the control with the raw reward as the
 modulator (the critic still learns and is logged); `--arm random` plays

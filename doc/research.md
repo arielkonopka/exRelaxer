@@ -52,6 +52,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [38. Grown neurons that start easier to fire](#38-grown-neurons-that-start-easier-to-fire)
 - [39. A critical period: grown neurons that mature](#39-a-critical-period-grown-neurons-that-mature)
 - [41. A TD critic: δ as the modulator (actor-critic)](#41-a-td-critic-δ-as-the-modulator-actor-critic)
+- [42. Homeostatic drives](#42-homeostatic-drives)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2629,6 +2630,44 @@ Diagnostics on all runs: mean δ ≈ 0 once the critic has converged (|mean|
 actions (only the off-greedy share is logged) and δ modulating
 habituation.
 
+## 42. Homeostatic drives
+
+**Question.** (User's spec, phase 2; Doom log D18 has the setup and tables.)
+The §41 actor-critic learned from the game's reward. Can it learn from an
+internal need instead: health as an input of the reservoir, and the reward
+the reduction of a drive, r = D(h_prev) − D(h_now), D(h) = |h* − h| / 100
+with h* = 100?
+
+**Setup.** `doom_td.py --set drives=1 --set reward=drive` on ViZDoom
+`health_gathering` and `health_gathering_supreme`; `Reservoir(direct=...)`
+feeds named sources straight into the E-R layer, also when the screen goes
+through the frozen vision bank, with a gain so that one input is not
+drowned by 500 visual ones. Arms: δ with the drive reward with and without
+the health input, δ with the scenario's reward, the raw drive reward
+without δ, random; 3 seeds, games until death (5-minute cap).
+
+**Results.**
+- `health_gathering` (150 games): δ + drive + health survives the cap in
+  every test game (161 medkits), reaching it after 15-23 games; the
+  scenario's reward also reaches the cap (295 s) but after 29-61 games;
+  without the health input or without δ about 250 s with 20% of test games
+  ending in death; random 15 s.
+- `health_gathering_supreme` (1000 games): drive reward 29-30 s and about
+  12.5 medkits with or without the health input, scenario reward 17 s and
+  4.2 medkits, random 12 s (150 games). Still rising.
+
+**What it means.**
+- A drive reduction is a denser, more direct signal than a living bonus:
+  each medkit is a step of reward, where +1 per tic only says "still
+  alive" and its credit is spread over every action.
+- The health input matters only where survival is already learned: it
+  removes the remaining deaths on the easy map (the policy can be greedy
+  for medkits when hurt) and changes nothing on the hard one.
+- Drive-reduction returns telescope to D(h_0) − D(h_end), the same for an
+  early and a late death; the discount alone makes delay valuable. A
+  level-based cost (`reward=drive_level`, −D(h) per step) is in the code
+  but untested.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -2837,11 +2876,19 @@ habituation.
     `defend_the_center` δ is ahead of the raw reward (+6.1 against +5.4)
     but within the seeds' spread; on a whole level (`map01`) it teaches
     hiding and neither learner beats random.
+36. **An internal drive is a better teacher than a living bonus** (§42):
+    with health as a reservoir input and drive reduction as the reward,
+    the §41 actor-critic learns to gather medkits on `health_gathering` to
+    the 5-minute cap in 15-23 games without any game score, twice as fast
+    as with the scenario's reward, and on `health_gathering_supreme`
+    survives 30 s against 17 s (random 12 s). Feeling health removes the
+    last deaths on the easy map and adds nothing on the hard one.
 
 ## Open questions and next steps
 
-- **Homeostatic drives** (§41, the spec's phase 2): health and ammo as
-  reservoir inputs, reward as drive reduction, on `health_gathering`.
+- **More than one drive** (§42): health and ammo together (a scenario
+  with weapons), and whether a level-based drive cost (no telescoping)
+  beats drive reduction.
 - **A reservoir that keeps where things are** (§41): random E-R mixing of
   the Gabor bank loses the monster's position; a spatially local reservoir
   (Conv2D / locally connected E-R) might keep it and add memory.

@@ -52,8 +52,13 @@ DEFAULTS = {
     "post": "advantage", "entropy": 0.0, "center": 0.0,
     "reward_scale": None, "test": 30, "trace_every": 100,
     "until_death": 0,  # > 0: no time limit, games end at death or after this many minutes
+    # Phase 2, homeostatic drives. reward: game (the scenario's), drive (drive reduction
+    # D(h_prev) - D(h_now), D(h) = |target - h| / 100) or drive_level (-D(h_now) x drive_cost every step).
+    "reward": "game", "drives": 0,  # drives 1: health / 100 is an input of the reservoir and a raw feature
+    "drive_gain": 5.0, "health_target": 100.0, "drive_cost": 0.05,
 }
-SCALES = {"basic": 0.01, "defend_the_center": 1.0, "map01": 0.2}
+SCALES = {"basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
+          "health_gathering_supreme": 0.01}
 
 
 MAPS = ("map01",)  # whole levels: doom_rl's 8 buttons and shaped reward (doom_rl/rewards.py)
@@ -82,6 +87,7 @@ def make_game(scenario, seed, skill=None, labels=False, until_death=0):
     game.set_sound_enabled(False)
     game.set_labels_buffer_enabled(labels)
     game.add_available_game_variable(vzd.GameVariable.KILLCOUNT)
+    game.add_available_game_variable(vzd.GameVariable.HEALTH)
     if skill is not None:
         game.set_doom_skill(skill)
     if until_death > 0:
@@ -117,22 +123,38 @@ class Learner:
         kind = {"both_eye": "both", "eye": "none", "oracle": "none", "both_pool": "both", "pool": "none"}.get(
             p["features"], p["features"])
         self.oracle = p["features"] == "oracle"
+        self.drives = bool(p["drives"])
+        extra = ORACLE_BINS if self.oracle else self.eye_size if p["features"] in ("both_eye", "eye") else 0
         self.res = Reservoir({"eye": self.eye_size}, width=p["width"], recurrent_scale=p["recurrent_scale"],
                              recovery=p["recovery"], spread=p["spread"], model=p["model"], features=kind, ticks=p["ticks"],
                              vision=dict(height=120 // p["pool"], width=160 // p["pool"]) if p["vision"] == "gabor" else None,
                              with_pool=p["features"] in ("both_pool", "pool"),
-                             extra=ORACLE_BINS if self.oracle else self.eye_size if p["features"] in ("both_eye", "eye") else 0)
+                             extra=extra + int(self.drives), direct={"drive": 1} if self.drives else None,
+                             direct_gain=p["drive_gain"])
         self.arm, self.p, self.buttons = arm, p, buttons
         self.rng = np.random.default_rng(seed)
         self.agent = Agent(self.res.size, buttons, p["gamma"], p["lam"], p["critic_rate"], p["actor_rate"],
                            clip=p["clip"], modulator="reward" if arm == "reward" else "td", post=p["post"],
                            tau=p["tau"], entropy=p["entropy"], center=p["center"], rng=self.rng)
 
-    def features(self, state):
+    def features(self, state, health=None):
+        inputs, raw = {}, []
+        if self.drives:
+            inputs["drive"] = [health / 100.0]
         if self.oracle:
-            return self.res.step({"eye": np.zeros(self.eye_size)}, raw=oracle_features(state))
-        eye = pool_screen(state.screen_buffer, self.p["pool"])
-        return self.res.step({"eye": eye}, raw=eye)
+            inputs["eye"] = np.zeros(self.eye_size)
+            raw.append(oracle_features(state))
+        else:
+            inputs["eye"] = pool_screen(state.screen_buffer, self.p["pool"])
+            if self.p["features"] in ("both_eye", "eye"):
+                raw.append(inputs["eye"])
+        if self.drives:
+            raw.append([health / 100.0])
+        return self.res.step(inputs, raw=np.concatenate(raw) if raw else None)
+
+    def drive(self, health):
+        """D(h) = |target - h| / 100: how far health is from where the body wants it."""
+        return abs(self.p["health_target"] - max(0.0, health)) / 100.0
 
     def act(self, x, reward, terminal, learn):
         a = self.agent.step(x, reward, terminal, learn=learn and self.arm != "random", explore=learn)
@@ -153,13 +175,23 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     state = game.get_state()
     if shaper is not None:
         shaper.reset(state)
-    x = learner.features(state)
+    kind = learner.p["reward"]
+    health = game.get_game_variable(vzd.GameVariable.HEALTH)
+    medkits, game_total = 0, 0.0
+    x = learner.features(state, health)
     a = learner.act(x, 0.0, False, learn)
     steps = 0
     while True:
         r = game.make_action(eye[a], FRAME_SKIP) * scale
+        game_total += r / scale
         steps += 1
         done = game.is_episode_finished()
+        before, health = health, game.get_game_variable(vzd.GameVariable.HEALTH)
+        medkits += int(health > before)
+        if kind == "drive":
+            r = learner.drive(before) - learner.drive(health)
+        elif kind == "drive_level":
+            r = -learner.drive(health) * learner.p["drive_cost"]
         if shaper is not None:
             if done:
                 r = shaper.end(game) * scale
@@ -178,13 +210,13 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             break
         if shaper is None:
             state = game.get_state()
-        x = learner.features(state)
+        x = learner.features(state, health)
         a = learner.act(x, r, False, learn)
-    total = game.get_total_reward() if shaper is None else sum(learner.agent.log.rewards) / scale
+    total = game_total if shaper is None else sum(learner.agent.log.rewards) / scale
     kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)  # still readable after the end
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
-    s.update(game_reward=float(total), steps=steps, seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
+    s.update(game_reward=float(total), medkits=medkits, steps=steps, seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
              spikes=learner.res.spikes / max(1, steps * learner.res.ticks))
     if shaper is not None:
         s.update({k: float(shaper.counts[k]) for k in ("kills", "items", "doors", "keys", "exits", "cells", "damage")})
@@ -269,7 +301,8 @@ def main():
     test_game = make_game(args.scenario, 20_000 + args.seed, p["skill"], p["features"] == "oracle", p["until_death"])
     rows = [episode(test_game, learner, scale, False, shaper=shaper) for _ in range(p["test"])]
     test_game.close()
-    summary = {k: float(np.mean([r[k] for r in rows])) for k in ("game_reward", "kills", "steps", "seconds", "died", "spikes")}
+    summary = {k: float(np.mean([r[k] for r in rows]))
+               for k in ("game_reward", "kills", "medkits", "steps", "seconds", "died", "spikes")}
     for k in ("items", "doors", "exits", "cells", "distance"):
         if k in rows[0]:
             summary[k] = float(np.mean([r[k] for r in rows]))
