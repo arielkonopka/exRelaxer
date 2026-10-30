@@ -2614,6 +2614,15 @@ features = bank + reservoir; 2000 episodes; 30 test episodes; 3 seeds):
 - Not comparable to the evolved agents of D5-D12 (8 buttons, a shaped
   reward, games until death).
 
+**5. Until death, and a whole level** (the user's follow-ups; Doom log
+D17 has the tables). On `defend_the_center` without a time limit the
+agents die as before (δ 7.1 kills, 16.8 s survival; raw reward 6.4, 16.2 s;
+random 1.3, 9.5 s). On `map01` (doom_rl's 8 buttons and shaped reward, 600
+games until death, 3 seeds) neither learner beats random on reward and none
+reaches the exit: δ's policy narrows into hiding (283 s survival, 0.5
+kills, fewer squares visited than random), the raw reward learns to kill,
+open doors and pick up items (1.0 kills, 1.2 doors) but dies sooner (89 s).
+
 Diagnostics on all runs: mean δ ≈ 0 once the critic has converged (|mean|
 < 0.005 on Doom), no actor weight at the ±10 clamp, critic weights below
 0.6. Not done from the spec: the spontaneous-versus-driven share of
@@ -2826,7 +2835,8 @@ habituation.
     steps for a linear critic, and only with a spread of recovery rates; a
     frozen Gabor bank, not the reservoir, carries what `basic` needs. On
     `defend_the_center` δ is ahead of the raw reward (+6.1 against +5.4)
-    but within the seeds' spread.
+    but within the seeds' spread; on a whole level (`map01`) it teaches
+    hiding and neither learner beats random.
 
 ## Open questions and next steps
 

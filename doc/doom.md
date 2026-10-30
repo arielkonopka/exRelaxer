@@ -545,7 +545,7 @@ Data: `results/dynamic/es_d14_grow.jsonl.gz`,
 `results/dynamic/es_d14_grow_thresholds.jsonl.gz`, agents, tests and probes
 in `results/dynamic/doom_agent/grow_d14/`.
 
-### D17. A TD critic instead of the raw reward: actor-critic on `basic` and `defend_the_center` (2026-10-30)
+### D17. A TD critic instead of the raw reward: actor-critic on `basic`, `defend_the_center` and `map01` (2026-10-30)
 
 **Question.** (User's spec.) Does an actor-critic help, with δ = r + γV(s′) − V(s) from a
 linear TD(λ) critic as the modulator of per-action readouts over frozen
@@ -578,6 +578,41 @@ vision bank matters more than the E-R reservoir.
 
 **Data.** `results/td-actor-critic/doom/` (config, test, gzipped training
 log per run); the project's `reports/doom-td/`.
+
+**Addendum (2026-10-30, the user's follow-ups: games until death with
+survival times, and a whole level).** `doom_td.py --set until_death=M`
+(no time limit, a cap of M minutes; survival seconds logged),
+`--scenario map01` (doom_rl's 8 buttons and shaped reward) and
+`--checkpoint N` (resume after a restart).
+
+- `defend_the_center` until death (30-minute cap, 3 seeds, 30 test games):
+  δ 7.1 kills, survives 16.8 s (median 17.6, longest 30.9); δ + entropy
+  6.5 kills, 16.5 s; raw reward 6.4 kills, 16.2 s; random 1.3 kills,
+  9.5 s. The same numbers as with the 60 s limit: these agents always died
+  before it. Training survival rises 13.8 → 16.1 s (raw 12.9 → 15.0 s). They
+  shoot well but never dodge; the evolved D12 agent survives 21 minutes.
+- `map01`, 600 games until death (5-minute cap), 3 seeds, 10 test games:
+
+  | | test reward | kills | survival | squares visited | doors | items | exits |
+  |---|---|---|---|---|---|---|---|
+  | δ | −9.3 | 0.5 | 283 s | 28 | 0.0 | 1.1 | 0 |
+  | raw reward | −4.1 | 1.0 | 89 s | 37 | 1.2 | 2.0 | 0 |
+  | random | −3.7 | 0.2 | 142 s | 38 | 0.0 | 0.5 | 0 |
+
+  δ's greedy policy hides: it outlives the cap in most test games but
+  explores less than random and collects idle penalties; in training its
+  reward falls (−2.7 → −5.7) as the policy narrows (entropy 1.07 → 0.28).
+  The raw reward learns to kill (0.34 → 0.96 per game in training), open
+  doors and pick up items, and dies sooner. Neither beats random on reward
+  or reaches the exit. A first run with the reward × 0.2 and an entropy
+  bonus did not move the policy at all (entropy 2.07 of 2.08) and is kept
+  only as data (`map01/`; the comparison is `map01b/`).
+
+**Conclusion (addendum).** On an arena δ helps a little; on a whole level a
+linear critic over frozen vision with a 3.7 s horizon does not see what
+leads to reward, and δ teaches hiding. A level needs memory or a place
+representation (the spec's own open question), and probably a critic that
+sees more than the current frame.
 
 ## Open questions
 
