@@ -51,6 +51,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [37. Growth re-evaluated: new recovery, more seeds, from one neuron](#37-growth-re-evaluated-new-recovery-more-seeds-from-one-neuron)
 - [38. Grown neurons that start easier to fire](#38-grown-neurons-that-start-easier-to-fire)
 - [39. A critical period: grown neurons that mature](#39-a-critical-period-grown-neurons-that-mature)
+- [41. A TD critic: δ as the modulator (actor-critic)](#41-a-td-critic-δ-as-the-modulator-actor-critic)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2495,6 +2496,130 @@ freezes the older ones.)
   +0.57 at almost twice the neurons (17-19 against 9.5).
 - Still below the fixed right size (ER(8) 9.34 at 1,500 games, §37).
 
+## 41. A TD critic: δ as the modulator (actor-critic)
+
+Question (user's spec, 2026-10-30): a global reward cannot assign credit
+per neuron or across time, and in Doom it arrives long after the actions
+that earned it. Does a critic that learns V(s) and hands out its
+prediction error δ = r + γV(s′) − V(s) (phasic dopamine) instead of the
+raw reward make the readouts learn? Architecture held constant: frozen
+features, a frozen random E-R reservoir, a linear TD(λ) critic (presynaptic
+traces, w += α_c δ e) and one linear actor readout per action (pre × post
+traces, W += α_a δ E), learning always on. New: `exrelaxer.actor_critic`
+(`Critic`, `Actor`, `Agent`; Python, over any feature vector), experiment
+folder `NNtesting/experiments/td_actor_critic` (`chain.py`, `snake_td.py`,
+`doom_td.py`, README). γ = 0.97, λ = 0.9, actor trace decay γλ, δ clipped
+to ±1, softmax actions, both rates divided by 1 + a decaying peak of |x|².
+Validation in the spec's order, stopping at the first failure. Data:
+`results/td-actor-critic/`, full runs in the project's
+`reports/doom-td/`; Doom log D17.
+
+**1. Delayed-reward chain** (`chain.py`; a blank wait of 5-40 steps, a
+one-step cue, reward 1 N steps later, 1500 trials, 3 seeds; the ideal δ at
+the cue is γᴺ):
+
+| features | N | δ cue, first 5 → last 50 trials | δ reward | V right after cue |
+|---|---|---|---|---|
+| tapped delay line (control) | 5 / 10 / 20 / 40 | 0.06 → **0.86** / 0.03 → **0.74** / 0.01 → **0.54** / 0.00 → **0.30** (= γᴺ) | 0.91 → 0.00 | exact |
+| E-R reservoir 128, outputs + thresholds, recovery 0.5-0.99 | 5 | 0.19 → 0.56 | 0.92 → −0.04 | 0.89 |
+| | 10 | 0.14 → 0.47 | 0.96 → 0.12 | 0.76 |
+| | 20 | 0.07 → 0.27 | 0.98 → 0.24 | 0.55 |
+| | 40 | 0.08 → 0.04 | 0.97 → 0.20 | 0.31 |
+| same, one recovery 0.9 (wait 5-15) | 10 / 20 / 40 | 0.19 → 0.49 / 0.11 → 0.28 / 0.02 → 0.06 | 0.91 → 0.43 / 0.98 → 0.86 / 1.0 → 1.0 | 0.75 / 0.44 / 0.09 |
+| outputs only | 5-40 | | stays 1.0 | |
+
+- TD itself is right: on the textbook representation the error moves from
+  the reward to the cue exactly.
+- On the reservoir the shift is clean to N = 20 only with a **spread of
+  recovery rates**: with one shared recovery all thresholds decay at the
+  same rate, so the layer cannot tell how long ago the cue was (N = 10).
+- At N = 40 V has the right shape (0.31 after the cue, δ at the reward
+  0.97 → 0.20) but the cue burst does not grow: the reservoir's state
+  before the cue already predicts ~0.25 of the reward (it drifts after a
+  reset like it recovers after the cue). Catch trials and not resetting do
+  not fix it. The outputs alone forget the cue in 3 ticks: the memory is in
+  the thresholds (as §26).
+
+**2. Snake** (`snake_td.py`; features = state + 64 frozen E-R mix outputs;
+the original snake's shaped reward; 200 training games, 50 greedy test
+games; grid of rates on seeds 1-3 chosen by training apples, then 10 fresh
+seeds 11-20):
+
+| actor rate / τ | δ | raw reward (same actor, same seeds) |
+|---|---|---|
+| 0.33 | **17.1 ± 0.5** | 13.6 ± 0.9 |
+| 1 | **16.7 ± 0.5** | 13.0 ± 1.2 |
+| 3.3 | 12.8 ± 1.0 | 11.2 ± 1.0 |
+| original sign-rule snake (§11) | 12.8 ± 0.6 (13.6 in §11) | |
+
+- δ beats the raw reward at every setting and learns faster (10 apples
+  per game by game 60 against 80). No weight reaches the clamp.
+- The spec's post factor (1 for the taken action, 0 otherwise) collapses
+  the policy within ~40 games: 5.8 apples. The softmax policy gradient
+  `onehot − π` (`post=advantage`) is needed.
+- With linear readouts that start at 0 only actor rate / τ matters (the
+  runs are identical). The critic diverges when rate · |x|² / (1 − γλ)
+  passes about 1.
+- The grid's choice by training apples (ratio 3.3) was not the best on
+  fresh seeds; the table compares both arms at every ratio.
+
+**3. ViZDoom `basic`** (`doom_td.py`; 3 buttons, the scenario's reward
+/ 100, frame skip 4; 3000 training episodes, then 50 greedy test episodes
+on fresh seeds; 3 seeds; actor 0.03, τ 0.03, critic 0.1):
+
+| features | modulator | test kill rate | test reward | training kills, first → last 500 |
+|---|---|---|---|---|
+| frozen Gabor + centre-surround bank, max-pooled | δ | **0.99** | **+69** | 0.65 → 0.98 |
+| that + E-R reservoir (256, recurrent) | δ | **1.00** | **+69** | 0.65 → 0.96 |
+| E-R reservoir on the bank only | δ | 0.67 | −74 | 0.55 → 0.66 |
+| frozen bank | raw reward | 0.56 | −105 | 0.52 → 0.54 |
+| reservoir | raw reward | 0.48 | −135 | 0.44 → 0.52 |
+| random actions | | 0.62 | −141 | |
+
+Three things had to change before anything learned:
+- **A time limit is not terminal.** With −1 per tic the critic expects
+  V ≈ −1.3; scoring a timeout as V = 0 gives δ ≈ +0.9, a reward for running
+  out the clock, and every learner stopped shooting (game reward −300). The
+  last state now bootstraps.
+- **Centred features** (each minus its running mean). E-R thresholds rest
+  well above 0; with them |x|² is large, the normalised steps tiny, and the
+  critic had not learned even the mean value (bias −0.07 of −1.3 after 200
+  episodes) when the actor had already learned to stop shooting.
+- **Frozen early vision.** On raw pixels, alone or through the reservoir,
+  nothing beat random. An oracle input (the monster's screen column,
+  one-hot) solved `basic` with the same learner (1.00, +75), so the loop
+  was right and the representation was missing; a frozen Gabor +
+  centre-surround bank (the spec's "frozen features") supplies it.
+
+The random E-R mixing loses where the monster is; read alongside the bank
+the reservoir costs nothing. `basic` needs no memory.
+
+**4. ViZDoom `defend_the_center`** (kill +1, death −1, 26 rounds of ammo;
+features = bank + reservoir; 2000 episodes; 30 test episodes; 3 seeds):
+
+| | test reward (per seed) | test kills | training kills, first → last 333 episodes |
+|---|---|---|---|
+| δ | +6.1 (4.4, 10.3, 3.5) | 7.1 | 4.4 → 6.3 |
+| δ + entropy bonus 0.03 | +6.1 (7.4, 5.4, 5.5) | 7.1 | 4.3 → 5.7 |
+| raw reward | +5.4 (4.4, 8.4, 3.5) | 6.4 | 4.2 → 5.8 |
+| random (600 episodes) | +0.3 | 1.3 | |
+
+- Both learners kill 5× more than random; δ is ahead, and earlier (5.6
+  against 4.5 kills in the second block), but within the seeds' spread.
+  Every test game ends in death (out of ammo or overrun).
+- Without the entropy bonus seed 3 settles on a near-deterministic policy
+  (1% of actions off the greedy one) and both arms land on the same score;
+  the bonus keeps the entropy at 0.65 and narrows the seeds, at the same
+  mean.
+- Not comparable to the evolved agents of D5-D12 (8 buttons, a shaped
+  reward, games until death).
+
+Diagnostics on all runs: mean δ ≈ 0 once the critic has converged (|mean|
+< 0.005 on Doom), no actor weight at the ±10 clamp, critic weights below
+0.6. Not done from the spec: the spontaneous-versus-driven share of
+actions (only the off-greedy share is logged) and δ modulating
+habituation.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -2692,8 +2817,25 @@ freezes the older ones.)
     older neurons at growth helps more (7.91 from one cell, the best so
     far). Layer entropy neither predicts the score nor works as a growth
     trigger.
+35. **A TD critic is the learning signal frozen features were missing**
+    (§41): δ instead of the raw reward lifts Snake from 13 to 17 apples and
+    solves ViZDoom `basic` (99-100% kills against random's 62%, where raw
+    reward stays at random), with three conditions: the softmax policy
+    gradient (onehot − π) as the post factor, time limits that bootstrap,
+    and centred features. The E-R reservoir's memory reaches about 20
+    steps for a linear critic, and only with a spread of recovery rates; a
+    frozen Gabor bank, not the reservoir, carries what `basic` needs. On
+    `defend_the_center` δ is ahead of the raw reward (+6.1 against +5.4)
+    but within the seeds' spread.
 
 ## Open questions and next steps
+
+- **Homeostatic drives** (§41, the spec's phase 2): health and ammo as
+  reservoir inputs, reward as drive reduction, on `health_gathering`.
+- **A reservoir that keeps where things are** (§41): random E-R mixing of
+  the Gabor bank loses the monster's position; a spatially local reservoir
+  (Conv2D / locally connected E-R) might keep it and add memory.
+- **Should δ reset habituation?** (§41, the spec's open question.)
 
 - **Does a closing critical period protect old skills?** (§39) On one
   task freezing is only a cost. Test growth with maturation-then-freeze

@@ -545,6 +545,40 @@ Data: `results/dynamic/es_d14_grow.jsonl.gz`,
 `results/dynamic/es_d14_grow_thresholds.jsonl.gz`, agents, tests and probes
 in `results/dynamic/doom_agent/grow_d14/`.
 
+### D17. A TD critic instead of the raw reward: actor-critic on `basic` and `defend_the_center` (2026-10-30)
+
+**Question.** (User's spec.) Does an actor-critic help, with δ = r + γV(s′) − V(s) from a
+linear TD(λ) critic as the modulator of per-action readouts over frozen
+features, learning on every step?
+
+**Setup.** `NNtesting/experiments/td_actor_critic/doom_td.py`
+([README](../NNtesting/experiments/td_actor_critic/README.md)). Not the
+shared setup above: the scenario's own 3 buttons and reward (`basic` / 100;
+`defend_the_center` as is), no sound, frame skip 4, one network tick per
+step. Screen 40 × 30 gray → frozen Gabor + centre-surround bank, max-pooled
+(500 values) → frozen 256-neuron recurrent E-R reservoir (recovery
+0.5-0.99); critic and actor read both. γ 0.97, λ 0.9, softmax actor with
+post onehot − π, features centred. 3 seeds; greedy test on fresh seeds.
+
+**Result.**
+- `basic` (3000 episodes): δ 0.99-1.00 kill rate and +69 on test, against
+  raw reward 0.56 (−105) and random actions 0.62 (−141). The reservoir
+  alone (no bank) reaches 0.67.
+- `defend_the_center` (2000 episodes): δ +6.1 (7.1 kills), raw reward +5.4
+  (6.4 kills), random +0.3 (1.3 kills); seeds spread 3.5-10.3. An entropy
+  bonus keeps exploring but gives the same mean.
+- Before it worked: a timeout scored as terminal rewarded running out the
+  clock (the agent stopped shooting); uncentred E-R thresholds kept the
+  critic from learning; pixels without the bank never beat random. Details
+  in [research §41](research.md#41-a-td-critic-δ-as-the-modulator-actor-critic).
+
+**Conclusion.** δ makes online learning work on `basic` where the raw
+reward does not; on `defend_the_center` it is slightly ahead. The frozen
+vision bank matters more than the E-R reservoir.
+
+**Data.** `results/td-actor-critic/doom/` (config, test, gzipped training
+log per run); the project's `reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

@@ -490,6 +490,18 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-30: TD actor-critic over frozen features
+
+- `exrelaxer.actor_critic` (Python): a linear TD(λ) `Critic`, an `Actor`
+  with one linear readout per action learned by δ × (pre × post) traces
+  (post `taken` or the softmax policy gradient `advantage`), softmax or
+  ε-greedy actions, an optional entropy bonus, feature centring, and an
+  `Agent` that runs them in the spec's step order with per-episode
+  diagnostics. Works over any feature vector.
+- Experiments `NNtesting/experiments/td_actor_critic`: delayed-reward
+  chain, Snake and ViZDoom `basic` / `defend_the_center`; research log
+  §41, Doom log D17.
+
 ### 2026-10-28: snake_growth grows at 25% saturated ticks, 4 neurons at a time
 
 - `snake_growth` defaults `saturated_share` 0.25 (was 0.5) and `increment` 4
