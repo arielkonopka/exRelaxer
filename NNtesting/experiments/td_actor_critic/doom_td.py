@@ -26,6 +26,7 @@ seeds after training; DIR/values_<episode>.json: a V(s) and delta trace every `t
 import argparse
 import json
 import os
+import pickle
 import sys
 import time
 
@@ -202,6 +203,8 @@ def main():
     ap.add_argument("--episodes", type=int, default=1000)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--set", action="append", default=[])
+    ap.add_argument("--checkpoint", type=int, default=0,
+                    help="save the learner every N episodes and resume from DIR/checkpoint.pkl when restarted")
     args = ap.parse_args()
     exr.set_threads(1)
     p = dict(DEFAULTS)
@@ -212,17 +215,42 @@ def main():
         p[k] = type(p[k])(v) if p[k] is not None else float(v)
     scale = p["reward_scale"] if p["reward_scale"] is not None else SCALES.get(args.scenario, 1.0)
     os.makedirs(args.out, exist_ok=True)
+    if os.path.exists(os.path.join(args.out, "test.json")):
+        print(args.out, "already done", flush=True)
+        return
     with open(os.path.join(args.out, "config.json"), "w") as f:
         json.dump({"scenario": args.scenario, "arm": args.arm, "episodes": args.episodes, "seed": args.seed,
                    "reward_scale": scale, **p}, f, indent=1)
-    game = make_game(args.scenario, 10_000 + args.seed, p["skill"], p["features"] == "oracle", p["until_death"])
-    learner = Learner(p, game.get_available_buttons_size(), args.arm, args.seed)
-    shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"])) if args.scenario in MAPS else None
     log_path = os.path.join(args.out, "log.jsonl")
-    open(log_path, "w").close()
+    ckpt_path = os.path.join(args.out, "checkpoint.pkl")
+    start = 0
+    saved = None
+    if args.checkpoint > 0 and os.path.exists(ckpt_path):
+        with open(ckpt_path, "rb") as f:
+            saved = pickle.load(f)
+        start = saved["episode"]
+    # A resumed run plays new games from the restart on (the game's seed moves with the episode).
+    game = make_game(args.scenario, 10_000 + args.seed + 7919 * start, p["skill"], p["features"] == "oracle",
+                     p["until_death"])
+    learner = Learner(p, game.get_available_buttons_size(), args.arm, args.seed)
+    if saved is not None:
+        learner.agent, learner.rng = saved["agent"], saved["rng"]
+        with open(log_path) as f:
+            kept = f.readlines()[:start]
+        with open(log_path, "w") as f:
+            f.writelines(kept)
+        print(f"{args.out} resumed at episode {start}", flush=True)
+    else:
+        open(log_path, "w").close()
+    shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"])) if args.scenario in MAPS else None
     t0 = time.time()
     with open(log_path, "a") as log:
-        for ep in range(args.episodes):
+        for ep in range(start, args.episodes):
+            if args.checkpoint > 0 and ep > start and ep % args.checkpoint == 0:
+                log.flush()
+                with open(ckpt_path + ".tmp", "wb") as f:
+                    pickle.dump({"episode": ep, "agent": learner.agent, "rng": learner.rng}, f)
+                os.replace(ckpt_path + ".tmp", ckpt_path)
             trace = ep % p["trace_every"] == 0 or ep == args.episodes - 1
             s = episode(game, learner, scale, True, trace, shaper)
             s["episode"] = ep
