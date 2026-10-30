@@ -29,7 +29,7 @@ Python over any feature vector, so it can sit on any frozen network.
 | `common.py` | `Reservoir`: optional frozen early vision, the frozen E-R layer, its features |
 | `chain.py` | step 1: cue, then reward N steps later; the "dopamine shift" |
 | `snake_td.py` | step 2: Snake, δ vs raw reward vs the original sign-rule snake |
-| `doom_td.py` | steps 3–4: ViZDoom `basic`, `defend_the_center` |
+| `doom_td.py` | steps 3–4: ViZDoom `basic`, `defend_the_center`; whole maps (`map01`) |
 
 ```bash
 python3 chain.py --out runs/chain --repr csc,er --recovery 0.745 --spread 0.245 --wait-max 40 --trials 1500
@@ -37,6 +37,11 @@ python3 snake_td.py --out td.jsonl --arm td --seeds 11-20 --set post=advantage -
 python3 doom_td.py --out runs/basic_td --scenario basic --arm td --episodes 3000 --set critic_rate=0.1 \
     --set center=0.001 --set actor_rate=0.03 --set features=both_pool
 ```
+
+`--set until_death=M` plays each game until death (no time limit, a cap
+of M minutes) and logs survival seconds; `--scenario map01` plays the
+whole level with doom_rl's 8 buttons and shaped reward; `--checkpoint N`
+saves the learner every N games and resumes from it after a restart.
 
 `doom_td.py --arm reward` is the control with the raw reward as the
 modulator (the critic still learns and is logged); `--arm random` plays
