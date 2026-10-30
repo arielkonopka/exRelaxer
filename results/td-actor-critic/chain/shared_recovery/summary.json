@@ -1,0 +1,58 @@
+[
+ {
+  "delta_cue_first": 0.2181798879525906,
+  "delta_cue_last": 0.6036090037724867,
+  "delta_reward_first": 0.8534519576135949,
+  "delta_reward_last": -0.012366197794225875,
+  "delta_pre_last": 0.05996309367814994,
+  "v_after_cue": 0.902613497482875,
+  "v_before_reward": 1.0123661977942258,
+  "v_min_between": 0.902613497482875,
+  "repr": "er",
+  "delay": 5,
+  "ideal_cue": 0.8587340256999999,
+  "shift": true
+ },
+ {
+  "delta_cue_first": 0.18972708388249213,
+  "delta_cue_last": 0.4938298685331218,
+  "delta_reward_first": 0.9114075169650873,
+  "delta_reward_last": 0.43082754854859157,
+  "delta_pre_last": 0.051994699205635486,
+  "v_after_cue": 0.7520742949274007,
+  "v_before_reward": 0.5691724514514083,
+  "v_min_between": 0.5691724514514083,
+  "repr": "er",
+  "delay": 10,
+  "ideal_cue": 0.7374241268949281,
+  "shift": true
+ },
+ {
+  "delta_cue_first": 0.10716598971211383,
+  "delta_cue_last": 0.2797069174070937,
+  "delta_reward_first": 0.9807607836931154,
+  "delta_reward_last": 0.8587296165761479,
+  "delta_pre_last": 0.031713770772092774,
+  "v_after_cue": 0.4364041620545205,
+  "v_before_reward": 0.14127038342385198,
+  "v_min_between": 0.14127038342385198,
+  "repr": "er",
+  "delay": 20,
+  "ideal_cue": 0.543794342926747,
+  "shift": false
+ },
+ {
+  "delta_cue_first": 0.02229797019665659,
+  "delta_cue_last": 0.05905199611833903,
+  "delta_reward_first": 0.99947731604526,
+  "delta_reward_last": 0.9957783040528686,
+  "delta_pre_last": 0.006516294361286683,
+  "v_after_cue": 0.09122523972029219,
+  "v_before_reward": 0.004221695947131423,
+  "v_min_between": 0.004221695947131423,
+  "repr": "er",
+  "delay": 40,
+  "ideal_cue": 0.29571228739913247,
+  "shift": false
+ }
+]

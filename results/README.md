@@ -44,6 +44,7 @@ and `NNtesting/tools/capacity.py`.
 | `reproduce/` | §36 | `reproduce.py` scan: one recorded trial per result file rerun on main (`scan.jsonl.gz`, `scan_legacy.jsonl.gz` with old settings for later parameters); `summary.md` |
 | `recovery/` | §36 | every C++ experiment with E-R neurons at recovery 0.9 and 0.5; `summary.md` (from `analyze.py`), `raw/`, `run.sh` |
 | `growth-reeval/` | §37 | `snake_growth` again: §30 at recovery 0.5 / 0.75 / 0.9 with 10 seeds, the growth trigger, 8-bit, long runs from ER(1) / ER(4) / ER(16) with every option, copy-init; `summary.md`, `short.jsonl.gz`, `long.jsonl.gz`; commands in `NNtesting/experiments/snake_growth/reeval.py` |
+| `td-actor-critic/` | §41 | TD actor-critic (`NNtesting/experiments/td_actor_critic`): `chain/` (delayed-reward chain, tapped delay line and E-R reservoir with recovery spread; `shared_recovery/`: one recovery 0.9), `snake/` (δ vs raw reward vs the original snake, 10 seeds, `run*.sh`), `doom/` (`basic`, `dtc`, `dtc_long`: config, test, gzipped training log per run, `run*.sh`) |
 
 Runs recorded before 2026-09-27 evening used the logarithmic threshold
 growth rule, the default at the time; pass `--set growth=log` to reproduce
