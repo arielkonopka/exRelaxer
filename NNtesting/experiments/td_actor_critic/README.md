@@ -50,6 +50,13 @@ reduction r = D(h_prev) − D(h_now), D(h) = |target − h| / 100
 (`reward=drive_level`: −D(h) × `drive_cost` every step). The log counts the
 medkits picked up.
 
+Phase 3, a place layer (`--scenario my_way_home`, or `map01`): `--set place=1`
+appends place cells (the map position tile-coded: `tilings` grids of
+`place_size`-unit squares, hashed into `place_bins`) and `headings`
+head-direction cells to the features; `place_input=1` also feeds them into
+the reservoir; `features=place` uses them alone. The log counts the 64-unit
+squares visited; the test reports `success` (the `my_way_home` vest found).
+
 `doom_td.py --arm reward` is the control with the raw reward as the
 modulator (the critic still learns and is logged); `--arm random` plays
 random actions. Each run writes `config.json`, `log.jsonl` (per training

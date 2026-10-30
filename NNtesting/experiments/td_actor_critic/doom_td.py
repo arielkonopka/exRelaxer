@@ -56,8 +56,12 @@ DEFAULTS = {
     # D(h_prev) - D(h_now), D(h) = |target - h| / 100) or drive_level (-D(h_now) x drive_cost every step).
     "reward": "game", "drives": 0,  # drives 1: health / 100 is an input of the reservoir and a raw feature
     "drive_gain": 5.0, "health_target": 100.0, "drive_cost": 0.05,
+    # Phase 3, a place layer: place=1 appends place cells (tile coding of the map position,
+    # `tilings` offset grids of `place_size` map units hashed into `place_bins`) and
+    # `headings` head-direction cells to the features (place_input=1: also into the reservoir).
+    "place": 0, "place_size": 128.0, "tilings": 4, "place_bins": 1024, "headings": 8, "place_input": 0,
 }
-SCALES = {"basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
+SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
           "health_gathering_supreme": 0.01}
 
 
@@ -88,6 +92,8 @@ def make_game(scenario, seed, skill=None, labels=False, until_death=0):
     game.set_labels_buffer_enabled(labels)
     game.add_available_game_variable(vzd.GameVariable.KILLCOUNT)
     game.add_available_game_variable(vzd.GameVariable.HEALTH)
+    for v in (vzd.GameVariable.POSITION_X, vzd.GameVariable.POSITION_Y, vzd.GameVariable.ANGLE):
+        game.add_available_game_variable(v)
     if skill is not None:
         game.set_doom_skill(skill)
     if until_death > 0:
@@ -112,6 +118,34 @@ def oracle_features(state):
     return x
 
 
+class PlaceCells:
+    """Place and head-direction cells from the map position: `tilings` grids of squares
+    `size` map units wide, each shifted by size / tilings, so a position lights one square per
+    grid (hashed into `bins`; nearby positions share squares), plus `headings` cells tuned to
+    the facing direction (max(0, cos)^2 bumps). A linear critic over them is a smoothed table
+    of values per place, as in Foster, Morris & Dayan (2000)."""
+
+    def __init__(self, size=128.0, tilings=4, bins=1024, headings=8):
+        self.size, self.tilings, self.bins, self.headings = float(size), int(tilings), int(bins), int(headings)
+        self.n = self.bins + self.headings
+        self.angles = np.arange(self.headings) * 2 * np.pi / max(1, self.headings)
+
+    def __call__(self, x, y, angle):
+        v = np.zeros(self.n)
+        for t in range(self.tilings):
+            off = t * self.size / self.tilings
+            i, j = int(np.floor((x + off) / self.size)), int(np.floor((y + off) / self.size))
+            v[hash((t, i, j)) % self.bins] = 1.0
+        if self.headings:
+            v[self.bins:] = np.maximum(0.0, np.cos(np.radians(angle) - self.angles)) ** 2
+        return v
+
+    @staticmethod
+    def read(game):
+        return tuple(game.get_game_variable(g) for g in
+                     (vzd.GameVariable.POSITION_X, vzd.GameVariable.POSITION_Y, vzd.GameVariable.ANGLE))
+
+
 def pool_screen(screen, pool):
     return screen.reshape(120 // pool, pool, 160 // pool, pool).mean(axis=(1, 3)).ravel().astype(np.float32) / 255.0
 
@@ -120,16 +154,24 @@ class Learner:
     def __init__(self, p, buttons, arm, seed):
         exr.reseed(seed)
         self.eye_size = (120 // p["pool"]) * (160 // p["pool"])
-        kind = {"both_eye": "both", "eye": "none", "oracle": "none", "both_pool": "both", "pool": "none"}.get(
+        kind = {"both_eye": "both", "eye": "none", "oracle": "none", "both_pool": "both", "pool": "none",
+                "place": "none"}.get(
             p["features"], p["features"])
         self.oracle = p["features"] == "oracle"
         self.drives = bool(p["drives"])
         extra = ORACLE_BINS if self.oracle else self.eye_size if p["features"] in ("both_eye", "eye") else 0
+        self.place = PlaceCells(p["place_size"], p["tilings"], p["place_bins"], p["headings"]) \
+            if p["place"] or p["features"] == "place" else None
+        direct = {"drive": 1} if self.drives else {}
+        if self.place is not None:
+            extra += self.place.n
+            if p["place_input"]:
+                direct["place"] = self.place.n
         self.res = Reservoir({"eye": self.eye_size}, width=p["width"], recurrent_scale=p["recurrent_scale"],
                              recovery=p["recovery"], spread=p["spread"], model=p["model"], features=kind, ticks=p["ticks"],
                              vision=dict(height=120 // p["pool"], width=160 // p["pool"]) if p["vision"] == "gabor" else None,
                              with_pool=p["features"] in ("both_pool", "pool"),
-                             extra=extra + int(self.drives), direct={"drive": 1} if self.drives else None,
+                             extra=extra + int(self.drives), direct=direct or None,
                              direct_gain=p["drive_gain"])
         self.arm, self.p, self.buttons = arm, p, buttons
         self.rng = np.random.default_rng(seed)
@@ -137,8 +179,12 @@ class Learner:
                            clip=p["clip"], modulator="reward" if arm == "reward" else "td", post=p["post"],
                            tau=p["tau"], entropy=p["entropy"], center=p["center"], rng=self.rng)
 
-    def features(self, state, health=None):
+    def features(self, state, health=None, pos=None):
         inputs, raw = {}, []
+        if self.place is not None:
+            cells = self.place(*pos)
+            if self.p["place_input"]:
+                inputs["place"] = cells
         if self.drives:
             inputs["drive"] = [health / 100.0]
         if self.oracle:
@@ -150,6 +196,8 @@ class Learner:
                 raw.append(inputs["eye"])
         if self.drives:
             raw.append([health / 100.0])
+        if self.place is not None:
+            raw.append(cells)
         return self.res.step(inputs, raw=np.concatenate(raw) if raw else None)
 
     def drive(self, health):
@@ -178,7 +226,9 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     kind = learner.p["reward"]
     health = game.get_game_variable(vzd.GameVariable.HEALTH)
     medkits, game_total = 0, 0.0
-    x = learner.features(state, health)
+    pos = PlaceCells.read(game)
+    cells = set()
+    x = learner.features(state, health, pos)
     a = learner.act(x, 0.0, False, learn)
     steps = 0
     while True:
@@ -210,13 +260,15 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             break
         if shaper is None:
             state = game.get_state()
-        x = learner.features(state, health)
+        pos = PlaceCells.read(game)
+        cells.add((int(pos[0] // 64), int(pos[1] // 64)))
+        x = learner.features(state, health, pos)
         a = learner.act(x, r, False, learn)
     total = game_total if shaper is None else sum(learner.agent.log.rewards) / scale
     kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)  # still readable after the end
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
-    s.update(game_reward=float(total), medkits=medkits, steps=steps, seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
+    s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps, seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
              spikes=learner.res.spikes / max(1, steps * learner.res.ticks))
     if shaper is not None:
         s.update({k: float(shaper.counts[k]) for k in ("kills", "items", "doors", "keys", "exits", "cells", "damage")})
@@ -302,7 +354,8 @@ def main():
     rows = [episode(test_game, learner, scale, False, shaper=shaper) for _ in range(p["test"])]
     test_game.close()
     summary = {k: float(np.mean([r[k] for r in rows]))
-               for k in ("game_reward", "kills", "medkits", "steps", "seconds", "died", "spikes")}
+               for k in ("game_reward", "kills", "medkits", "visited", "steps", "seconds", "died", "spikes")}
+    summary["success"] = float(np.mean([r["game_reward"] > 0.5 for r in rows]))  # my_way_home: the vest found
     for k in ("items", "doors", "exits", "cells", "distance"):
         if k in rows[0]:
             summary[k] = float(np.mean([r[k] for r in rows]))
