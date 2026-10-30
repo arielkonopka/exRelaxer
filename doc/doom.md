@@ -614,6 +614,60 @@ leads to reward, and δ teaches hiding. A level needs memory or a place
 representation (the spec's own open question), and probably a critic that
 sees more than the current frame.
 
+### D18. Homeostatic drives: health as an input, drive reduction as the reward (2026-10-30)
+
+**Question.** (User's spec, phase 2.) Can the D17 actor-critic learn from an
+internal drive instead of the game's score: health fed into the reservoir,
+reward r = D(h_prev) − D(h_now) with D(h) = |100 − h| / 100?
+
+**Setup.** As D17 (`doom_td.py`, frozen Gabor bank + 256-neuron E-R
+reservoir, critic and actor read both), on ViZDoom `health_gathering`
+(acid floor, medkits; 3 buttons) and `health_gathering_supreme` (also
+poison vials, a harder layout). `--set drives=1`: health / 100 is one more
+input of the reservoir (its weights × 5) and a raw feature. Arms: δ + drive
+reward + health input; δ + the scenario's reward (+1 per tic, −100 at
+death, × 0.01); δ + drive reward without the health input ("blind"); the
+raw drive reward as modulator (no δ); random. Games until death, 5-minute
+cap; 3 seeds; 20 greedy test games on fresh seeds. No ammo: these
+scenarios have no weapon.
+
+**Result.**
+- `health_gathering`, 150 games:
+
+  | | test survival | medkits | test deaths | first game at the cap |
+  |---|---|---|---|---|
+  | δ + drive + health | 300 s (cap) | 161 | 0% | 15-23 |
+  | δ + scenario reward | 295 s | 160 | 2% | 29-61 |
+  | blind | 254 s | 136 | 20% | 5-22 |
+  | raw drive (no δ) | 252 s | 138 | 22% | 34-144 |
+  | random | 15 s | 1.5 | 100% | - |
+
+- `health_gathering_supreme`, 150 games: every arm dies within about 30 s;
+  δ + drive 22 s (7.5 medkits), blind 16 s, raw drive 15 s, scenario reward
+  12 s, random 12 s.
+- `health_gathering_supreme`, 1000 games (no random or raw arm):
+
+  | | test survival (per seed) | longest | medkits | training survival, per 200 games |
+  |---|---|---|---|---|
+  | δ + drive + health | 30 s (29, 26, 35) | 78 s | 12.8 | 14 → 20 → 22 → 24 → 27 |
+  | blind | 29 s (30, 31, 27) | 81 s | 12.4 | 13 → 18 → 22 → 25 → 26 |
+  | δ + scenario reward | 17 s (20, 19, 12) | 44 s | 4.2 | 12 → 15 → 17 → 18 → 19 |
+
+  Still rising at the end; every test game ends in death.
+
+**Conclusion.** Drive reduction teaches the agent to gather medkits as well
+as the score does on the easy map, about twice as fast, and much better on
+the hard one, where +1 per tic says little about which action helped.
+Feeling health makes the easy-map policy reliable (no deaths) but adds
+nothing on `supreme`, where the medkit itself in view is what matters. A
+drive-reduction return telescopes (D(h_0) − D(h_end), about −1 for every
+game that ends in death), so only γ < 1 makes postponing damage worth
+anything; it is enough here.
+
+**Data.** `results/td-actor-critic/doom/{health_gathering,hg_supreme,hg_supreme_1k}/`
+(config, test, gzipped training log per run, `run.sh`); the project's
+`reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

@@ -490,6 +490,14 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-30: homeostatic drives (phase 2)
+
+- `td_actor_critic/doom_td.py`: ViZDoom `health_gathering(_supreme)`,
+  health as an input of the reservoir (`drives=1`) and drive reduction as
+  the reward (`reward=drive`, or `drive_level`); medkits counted.
+  `common.Reservoir(direct=...)`: inputs straight into the E-R layer next
+  to the vision bank. Research §42, Doom log D18.
+
 ### 2026-10-30: TD actor-critic over frozen features
 
 - `exrelaxer.actor_critic` (Python): a linear TD(λ) `Critic`, an `Actor`
