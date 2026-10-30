@@ -11,12 +11,15 @@ online (learning always on) by the TD actor-critic over a frozen E-R reservoir.
 
 The scenario's own buttons and reward (basic: -1 per tic, +100 kill, -5 a
 missed shot; defend_the_center: +1 kill, -1 death), times reward_scale so
-that |r| <= 1. Frame skip 4. A kill that ends `basic` and a death are
+that |r| <= 1. Whole maps (--scenario map01): doom_rl's 8 buttons and its
+shaped reward (doom_rl/rewards.py) x 0.2. Frame skip 4. A kill that ends `basic` and a death are
 terminal (V = 0); the time limit is not (the last state bootstraps).
 
     doom_td.py --out DIR --scenario basic --arm td|reward|random [--episodes 1000] [--seed 1] [--set k=v]
 
-DIR/log.jsonl: one line per training episode (return, kills, length, mean |delta|, mean V,
+With --set until_death=M a game has no time limit: it ends at death (or after M minutes).
+
+DIR/log.jsonl: one line per training episode (return, kills, length and survival seconds, mean |delta|, mean V,
 entropy, off-greedy share, spikes per step); DIR/test.json: greedy test episodes on fresh
 seeds after training; DIR/values_<episode>.json: a V(s) and delta trace every `trace_every`.
 """
@@ -35,6 +38,9 @@ import vizdoom as vzd
 from exrelaxer.actor_critic import Agent
 from common import Reservoir
 
+sys.path.insert(0, os.path.join(HERE, "..", "doom_rl"))
+import experiment as drl  # doom_rl: whole maps, its buttons and reward shaper
+
 FRAME_SKIP = 4
 DEFAULTS = {
     "width": 256, "model": "er", "recurrent_scale": 0.5, "recovery": 0.745, "spread": 0.245, "ticks": 1,
@@ -42,12 +48,30 @@ DEFAULTS = {
     "pool": 4, "skill": None,
     "vision": "gabor",  # gabor: frozen Gabor + centre-surround bank, max-pooled, before the reservoir; none: raw pixels
     "gamma": 0.97, "lam": 0.9, "critic_rate": 0.03, "actor_rate": 0.03, "tau": 0.03, "clip": 1.0,
-    "post": "advantage", "entropy": 0.0, "center": 0.0, "reward_scale": None, "test": 30, "trace_every": 100,
+    "post": "advantage", "entropy": 0.0, "center": 0.0,
+    "reward_scale": None, "test": 30, "trace_every": 100,
+    "until_death": 0,  # > 0: no time limit, games end at death or after this many minutes
 }
-SCALES = {"basic": 0.01, "defend_the_center": 1.0}
+SCALES = {"basic": 0.01, "defend_the_center": 1.0, "map01": 0.2}
 
 
-def make_game(scenario, seed, skill=None, labels=False):
+MAPS = ("map01",)  # whole levels: doom_rl's 8 buttons and shaped reward (doom_rl/rewards.py)
+
+
+def doom_rl_params(scenario, skill, until_death):
+    """doom_rl's parameters for a whole map, without sound."""
+    q = {k: v[0] for k, v in drl.PARAMS.items()}
+    q.update(scenario=scenario, sound=False, color=False)
+    if skill is not None:
+        q["skill"] = int(skill)
+    if until_death > 0:
+        q["episode_tics"] = int(until_death * 60 * 35)
+    return q
+
+
+def make_game(scenario, seed, skill=None, labels=False, until_death=0):
+    if scenario in MAPS:
+        return drl.make_game(doom_rl_params(scenario, skill, until_death), seed)
     game = vzd.DoomGame()
     game.load_config(os.path.join(vzd.scenarios_path, scenario + ".cfg"))
     game.set_window_visible(False)
@@ -59,6 +83,9 @@ def make_game(scenario, seed, skill=None, labels=False):
     game.add_available_game_variable(vzd.GameVariable.KILLCOUNT)
     if skill is not None:
         game.set_doom_skill(skill)
+    if until_death > 0:
+        # Play until killed: no time limit but a safety cap of `until_death` minutes.
+        game.set_episode_timeout(int(until_death * 60 * 35))
     game.set_seed(seed)
     game.init()
     return game
@@ -113,7 +140,9 @@ class Learner:
         return a
 
 
-def episode(game, learner, scale, learn, trace=False):
+def episode(game, learner, scale, learn, trace=False, shaper=None):
+    """One game. `shaper` (doom_rl's rewards.Shaper, whole maps): the reward comes from it
+    instead of the scenario's own."""
     game.new_episode()
     learner.res.reset()
     learner.agent.end_episode()
@@ -121,6 +150,8 @@ def episode(game, learner, scale, learn, trace=False):
     learner.res.spikes = 0
     eye = np.eye(learner.buttons, dtype=int).tolist()
     state = game.get_state()
+    if shaper is not None:
+        shaper.reset(state)
     x = learner.features(state)
     a = learner.act(x, 0.0, False, learn)
     steps = 0
@@ -128,6 +159,12 @@ def episode(game, learner, scale, learn, trace=False):
         r = game.make_action(eye[a], FRAME_SKIP) * scale
         steps += 1
         done = game.is_episode_finished()
+        if shaper is not None:
+            if done:
+                r = shaper.end(game) * scale
+            else:
+                state = game.get_state()
+                r = shaper.step(state) * scale
         if done:
             if game.get_episode_time() >= game.get_episode_timeout() and not game.is_player_dead():
                 # A time limit is not a terminal state: the last state seen bootstraps
@@ -138,15 +175,19 @@ def episode(game, learner, scale, learn, trace=False):
             else:
                 learner.act(np.zeros(learner.res.size), r, True, learn)
             break
-        state = game.get_state()
+        if shaper is None:
+            state = game.get_state()
         x = learner.features(state)
         a = learner.act(x, r, False, learn)
-    total = game.get_total_reward()
+    total = game.get_total_reward() if shaper is None else sum(learner.agent.log.rewards) / scale
     kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)  # still readable after the end
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
-    s.update(game_reward=float(total), steps=steps, died=died, kills=float(kills),
+    s.update(game_reward=float(total), steps=steps, seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
              spikes=learner.res.spikes / max(1, steps * learner.res.ticks))
+    if shaper is not None:
+        s.update({k: float(shaper.counts[k]) for k in ("kills", "items", "doors", "keys", "exits", "cells", "damage")})
+        s["distance"] = float(shaper.distance)
     if trace:
         s["v_trace"] = [round(v, 4) for v in learner.agent.log.values]
         s["d_trace"] = [round(d, 4) for d in learner.agent.log.deltas]
@@ -174,15 +215,16 @@ def main():
     with open(os.path.join(args.out, "config.json"), "w") as f:
         json.dump({"scenario": args.scenario, "arm": args.arm, "episodes": args.episodes, "seed": args.seed,
                    "reward_scale": scale, **p}, f, indent=1)
-    game = make_game(args.scenario, 10_000 + args.seed, p["skill"], p["features"] == "oracle")
+    game = make_game(args.scenario, 10_000 + args.seed, p["skill"], p["features"] == "oracle", p["until_death"])
     learner = Learner(p, game.get_available_buttons_size(), args.arm, args.seed)
+    shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"])) if args.scenario in MAPS else None
     log_path = os.path.join(args.out, "log.jsonl")
     open(log_path, "w").close()
     t0 = time.time()
     with open(log_path, "a") as log:
         for ep in range(args.episodes):
             trace = ep % p["trace_every"] == 0 or ep == args.episodes - 1
-            s = episode(game, learner, scale, True, trace)
+            s = episode(game, learner, scale, True, trace, shaper)
             s["episode"] = ep
             s["clamped"] = learner.agent.actor.clamped()
             s["critic_w_max"] = float(np.abs(learner.agent.critic.w).max())
@@ -192,14 +234,19 @@ def main():
             log.write(json.dumps(s) + "\n")
             if ep % 50 == 0:
                 log.flush()
-                print(f"{args.out} ep {ep} game {s['game_reward']:.1f} kills {s['kills']} |d| {s['mean_abs_delta']:.3f} "
+                print(f"{args.out} ep {ep} game {s['game_reward']:.1f} kills {s['kills']} s {s['seconds']:.0f} |d| {s['mean_abs_delta']:.3f} "
                       f"H {s['entropy']:.2f} t {time.time() - t0:.0f}s", flush=True)
     game.close()
     # Greedy test on fresh episodes, no learning.
-    test_game = make_game(args.scenario, 20_000 + args.seed, p["skill"], p["features"] == "oracle")
-    rows = [episode(test_game, learner, scale, False) for _ in range(p["test"])]
+    test_game = make_game(args.scenario, 20_000 + args.seed, p["skill"], p["features"] == "oracle", p["until_death"])
+    rows = [episode(test_game, learner, scale, False, shaper=shaper) for _ in range(p["test"])]
     test_game.close()
-    summary = {k: float(np.mean([r[k] for r in rows])) for k in ("game_reward", "kills", "steps", "died", "spikes")}
+    summary = {k: float(np.mean([r[k] for r in rows])) for k in ("game_reward", "kills", "steps", "seconds", "died", "spikes")}
+    for k in ("items", "doors", "exits", "cells", "distance"):
+        if k in rows[0]:
+            summary[k] = float(np.mean([r[k] for r in rows]))
+    summary["seconds_median"] = float(np.median([r["seconds"] for r in rows]))
+    summary["seconds_max"] = float(np.max([r["seconds"] for r in rows]))
     np.save(os.path.join(args.out, "actor_W.npy"), learner.agent.actor.W)
     np.save(os.path.join(args.out, "critic_w.npy"), learner.agent.critic.w)
     with open(os.path.join(args.out, "test.json"), "w") as f:
