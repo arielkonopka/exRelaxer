@@ -490,6 +490,12 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-30: a place layer (phase 3)
+
+- `td_actor_critic/doom_td.py`: place and head-direction cells from the
+  map position (`place=1`, `features=place`), ViZDoom `my_way_home`,
+  squares visited and test success logged. Research §43, Doom log D19.
+
 ### 2026-10-30: homeostatic drives (phase 2)
 
 - `td_actor_critic/doom_td.py`: ViZDoom `health_gathering(_supreme)`,

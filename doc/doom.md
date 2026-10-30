@@ -668,6 +668,52 @@ anything; it is enough here.
 (config, test, gzipped training log per run, `run.sh`); the project's
 `reports/doom-td/`.
 
+### D19. A place layer: place and head-direction cells on `my_way_home` and `map01` (2026-10-30)
+
+**Question.** (Phase 3, after D17's `map01` agent learned to hide.) Does
+knowing where it is let the actor-critic learn to navigate: place cells
+from the map position next to vision?
+
+**Setup.** As D17 (`doom_td.py`, frozen Gabor bank + 256-neuron E-R
+reservoir), plus `--set place=1`: the position tile-coded by 4 offset grids
+of 128-unit squares (hashed into 1024 cells, 4 active) and 8
+head-direction cells, appended to the features (a linear critic over them
+is a smoothed table of values per place). `features=place`: place cells
+alone. γ 0.99 on `my_way_home` (5 buttons, +1 for the vest, 60 s limit,
+600 games, 30 test games); `map01` as D17's `map01b` (600 games until
+death, 5-minute cap, 10 test games) at γ 0.97 and 0.99. 3 seeds.
+
+**Result.**
+- `my_way_home`:
+
+  | features | test success (per seed) | training success, last 150 games |
+  |---|---|---|
+  | vision + place | 33% (37, 30, 33) | 29% |
+  | place only | 28% (10, 27, 47) | 46% |
+  | vision only | 9% (0, 20, 7) | 17% |
+  | random | 16% | 14% |
+
+  A 300-game pilot at γ 0.97 was weaker (place only 20%, vision 5%).
+- `map01` (δ, with D17's runs and random for reference):
+
+  | | test reward (per seed) | kills | survival | squares | doors | items | exits |
+  |---|---|---|---|---|---|---|---|
+  | place, γ 0.99 | **+0.1** (1.0, −2.9, 2.3) | 0.3 | 285 s | **45** | 0.0 | 1.1 | 0 |
+  | place, γ 0.97 | −4.3 (−0.9, −6.2, −5.8) | 0.6 | 61 s | 38 | 0.9 | 1.6 | 0 |
+  | D17 δ, no place | −9.3 | 0.5 | 283 s | 28 | 0.0 | 1.1 | 0 |
+  | D17 raw reward | −4.1 | 1.0 | 89 s | 37 | 1.2 | 2.0 | 0 |
+  | random | −3.7 | 0.2 | 142 s | 38 | 0.0 | 0.5 | 0 |
+
+**Conclusion.** Place cells make navigation learnable: on `my_way_home`
+vision alone ends below random, place doubles it. On `map01` place cells
+with a longer horizon turn δ's hiding into exploring: the first
+actor-critic above random on the level (+0.1 against −3.7), visiting more
+squares than random, though it still opens no doors and finds no exit.
+
+**Data.** `results/td-actor-critic/doom/{my_way_home,map01_place}/`
+(config, test, gzipped training log per run, `run.sh`); the project's
+`reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
