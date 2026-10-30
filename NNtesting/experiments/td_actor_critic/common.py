@@ -21,10 +21,13 @@ class Reservoir:
 
     features: "output" (the layer's outputs), "threshold" (each neuron's E-R threshold, the
     history its firing leaves), "both", or "none" (only the `extra` raw inputs: a control).
+    direct: further named sources that go straight into the layer, also when the first one
+    goes through `vision` (a drive such as health); their weights are drawn as the others'
+    and multiplied by `direct_gain`, so a few inputs are not drowned by thousands of pixels.
     """
 
     def __init__(self, sources, width=128, recurrent_scale=0.5, recovery=0.9, spread=0.0, habituation=False, model="er",
-                 features="both", ticks=1, extra=None, vision=None, with_pool=False):
+                 features="both", ticks=1, extra=None, vision=None, with_pool=False, direct=None, direct_gain=1.0):
         self.net = net = exr.Network()
         front = None
         if vision is not None:
@@ -42,6 +45,10 @@ class Reservoir:
         else:
             for name, size in self.sources.items():
                 net.add_inputs(h, size, name)
+        direct = dict(direct or {})
+        for name, size in direct.items():
+            net.add_inputs(h, size, name)
+        n_direct = sum(direct.values())
         recurrent = recurrent_scale > 0
         if recurrent:
             net.connect(h, h)
@@ -52,6 +59,9 @@ class Reservoir:
                 w[-width:] *= recurrent_scale * math.sqrt(3.0 / width)
             else:
                 w *= math.sqrt(3.0 / len(w))
+            if n_direct:
+                end = len(w) - (width if recurrent else 0)
+                w[end - n_direct:end] *= direct_gain
             net.set_weights(h, i, w)
         net.add_output(h)
         self.features_kind, self.ticks, self.width = features, ticks, width
