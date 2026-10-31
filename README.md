@@ -490,6 +490,14 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-31: a reason to go on, anchored path integration (phase 6)
+
+- `td_actor_critic/doom_td.py`: `approach` (doom_rl's exit-approach
+  reward), `boredom` (a drive that grows without new squares, felt as an
+  input), `path=2` (path integration anchored by recognised views,
+  `landmark_*`); the log reports `doors`, `closest`, `placed` and the
+  anchoring error. Research §46, Doom log D22.
+
 ### 2026-10-31: door reflex and path integration (phase 5)
 
 - `td_actor_critic/doom_td.py`: `door_reflex` (USE added after a blocked

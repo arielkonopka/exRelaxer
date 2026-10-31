@@ -9,7 +9,7 @@ and its prediction error
 replaces the raw reward as the modulator of the actor's readouts: one
 global scalar, the analogue of phasic dopamine, so learning stays local
 (pre × post × δ) but is no longer sparse or late. Results: research log
-§41 (drives §42, place cells §43, novelty and learned place §44, door reflex and path integration §45), Doom log D17-D21.
+§41 (drives §42, place cells §43, novelty and learned place §44, door reflex and path integration §45, boredom and anchoring §46), Doom log D17-D22.
 
 ```
 input -> frozen features (Gabor + centre-surround bank, max-pooled)
@@ -68,6 +68,12 @@ Phase 5: `--set door_reflex=1` adds USE to the chosen action after a step
 that tried to move and was blocked; `--set path=1` gives the place cells a
 pose integrated from self-motion from the spawn (`path_noise` relative
 noise per step) instead of the game's coordinates.
+
+Phase 6 (whole maps): `--set approach=0.1` pays doom_rl's exit-approach
+reward; `--set boredom=c` adds a cost that grows to c per step over
+`boredom_steps` steps without a new square (felt as an input); `--set
+path=2` anchors path integration on recognised views (`landmarks`,
+`landmark_match`, `landmark_seen`, `landmark_agree`, `landmark_pull`).
 
 `doom_td.py --arm reward` is the control with the raw reward as the
 modulator (the critic still learns and is logged); `--arm random` plays
