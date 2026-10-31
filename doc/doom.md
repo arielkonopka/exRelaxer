@@ -812,6 +812,59 @@ against −9.3 without place).
 (config, test, gzipped training log per run, `run.sh`); the project's
 `reports/doom-td/`.
 
+### D22. A reason to go on (exit approach, boredom) and landmark-anchored path integration (2026-10-31)
+
+**Question.** (Phase 6, the two next steps of D21.) Does a goal that
+outweighs the danger behind doors get the D21 agent (place cells, γ 0.99,
+door reflex) further into `map01`? Can recognised views anchor path
+integration when the spawn changes?
+
+**Setup.** As D21 with the reflex. `--set approach=0.1`: doom_rl's
+`w_approach`, +0.1 per 64 units of new closest walking distance to the
+exit (D13). `--set boredom=0.01`: a drive that grows while no new square
+is entered, r −= 0.01 × min(1, steps since a new square / 100), also given
+to the critic and actor as an input. Both: both. `--set path=2`: view
+prototypes (the vision features, competitive learning) remember the
+integrated pose where they win; a life starts lost (no place cells) and is
+placed when two different recognised views (similarity > 0.97, seen ≥ 5
+times) agree within 64 units; placed, recognised views pull the estimate
+by 0.1. 3 seeds, 600 games; test reward below is without the approach
+reward.
+
+**Result.**
+- `map01`:
+
+  | | test reward (per seed) | doors | squares | items | closest to exit | survival |
+  |---|---|---|---|---|---|---|
+  | reflex only (D21) | +0.3 (1.2, −2.3, 1.8) | 0.0 | 33 | 0.0 | | 290 s |
+  | + approach | −4.8 (−4.5, −7.2, −2.6) | 1.3 | 48 | 1.2 | 2350 | 166 s |
+  | + boredom | −1.6 (0.1, 0.7, −5.6) | 1.1 | **68** | **3.5** | | 80 s |
+  | + both | −2.3 (−3.9, −0.2, −2.8) | 1.0 | 63 | 2.6 | 2400 | 83 s |
+  | random (D17) | −3.7 | 0.0 | 38 | 0.5 | | 142 s |
+
+  In training (last 150 games) every arm opens about one door per game
+  (reflex only: 0.01). The exit is about 3600 units away by path at the
+  start; the closest any test game gets is about 2200. No exits.
+- `my_way_home`, anchored path integration: with random play the strict
+  setting places the agent only 8% of the time but within 55-77 units
+  (life 0's pure drift: 35); looser matching (one view, similarity
+  0.93-0.97) places it 50-65% of the time but 400-600 units off. With the
+  learner (strict): 3% test success (7, 0, 3), placed 0-30% of the time,
+  errors back at 200-500 units.
+
+**Conclusion.** A goal that grows while the agent stays put is what the
+door reflex needed: with boredom the agent opens a door a game, explores
+twice the squares and picks up seven times the items of the reflex-only
+agent, and keeps a reward above random; it dies sooner, because what is
+behind the doors fights back. The exit-approach reward pulls it about
+1200 units of the 3600 toward the exit. Anchoring path integration on
+single recognised views fails: look-alike rooms misplace the agent, and
+each misplacement teaches more landmarks the wrong pose.
+
+**Data.** `results/td-actor-critic/doom/{map01_goal,anchored_path}/`
+(config, test, gzipped training log per run, `run.sh`; `anchored_path/tuning/`
+the random-play sweeps); the project's `reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

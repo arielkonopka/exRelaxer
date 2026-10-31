@@ -1,0 +1,3 @@
+python3 NNtesting/experiments/td_actor_critic/doom_td.py --out anchor_s1 --seed 1 --scenario my_way_home --episodes 600 --checkpoint 10 --set test=30 --set center=0.001 --set critic_rate=0.1 --set gamma=0.99 --set features=both_pool --set place=1 --set path=2
+python3 NNtesting/experiments/td_actor_critic/doom_td.py --out anchor_s2 --seed 2 --scenario my_way_home --episodes 600 --checkpoint 10 --set test=30 --set center=0.001 --set critic_rate=0.1 --set gamma=0.99 --set features=both_pool --set place=1 --set path=2
+python3 NNtesting/experiments/td_actor_critic/doom_td.py --out anchor_s3 --seed 3 --scenario my_way_home --episodes 600 --checkpoint 10 --set test=30 --set center=0.001 --set critic_rate=0.1 --set gamma=0.99 --set features=both_pool --set place=1 --set path=2

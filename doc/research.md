@@ -56,6 +56,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [43. A place layer](#43-a-place-layer)
 - [44. Novelty and learned place](#44-novelty-and-learned-place)
 - [45. A door reflex and path integration](#45-a-door-reflex-and-path-integration)
+- [46. A reason to go on, and anchored path integration](#46-a-reason-to-go-on-and-anchored-path-integration)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2777,6 +2778,44 @@ exact), starting at zero at every spawn. 3 seeds, 600 games.
   "I am at the spawn room" detector) is the missing piece for random
   spawns.
 
+## 46. A reason to go on, and anchored path integration
+
+**Question.** (Phase 6; Doom log D22 has the tables.) §45 found that δ
+learns to avoid doors because danger comes through them, and that path
+integration needs an anchor. Does a goal that outweighs the danger, an
+exit-approach reward or a boredom drive, take the agent further? Can
+recognised views anchor path integration?
+
+**Setup.** On the §45 `map01` agent (place cells, γ 0.99, door reflex):
+an exit-approach reward (+0.1 per 64 units of new closest walking
+distance to the exit) and/or a boredom drive (a cost that grows to 0.01
+per step over 100 steps without a new square, felt as an input, the
+homeostatic idea of §42 applied to novelty). Anchoring: view prototypes
+remember the integrated pose where they win; a life starts lost and is
+placed when two recognised views agree. 3 seeds, 600 games.
+
+**Results.**
+- Boredom: 1.1 doors a test game (reflex only: 0), 68 squares (33), 3.5
+  items (0), test reward −1.6 (random −3.7), survival 80 s (290 s).
+- Exit approach: 1.3 doors, 48 squares, 1200 of 3600 units toward the
+  exit, −4.8; both together in between. No exits.
+- Anchored path integration on `my_way_home`: 3% test success; placed
+  0-30% of the time and 200-500 units off once the agent learns.
+
+**What it means.**
+- The §45 door avoidance was the critic doing its job; giving it
+  something to want behind the door changes the policy within the same
+  600 games. A boredom drive (a cost of staying in the known) works
+  better than an external exit signal: it needs no map knowledge and
+  pays for every new place, not only those on the way to the exit.
+- The cost is survival: an agent that goes on meets more monsters. On
+  `map01` a whole-level policy needs both drives and fighting (D17's
+  raw-reward agent learned to kill; these hardly do).
+- Landmarks from single views fail by aliasing, and errors are
+  self-reinforcing (a wrongly placed life teaches wrong poses). Place
+  recognition needs sequences of views or geometry, the same problem SLAM
+  solves with loop closure.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3012,16 +3051,24 @@ exact), starting at zero at every spawn. 3 seeds, 600 games.
     coordinates' benefit when every life starts at the same spot (`map01`
     −1.6 against +0.1, without place −9.3) and none when the spawn changes
     (`my_way_home` 2-3% against 33%).
+40. **Boredom opens the doors** (§46): a drive that grows while the agent
+    stays among known squares makes the §45 agent open a door per game,
+    explore twice as far and pick up items, keeping a reward above random
+    (−1.6 against −3.7); the exit-approach reward does the same less well.
+    Both cost survival. Anchoring path integration on single recognised
+    views fails on look-alike rooms (3% on `my_way_home`).
 
 ## Open questions and next steps
 
 - **More than one drive** (§42): health and ammo together (a scenario
   with weapons), and whether a level-based drive cost (no telescoping)
   beats drive reduction.
-- **Anchored path integration and a reason to go on** (§45): reset the
-  integrated pose at recognised places (landmarks) for random spawns, and
-  give the `map01` agent a goal that outweighs the danger behind doors
-  (exit-distance reward, a drive that grows while it stays put).
+- **Fighting and going on together** (§46): the boredom-driven `map01`
+  agent opens doors but dies sooner; combine it with the kill reward the
+  raw-reward agent learned (§41), or a health drive (§42).
+- **Place recognition from sequences** (§46): single views alias; anchor
+  path integration on a sequence of recognised views (or the reservoir's
+  memory of them) instead.
 - **A reservoir that keeps where things are** (§41): random E-R mixing of
   the Gabor bank loses the monster's position; a spatially local reservoir
   (Conv2D / locally connected E-R) might keep it and add memory.
