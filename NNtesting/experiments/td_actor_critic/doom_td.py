@@ -84,7 +84,14 @@ DEFAULTS = {
     # Reasons to go on (whole maps): approach = doom_rl's w_approach (reward per 64 units of new
     # closest walking distance to the exit); boredom = c: a drive that grows while no new square
     # is entered, r -= c * min(1, steps since a new square / boredom_steps), also felt (a raw feature).
-    "approach": 0.0, "boredom": 0.0, "boredom_steps": 100,  # > 0: the place cells' rate falls as rate * settle / (settle + updates), a critical period
+    "approach": 0.0, "boredom": 0.0, "boredom_steps": 100,
+    # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
+    # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
+    # w_kill (reward per kill, default 1).
+    "attack_reflex": 0, "attack_cone": 0.125, "kill_weight": 1.0,
+    # orient_reflex=1: also add TURN_LEFT / TURN_RIGHT toward the biggest monster on screen when
+    # it is outside the cone (the orienting reflex: the head turns to a threat).
+    "orient_reflex": 0,  # > 0: the place cells' rate falls as rate * settle / (settle + updates), a critical period
 }
 SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
           "health_gathering_supreme": 0.01}
@@ -93,10 +100,12 @@ SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 
 MAPS = ("map01",)  # whole levels: doom_rl's 8 buttons and shaped reward (doom_rl/rewards.py)
 
 
-def doom_rl_params(scenario, skill, until_death, approach=0.0):
+def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kill=None):
     """doom_rl's parameters for a whole map, without sound."""
     q = {k: v[0] for k, v in drl.PARAMS.items()}
-    q.update(scenario=scenario, sound=False, color=False, w_approach=float(approach))
+    q.update(scenario=scenario, sound=False, color=False, w_approach=float(approach), labels=bool(labels))
+    if kill is not None:
+        q["w_kill"] = float(kill)
     if skill is not None:
         q["skill"] = int(skill)
     if until_death > 0:
@@ -106,7 +115,7 @@ def doom_rl_params(scenario, skill, until_death, approach=0.0):
 
 def make_game(scenario, seed, skill=None, labels=False, until_death=0, approach=0.0):
     if scenario in MAPS:
-        return drl.make_game(doom_rl_params(scenario, skill, until_death, approach), seed)
+        return drl.make_game(doom_rl_params(scenario, skill, until_death, approach, labels), seed)
     game = vzd.DoomGame()
     game.load_config(os.path.join(vzd.scenarios_path, scenario + ".cfg"))
     game.set_window_visible(False)
@@ -240,6 +249,25 @@ class LearnedPlace:
             self.W[w] += rate * (x - self.W[w])
             self.W[w] /= np.linalg.norm(self.W[w]) + 1e-9
         return code
+
+
+MONSTERS = {"Zombieman", "ShotgunGuy", "ChaingunGuy", "DoomImp", "Demon", "Spectre", "LostSoul", "Cacodemon",
+            "BaronOfHell", "HellKnight", "Revenant", "Arachnotron", "Fatso", "PainElemental", "Archvile",
+            "Cyberdemon", "SpiderMastermind", "WolfensteinSS", "MarineChainsawVzd"}
+
+
+def monster_ahead(state, cone):
+    """0 when a monster's centre is within the middle `cone` of the screen width (labels buffer),
+    -1 / +1 when the biggest monster on screen is to the left / right, None when none is seen."""
+    width = state.screen_buffer.shape[-1]
+    lo, hi = width * (0.5 - cone / 2), width * (0.5 + cone / 2)
+    seen = [l for l in state.labels or [] if l.object_name in MONSTERS]
+    if not seen:
+        return None
+    if any(lo <= l.x + l.width / 2 <= hi for l in seen):
+        return 0
+    big = max(seen, key=lambda l: l.width * l.height)
+    return -1 if big.x + big.width / 2 < lo else 1
 
 
 def pool_screen(screen, pool):
@@ -453,6 +481,9 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     use = names.index("USE") if "USE" in names else None
     moving = {i for i, n in enumerate(names) if n.startswith("MOVE_")}
     reflex = bool(learner.p["door_reflex"]) and use is not None
+    attack = names.index("ATTACK") if "ATTACK" in names else None
+    instinct = bool(learner.p["attack_reflex"]) and attack is not None
+    strikes = 0
     blocked, reflexes = False, 0
     state = game.get_state()
     if shaper is not None:
@@ -477,6 +508,14 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             buttons = list(buttons)
             buttons[use] = 1
             reflexes += 1
+        where = monster_ahead(state, learner.p["attack_cone"]) if instinct and state is not None else None
+        if where == 0:
+            buttons = list(buttons)
+            buttons[attack] = 1
+            strikes += 1
+        elif where is not None and learner.p["orient_reflex"]:
+            buttons = list(buttons)
+            buttons[names.index("TURN_LEFT" if where < 0 else "TURN_RIGHT")] = 1
         before_pos = PlaceCells.read(game)
         r = game.make_action(buttons, FRAME_SKIP) * scale
         game_total += r / scale
@@ -527,7 +566,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
     s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
-             novelty=novelty, reflexes=reflexes,
+             novelty=novelty, reflexes=reflexes, strikes=strikes,
              placed=len(learner.anchor_err) / max(1, steps), anchor_err=float(np.mean(learner.anchor_err)) if learner.anchor_err else -1.0, lifetime_cells=len(getattr(learner.agent, "novelty_counts", {})), seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
              spikes=learner.res.spikes / max(1, steps * learner.res.ticks))
     if shaper is not None:
@@ -578,7 +617,7 @@ def main():
             saved = pickle.load(f)
         start = saved["episode"]
     # A resumed run plays new games from the restart on (the game's seed moves with the episode).
-    game = make_game(args.scenario, 10_000 + args.seed + 7919 * start, p["skill"], p["features"] == "oracle",
+    game = make_game(args.scenario, 10_000 + args.seed + 7919 * start, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]),
                      p["until_death"])
     learner = Learner(p, game.get_available_buttons_size(), args.arm, args.seed)
     if saved is not None:
@@ -593,7 +632,8 @@ def main():
         print(f"{args.out} resumed at episode {start}", flush=True)
     else:
         open(log_path, "w").close()
-    shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"], p["approach"])) if args.scenario in MAPS else None
+    shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"], p["approach"],
+                                                   kill=p["kill_weight"])) if args.scenario in MAPS else None
     t0 = time.time()
     with open(log_path, "a") as log:
         for ep in range(start, args.episodes):
@@ -618,7 +658,7 @@ def main():
                       f"H {s['entropy']:.2f} t {time.time() - t0:.0f}s", flush=True)
     game.close()
     # Greedy test on fresh episodes, no learning.
-    test_game = make_game(args.scenario, 20_000 + args.seed, p["skill"], p["features"] == "oracle", p["until_death"])
+    test_game = make_game(args.scenario, 20_000 + args.seed, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]), p["until_death"])
     rows = [episode(test_game, learner, scale, False, shaper=shaper) for _ in range(p["test"])]
     test_game.close()
     summary = {k: float(np.mean([r[k] for r in rows]))
