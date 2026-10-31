@@ -81,6 +81,13 @@ DEFAULTS = {
     # prototype seen >= landmark_seen times while placed); placed, recognised views pull the
     # estimate back by landmark_pull. The first life ever is placed at its spawn.
     "landmarks": 256, "landmark_match": 0.97, "landmark_seen": 5, "landmark_pull": 0.1, "landmark_agree": 64.0,
+    # landmark_seq=L > 1: a landmark is the sequence of the last L distinct winning views, not one
+    # view; landmark_spread > 0: a landmark is trusted only while the poses it was seen at stay
+    # within that many map units (standard deviation), so look-alikes seen in two places are dropped.
+    "landmark_seq": 1, "landmark_spread": 0.0,
+    # landmark_guided=N: during the first N lives the agent is told its spawn pose (a guided
+    # childhood: landmarks learn correct poses); after that it starts lost as before.
+    "landmark_guided": 0,
     # Reasons to go on (whole maps): approach = doom_rl's w_approach (reward per 64 units of new
     # closest walking distance to the exit); boredom = c: a drive that grows while no new square
     # is entered, r -= c * min(1, steps since a new square / boredom_steps), also felt (a raw feature).
@@ -185,29 +192,53 @@ class Landmarks:
     prototype keeps a running mean of the pose (x, y and heading as cos / sin) at which it won
     while the agent knew where it was."""
 
-    def __init__(self, k, rate=0.02, match=0.97, seen=5, pull=0.1):
+    def __init__(self, k, rate=0.02, match=0.97, seen=5, pull=0.1, seq=1, spread=0.0):
         self.view = LearnedPlace(k, 0, rate, 1, settle=20000)
         self.match, self.seen, self.pull = float(match), int(seen), float(pull)
-        self.pose = np.zeros((int(k), 4))  # x, y, cos, sin
-        self.count = np.zeros(int(k))
+        self.seq, self.spread = int(seq), float(spread)
+        # Per landmark (a view, or a sequence of views): count, running mean of x, y, cos, sin,
+        # and the running variance of x and y.
+        self.stats = {}
+        self.recent = []
+
+    def reset(self):
+        self.recent = []
 
     def recognise(self, view, learn):
-        """The winning prototype and whether the view is recognised as a known landmark."""
+        """The current landmark (the winning view, or the last `seq` distinct winning views) and
+        whether it is recognised: similar enough, seen often enough, and (with `spread`) always
+        seen at about the same place."""
         self.view(view, learn)
         w = self.view.winner
         if w is None:
             return None, False
         sim = float(self.view.W[w] @ (view / (np.linalg.norm(view) + 1e-9)))
-        return w, sim > self.match and self.count[w] >= self.seen
+        if sim <= self.match:
+            return None, False
+        if not self.recent or self.recent[-1] != w:
+            self.recent = (self.recent + [w])[-self.seq:]
+        if len(self.recent) < self.seq:
+            return None, False
+        key = tuple(self.recent)
+        st = self.stats.get(key)
+        known = st is not None and st[0] >= self.seen
+        if known and self.spread > 0:
+            known = np.sqrt(st[5] + st[6]) < self.spread
+        return key, known
 
-    def remember(self, w, est):
+    def remember(self, key, est):
         a = np.radians(est[2])
         target = np.array([est[0], est[1], np.cos(a), np.sin(a)])
-        self.count[w] += 1
-        self.pose[w] += (target - self.pose[w]) / min(self.count[w], 20.0)
+        st = self.stats.setdefault(key, np.zeros(7))
+        st[0] += 1
+        rate = 1.0 / min(st[0], 20.0)
+        d = target - st[1:5]
+        st[1:5] += rate * d
+        st[5] += rate * (d[0] * (target[0] - st[1]) - st[5])  # running variance of x
+        st[6] += rate * (d[1] * (target[1] - st[2]) - st[6])
 
-    def recall(self, w):
-        x, y, c, s = self.pose[w]
+    def recall(self, key):
+        x, y, c, s = self.stats[key][1:5]
         return np.array([x, y, np.degrees(np.arctan2(s, c)) % 360.0])
 
 
@@ -302,7 +333,8 @@ class Learner:
         self.last_pos = None
         self.boredom_level = 0.0
         self.landmarks = Landmarks(p["landmarks"], match=p["landmark_match"], seen=p["landmark_seen"],
-                                   pull=p["landmark_pull"]) if p["path"] == 2 else None
+                                   pull=p["landmark_pull"], seq=p["landmark_seq"],
+                                   spread=p["landmark_spread"]) if p["path"] == 2 else None
         self.view = None  # the last vision features (landmarks recognise them one tick late)
         self.lives = 0
         self.origin = None  # the first life's spawn: the shared frame (for the error measure)
@@ -361,8 +393,12 @@ class Learner:
                 self.origin = pos
         if first:
             self.candidate = None
+            self.landmarks.reset()
         last = getattr(self, "path_last", None)
         est = self.integrate(pos)  # moves self.path_est (meaningful only while placed)
+        if first and 1 < self.lives <= self.p["landmark_guided"]:
+            self.path_est[:] = self.true_pose(pos)
+            self.placed = True
         c = getattr(self, "candidate", None)
         if c is not None and last is not None:
             # The candidate pose moves with the agent too (same dead reckoning, its own heading).
@@ -400,6 +436,13 @@ class Learner:
             self.anchor_err.append(self.frame_error(pos))
             return tuple(self.path_est)
         return None
+
+    def true_pose(self, pos):
+        """The true pose in the shared frame (the first life's spawn at the origin, facing 0)."""
+        ox, oy, oa = self.origin
+        a = np.radians(oa)
+        dx, dy = pos[0] - ox, pos[1] - oy
+        return np.array([dx * np.cos(a) + dy * np.sin(a), -dx * np.sin(a) + dy * np.cos(a), (pos[2] - oa) % 360.0])
 
     def frame_error(self, pos):
         """Distance between the estimate and the true position in the shared frame (the first
