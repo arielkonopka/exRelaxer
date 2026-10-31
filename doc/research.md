@@ -55,6 +55,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [42. Homeostatic drives](#42-homeostatic-drives)
 - [43. A place layer](#43-a-place-layer)
 - [44. Novelty and learned place](#44-novelty-and-learned-place)
+- [45. A door reflex and path integration](#45-a-door-reflex-and-path-integration)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2743,6 +2744,39 @@ seeds, 600 games each.
   change the critic's inputs under it (the settling rate helps training,
   29% against 20%, but not the test).
 
+## 45. A door reflex and path integration
+
+**Question.** (Phase 5; Doom log D21 has the tables.) §44 left two ideas:
+press USE by reflex instead of hoping exploration finds doors, and build
+place from self-motion (path integration, as grid cells are thought to)
+instead of the game's coordinates or views.
+
+**Setup.** Reflex: USE is added to the chosen action after a step that
+tried to move and was blocked. Path integration: the place cells of §43
+read a pose summed from each step's own movement and turn (5% noise or
+exact), starting at zero at every spawn. 3 seeds, 600 games.
+
+**Results.**
+- Reflex on `map01`: random play now opens 0.2 doors per test game (none
+  without); the δ agent opens one door in eight games early on, then
+  learns to stop (0.01 per game in its last 100 games) while surviving
+  longer; test reward +0.3 against +0.1 without the reflex.
+- Path integration: on `my_way_home`, where the spawn changes, 2-3% test
+  success, exact or noisy (coordinates 33%); on `map01`, where the spawn
+  is fixed, −1.6 against +0.1 with coordinates and −9.3 without place.
+
+**What it means.**
+- δ learns what a door is worth from what follows it: on `map01` opened
+  doors let monsters in, so a critic that predicts damage learns to avoid
+  them. Opening the level is not a question of motor skill once the
+  reflex exists, but of a goal that outweighs that cost (an exit-distance
+  reward, a drive that grows while the agent stays put).
+- Path integration works only in a frame that stays put across lives.
+  Animals re-anchor grid cells to landmarks; here the fixed spawn is the
+  only landmark. Self-motion integration with a landmark reset (a learned
+  "I am at the spawn room" detector) is the missing piece for random
+  spawns.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -2971,16 +3005,23 @@ seeds, 600 games each.
     and the critic does worse with them than with vision alone (2-7%
     against 9% on `my_way_home`). Self-motion inputs help most among the
     coordinate-free signals (13%, 38% late in training).
+39. **δ learns to fear doors, and path integration needs an anchor**
+    (§45): a USE reflex lets random play open doors, but the actor-critic
+    learns to stop opening them as the critic learns what comes through
+    (monsters); path-integrated place cells recover much of the
+    coordinates' benefit when every life starts at the same spot (`map01`
+    −1.6 against +0.1, without place −9.3) and none when the spawn changes
+    (`my_way_home` 2-3% against 33%).
 
 ## Open questions and next steps
 
 - **More than one drive** (§42): health and ammo together (a scenario
   with weapons), and whether a level-based drive cost (no telescoping)
   beats drive reduction.
-- **Path integration** (§44): place cells learned from views are
-  view-dependent; integrating self-motion (a grid-cell-like layer) may
-  give a heading-invariant place code. Doors need USE at the right spot:
-  an option or a reflex, not only novelty.
+- **Anchored path integration and a reason to go on** (§45): reset the
+  integrated pose at recognised places (landmarks) for random spawns, and
+  give the `map01` agent a goal that outweighs the danger behind doors
+  (exit-distance reward, a drive that grows while it stays put).
 - **A reservoir that keeps where things are** (§41): random E-R mixing of
   the Gabor bank loses the monster's position; a spatially local reservoir
   (Conv2D / locally connected E-R) might keep it and add memory.
