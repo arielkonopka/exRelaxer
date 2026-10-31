@@ -1,0 +1,30 @@
+{
+ "best_rec0.5": {
+  "reward": -3.23,
+  "kills": 2.83,
+  "deaths": 1.0,
+  "survive_s": 110.9,
+  "spikes": 313
+ },
+ "best_rec0.9": {
+  "reward": 16.55,
+  "kills": 19.8,
+  "deaths": 0.5,
+  "survive_s": 1277.4,
+  "spikes": 157
+ },
+ "untrained_rec0.5": {
+  "reward": -5.91,
+  "kills": 0.2,
+  "deaths": 1.0,
+  "survive_s": 8.9,
+  "spikes": 329
+ },
+ "untrained_rec0.9": {
+  "reward": -5.29,
+  "kills": 0.77,
+  "deaths": 1.0,
+  "survive_s": 10.9,
+  "spikes": 166
+ }
+}

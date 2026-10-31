@@ -21,7 +21,7 @@ controlled benchmarks ([protocol](protocol.md#1-controlled-first-doom-last)).
 | Network | one hidden layer, 128 E-R neurons with fading habituation (tolerance 0.05, decay 0.9 per tick from the 2nd repeat), no feedback; 6 network ticks per game step |
 | Senses | screen 160 × 120 gray pooled 8 × 8 to 20 × 15; stereo sound through a two-ear cochlea |
 | Trained by | evolution of every weight, the hidden layer's and the 8 action readouts' (`es.py`, `evolve` `all`), first on 2-minute games ([D11](#d11-sound-the-new-defaults-and-how-the-readouts-are-read-2026-09-29)), then 300 generations on games that last until death ([D12](#d12-games-that-last-until-death-2026-09-29)) |
-| Library | defaults of 2026-09-28 (normalised sums, spontaneous amplitude 0.1); action values read at the last tick |
+| Library | defaults of 2026-09-28 (normalised sums, spontaneous amplitude 0.1, E-R recovery 0.9); action values read at the last tick. It needs recovery 0.9, which `doom_rl` now pins ([D15](#d15-the-agents-under-the-new-default-recovery-2026-10-28)) |
 | `defend_the_center` | 30 fresh games with no time limit (capped at 30 minutes): reward +16.5 (untrained −5.3), 19.8 kills, survives 21 minutes on average, lives through half of the games to the cap, 157 spikes per step |
 | `map01` | not yet tried with every weight evolving; readout-only agents explore but never exit ([D6](#d6-evolution-on-a-whole-level-map01-2026-09-28), [D7](#d7-map01-with-three-minute-episodes-2026-09-28)) |
 | Files | `results/dynamic/doom_agent/untildeath_d1/`: `best.exr` (the whole network in the library's own format), `best_theta.npy` (its evolved weights), `config.json`, `best.json` (generation 296, validation +20.3) |
@@ -544,6 +544,38 @@ majority), and at chance from 4 steps back.
 Data: `results/dynamic/es_d14_grow.jsonl.gz`,
 `results/dynamic/es_d14_grow_thresholds.jsonl.gz`, agents, tests and probes
 in `results/dynamic/doom_agent/grow_d14/`.
+
+### D15. The agents under the new default recovery (2026-10-28)
+
+**Question.** The library's default E-R recovery became 0.5 on 2026-10-08
+(research [§36](research.md#36-reproducibility-and-the-new-default-recovery)).
+Every Doom agent was evolved at 0.9, and `doom_rl` had no setting for it, so
+since then it rebuilt saved agents at 0.5. Do they still play?
+
+**Setup.** The D12 agent (`best_theta.npy`) and the untrained network it
+grew from, rebuilt by `es.build` at recovery 0.9 and at 0.5, on D12's 30
+fresh games (seed 4242, until death or 30 minutes).
+
+| Network | Recovery | Reward | Kills | Survives (mean) | Spikes per step |
+|---------|----------|--------|-------|-----------------|-----------------|
+| D12 agent (recorded) | 0.9 | +16.5 | 19.8 | 21 min | 157 |
+| D12 agent | 0.9 | +16.55 | 19.8 | 21 min | 157 |
+| D12 agent | 0.5 | −3.2 | 2.8 | 1.8 min | 313 |
+| untrained | 0.9 | −5.3 | 0.8 | 11 s | 166 |
+| untrained | 0.5 | −5.9 | 0.2 | 9 s | 329 |
+
+**Conclusion.**
+- **At 0.9 the agent reproduces**: the same kills, deaths and survival to
+  the step; the reward differs by 0.04 because the fire penalty has counted
+  only misses since D13.
+- **At 0.5 it no longer plays**: it fires twice as many spikes, and the
+  evolved weights, tuned to the slower-recovering thresholds, give almost
+  nothing (−3.2, barely above untrained).
+- `doom_rl` now has a `recovery` setting, 0.9 by default and for saved
+  settings without it, as `goe_rl` has had since G5.
+
+Data: `results/dynamic/doom_agent/untildeath_d1/recovery_retest.json`
+(`recovery_retest.py`).
 
 ### D17. A TD critic instead of the raw reward: actor-critic on `basic`, `defend_the_center` and `map01` (2026-10-30)
 
