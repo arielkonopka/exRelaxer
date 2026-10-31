@@ -579,6 +579,44 @@ silent (2 spikes a step), as in G1. On the same mazes G2 had the untrained
 compare directly. Evolution (es.py, `er_rec`, 4 against 8 directions, 300
 generations) follows in a later entry.
 
+### G6. The G3 agents retested (2026-10-28)
+
+**Question.** Do the G3 column agents still play as recorded, on today's
+game and under the library's new default recovery (0.5 since 2026-10-08;
+`columns.py` pins 0.9)?
+
+**Setup.** `results/goe/columns/fresh.py` (30 mazes, seeds 4242-4271, and
+10 rooms of each skill) on three games: Gardens of Eris at 8a3ea88 (#305,
+the game G3 was trained and tested on), and today's main (#318, with G5's
+crash fix) at recovery 0.9 and at 0.5 (`recovery` set in a copy of each
+agent's `agent.json`).
+
+| Player | Maze, G3's game | Maze, today 0.9 | Maze, today 0.5 | Collect room, 0.9 / 0.5 | Avatar room, 0.9 / 0.5 | Mine room, 0.9 / 0.5 |
+|---|---:|---:|---:|---:|---:|---:|
+| grown, 4 columns | 57.8 | 48.0 | 37.0 | 28.0 / 19.0 | 28.3 / 15.4 | −32.9 / −25.2 |
+| control, 1 column | 49.1 | 32.7 | 53.2 | 18.2 / 19.8 | 23.0 / 20.3 | −38.0 / −10.7 |
+| untrained | 19.1 | 12.8 | 7.4 | 12.1 / 5.8 | 7.6 / 4.0 | −14.4 / −16.1 |
+| random player | 37.0 | 35.3 | 35.3 | 10.2 | 11.3 | −13.2 |
+
+(Mazes ± about 9 standard error; the rooms on G3's game equal today's at 0.9.)
+
+**Conclusion.**
+- **On G3's game every score reproduces to the last digit**: all 30 mazes
+  and all rooms of all four players.
+- **Today's mazes are harder.** The rooms (fixed chunks, no monsters) give
+  the same scores, but the mazes lose 2 to 16 points per player: monsters
+  roam since Gardens of Eris #306 (merged the day of the G3 test) and chase
+  in eight directions since #316. The grown network still leads the random
+  player (48.0 against 35.3); the control falls below it.
+- **The agents need recovery 0.9.** At 0.5 the grown network loses a third
+  of its room skills (collect 28 → 19, avatars 28 → 15) and 11 points in
+  mazes. The control's maze gain at 0.5 (+20) is within the noise (maze
+  standard deviation about 50) and comes with fewer mine deaths. The pin
+  in `columns.py` stays.
+
+Data: `results/goe/columns/retest/` (`fresh_8a3ea88_r09`, `fresh_today_r09`,
+`fresh_today_r05`, `.json.gz`, written by `fresh.py`).
+
 ### G7. G3 regrown with older columns evolving and young new columns (2026-10-29)
 
 **Question.** On Snake, growth worked best with nothing frozen and the grown
