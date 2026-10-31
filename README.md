@@ -490,6 +490,14 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-31: novelty and learned place (phase 4)
+
+- `td_actor_critic/doom_td.py`: a lifetime count-based novelty bonus
+  (`novelty`), self-motion inputs into the reservoir (`motion`), and place
+  cells learned by competitive learning (`vplace`, `vplace_settle`) with a
+  test measure of how place-like they are (`field_spread`). Research §44,
+  Doom log D20.
+
 ### 2026-10-30: a place layer (phase 3)
 
 - `td_actor_critic/doom_td.py`: place and head-direction cells from the

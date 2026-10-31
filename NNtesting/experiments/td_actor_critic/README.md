@@ -9,7 +9,7 @@ and its prediction error
 replaces the raw reward as the modulator of the actor's readouts: one
 global scalar, the analogue of phasic dopamine, so learning stays local
 (pre × post × δ) but is no longer sparse or late. Results: research log
-§41 (drives §42, place cells §43), Doom log D17 (D18, D19).
+§41 (drives §42, place cells §43, novelty and learned place §44), Doom log D17-D20.
 
 ```
 input -> frozen features (Gabor + centre-surround bank, max-pooled)
@@ -56,6 +56,13 @@ appends place cells (the map position tile-coded: `tilings` grids of
 head-direction cells to the features; `place_input=1` also feeds them into
 the reservoir; `features=place` uses them alone. The log counts the 64-unit
 squares visited; the test reports `success` (the `my_way_home` vest found).
+
+Phase 4: `--set novelty=β` adds β / √(1 + N) for entering a 64-unit square
+entered N times before in the agent's life (training only); `motion=1`
+feeds self-motion (forward and sideways speed, turning) into the
+reservoir; `vplace=K` appends K place cells learned by competitive
+learning from the reservoir and vision features (`vplace_settle`: a
+falling rate); the test reports `field_spread` (1 = no place information).
 
 `doom_td.py --arm reward` is the control with the raw reward as the
 modulator (the critic still learns and is logged); `--arm random` plays

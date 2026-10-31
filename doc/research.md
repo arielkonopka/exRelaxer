@@ -54,6 +54,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [41. A TD critic: δ as the modulator (actor-critic)](#41-a-td-critic-δ-as-the-modulator-actor-critic)
 - [42. Homeostatic drives](#42-homeostatic-drives)
 - [43. A place layer](#43-a-place-layer)
+- [44. Novelty and learned place](#44-novelty-and-learned-place)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2703,6 +2704,45 @@ what a hippocampus would compute, to see whether the learner can use it.
   instead of the game's coordinates), and a curiosity or novelty bonus for
   the doors.
 
+## 44. Novelty and learned place
+
+**Question.** (Phase 4; Doom log D20 has the tables.) §43's agent explores
+`map01` with place cells from the game's coordinates but never opens a
+door, and its place cells are given, not learned. Does a lifetime novelty
+bonus find doors, and can place cells be learned?
+
+**Setup.** Novelty: β / √(1 + N) per entry into a 64-unit square entered N
+times before in the agent's life (count-based exploration, Bellemare et
+al. 2016), β 0.02 and 0.1. Learned place: 256 prototypes of the reservoir
+and vision features by online competitive learning (winner-take-all,
+local), 4 active, with or without self-motion inputs (forward and sideways
+speed, turning) into the reservoir, with or without a falling rate. 3
+seeds, 600 games each.
+
+**Results.**
+- Novelty on `map01`: test reward −2.8 (β 0.02) and −0.6 (β 0.1) against
+  +0.1 without; seeds spread from −10.6 to +3.3. One seed learns to open a
+  door in training (about one per game), never in the greedy test. No
+  exit.
+- Learned place on `my_way_home`: 2-7% test success, below random (16%)
+  and far below coordinate place cells (33%), though the cells are
+  place-like (positions where a cell wins spread 0.38-0.47 of the
+  overall). Self-motion into the reservoir without place cells: 13%, and
+  38% in late training (one seed 33% on test).
+
+**What it means.**
+- The novelty bonus is too small a push for a level: 600 games of 5
+  minutes reach 120-210 squares in all. Doors need the USE button at the
+  right spot and facing, which the exploration noise of a softmax over 8
+  buttons rarely hits twice.
+- Place from vision is view-dependent; a place code the critic can use
+  must be invariant to heading. Path integration of the self-motion
+  signal (grid-cell-like) is the obvious candidate, and self-motion alone
+  already helps.
+- Continual learning shows its cost here: prototypes that keep moving
+  change the critic's inputs under it (the settling rate helps training,
+  29% against 20%, but not the test).
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -2924,15 +2964,23 @@ what a hippocampus would compute, to see whether the learner can use it.
     vision alone 9%), and on `map01` at γ 0.99 it is the first δ learner
     above random (+0.1 against −3.7), exploring more than random instead
     of hiding. Doors and exits stay out of reach.
+38. **Neither novelty nor learned place cells get through `map01`'s doors**
+    (§44): a lifetime count-based novelty bonus changes the test reward
+    within the seeds' spread and opens no door at test; place cells learned
+    by competitive learning are place-like but view-dependent and drifting,
+    and the critic does worse with them than with vision alone (2-7%
+    against 9% on `my_way_home`). Self-motion inputs help most among the
+    coordinate-free signals (13%, 38% late in training).
 
 ## Open questions and next steps
 
 - **More than one drive** (§42): health and ammo together (a scenario
   with weapons), and whether a level-based drive cost (no telescoping)
   beats drive reduction.
-- **Learned place cells** (§43): the place layer reads the game's
-  coordinates; can the E-R reservoir with self-motion inputs build its
-  own, and does a novelty bonus find doors?
+- **Path integration** (§44): place cells learned from views are
+  view-dependent; integrating self-motion (a grid-cell-like layer) may
+  give a heading-invariant place code. Doors need USE at the right spot:
+  an option or a reflex, not only novelty.
 - **A reservoir that keeps where things are** (§41): random E-R mixing of
   the Gabor bank loses the monster's position; a spatially local reservoir
   (Conv2D / locally connected E-R) might keep it and add memory.
