@@ -52,6 +52,10 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [38. Grown neurons that start easier to fire](#38-grown-neurons-that-start-easier-to-fire)
 - [39. A critical period: grown neurons that mature](#39-a-critical-period-grown-neurons-that-mature)
 - [40. Doom and Gardens of Eris: retest and growth](#40-doom-and-gardens-of-eris-retest-and-growth)
+- [41. A TD critic: δ as the modulator (actor-critic)](#41-a-td-critic-δ-as-the-modulator-actor-critic)
+- [42. Homeostatic drives](#42-homeostatic-drives)
+- [43. A place layer](#43-a-place-layer)
+- [44. Novelty and learned place](#44-novelty-and-learned-place)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2534,6 +2538,250 @@ without §38/§39's young neurons, against fixed layers:
 - Young neurons do not help under evolution (most erratic arm); the gain
   in §39 speeds a learning rule, and ES has none.
 
+## 41. A TD critic: δ as the modulator (actor-critic)
+
+Question (user's spec, 2026-10-30): a global reward cannot assign credit
+per neuron or across time, and in Doom it arrives long after the actions
+that earned it. Does a critic that learns V(s) and hands out its
+prediction error δ = r + γV(s′) − V(s) (phasic dopamine) instead of the
+raw reward make the readouts learn? Architecture held constant: frozen
+features, a frozen random E-R reservoir, a linear TD(λ) critic (presynaptic
+traces, w += α_c δ e) and one linear actor readout per action (pre × post
+traces, W += α_a δ E), learning always on. New: `exrelaxer.actor_critic`
+(`Critic`, `Actor`, `Agent`; Python, over any feature vector), experiment
+folder `NNtesting/experiments/td_actor_critic` (`chain.py`, `snake_td.py`,
+`doom_td.py`, README). γ = 0.97, λ = 0.9, actor trace decay γλ, δ clipped
+to ±1, softmax actions, both rates divided by 1 + a decaying peak of |x|².
+Validation in the spec's order, stopping at the first failure. Data:
+`results/td-actor-critic/`, full runs in the project's
+`reports/doom-td/`; Doom log D17.
+
+**1. Delayed-reward chain** (`chain.py`; a blank wait of 5-40 steps, a
+one-step cue, reward 1 N steps later, 1500 trials, 3 seeds; the ideal δ at
+the cue is γᴺ):
+
+| features | N | δ cue, first 5 → last 50 trials | δ reward | V right after cue |
+|---|---|---|---|---|
+| tapped delay line (control) | 5 / 10 / 20 / 40 | 0.06 → **0.86** / 0.03 → **0.74** / 0.01 → **0.54** / 0.00 → **0.30** (= γᴺ) | 0.91 → 0.00 | exact |
+| E-R reservoir 128, outputs + thresholds, recovery 0.5-0.99 | 5 | 0.19 → 0.56 | 0.92 → −0.04 | 0.89 |
+| | 10 | 0.14 → 0.47 | 0.96 → 0.12 | 0.76 |
+| | 20 | 0.07 → 0.27 | 0.98 → 0.24 | 0.55 |
+| | 40 | 0.08 → 0.04 | 0.97 → 0.20 | 0.31 |
+| same, one recovery 0.9 (wait 5-15) | 10 / 20 / 40 | 0.19 → 0.49 / 0.11 → 0.28 / 0.02 → 0.06 | 0.91 → 0.43 / 0.98 → 0.86 / 1.0 → 1.0 | 0.75 / 0.44 / 0.09 |
+| outputs only | 5-40 | | stays 1.0 | |
+
+- TD itself is right: on the textbook representation the error moves from
+  the reward to the cue exactly.
+- On the reservoir the shift is clean to N = 20 only with a **spread of
+  recovery rates**: with one shared recovery all thresholds decay at the
+  same rate, so the layer cannot tell how long ago the cue was (N = 10).
+- At N = 40 V has the right shape (0.31 after the cue, δ at the reward
+  0.97 → 0.20) but the cue burst does not grow: the reservoir's state
+  before the cue already predicts ~0.25 of the reward (it drifts after a
+  reset like it recovers after the cue). Catch trials and not resetting do
+  not fix it. The outputs alone forget the cue in 3 ticks: the memory is in
+  the thresholds (as §26).
+
+**2. Snake** (`snake_td.py`; features = state + 64 frozen E-R mix outputs;
+the original snake's shaped reward; 200 training games, 50 greedy test
+games; grid of rates on seeds 1-3 chosen by training apples, then 10 fresh
+seeds 11-20):
+
+| actor rate / τ | δ | raw reward (same actor, same seeds) |
+|---|---|---|
+| 0.33 | **17.1 ± 0.5** | 13.6 ± 0.9 |
+| 1 | **16.7 ± 0.5** | 13.0 ± 1.2 |
+| 3.3 | 12.8 ± 1.0 | 11.2 ± 1.0 |
+| original sign-rule snake (§11) | 12.8 ± 0.6 (13.6 in §11) | |
+
+- δ beats the raw reward at every setting and learns faster (10 apples
+  per game by game 60 against 80). No weight reaches the clamp.
+- The spec's post factor (1 for the taken action, 0 otherwise) collapses
+  the policy within ~40 games: 5.8 apples. The softmax policy gradient
+  `onehot − π` (`post=advantage`) is needed.
+- With linear readouts that start at 0 only actor rate / τ matters (the
+  runs are identical). The critic diverges when rate · |x|² / (1 − γλ)
+  passes about 1.
+- The grid's choice by training apples (ratio 3.3) was not the best on
+  fresh seeds; the table compares both arms at every ratio.
+
+**3. ViZDoom `basic`** (`doom_td.py`; 3 buttons, the scenario's reward
+/ 100, frame skip 4; 3000 training episodes, then 50 greedy test episodes
+on fresh seeds; 3 seeds; actor 0.03, τ 0.03, critic 0.1):
+
+| features | modulator | test kill rate | test reward | training kills, first → last 500 |
+|---|---|---|---|---|
+| frozen Gabor + centre-surround bank, max-pooled | δ | **0.99** | **+69** | 0.65 → 0.98 |
+| that + E-R reservoir (256, recurrent) | δ | **1.00** | **+69** | 0.65 → 0.96 |
+| E-R reservoir on the bank only | δ | 0.67 | −74 | 0.55 → 0.66 |
+| frozen bank | raw reward | 0.56 | −105 | 0.52 → 0.54 |
+| reservoir | raw reward | 0.48 | −135 | 0.44 → 0.52 |
+| random actions | | 0.62 | −141 | |
+
+Three things had to change before anything learned:
+- **A time limit is not terminal.** With −1 per tic the critic expects
+  V ≈ −1.3; scoring a timeout as V = 0 gives δ ≈ +0.9, a reward for running
+  out the clock, and every learner stopped shooting (game reward −300). The
+  last state now bootstraps.
+- **Centred features** (each minus its running mean). E-R thresholds rest
+  well above 0; with them |x|² is large, the normalised steps tiny, and the
+  critic had not learned even the mean value (bias −0.07 of −1.3 after 200
+  episodes) when the actor had already learned to stop shooting.
+- **Frozen early vision.** On raw pixels, alone or through the reservoir,
+  nothing beat random. An oracle input (the monster's screen column,
+  one-hot) solved `basic` with the same learner (1.00, +75), so the loop
+  was right and the representation was missing; a frozen Gabor +
+  centre-surround bank (the spec's "frozen features") supplies it.
+
+The random E-R mixing loses where the monster is; read alongside the bank
+the reservoir costs nothing. `basic` needs no memory.
+
+**4. ViZDoom `defend_the_center`** (kill +1, death −1, 26 rounds of ammo;
+features = bank + reservoir; 2000 episodes; 30 test episodes; 3 seeds):
+
+| | test reward (per seed) | test kills | training kills, first → last 333 episodes |
+|---|---|---|---|
+| δ | +6.1 (4.4, 10.3, 3.5) | 7.1 | 4.4 → 6.3 |
+| δ + entropy bonus 0.03 | +6.1 (7.4, 5.4, 5.5) | 7.1 | 4.3 → 5.7 |
+| raw reward | +5.4 (4.4, 8.4, 3.5) | 6.4 | 4.2 → 5.8 |
+| random (600 episodes) | +0.3 | 1.3 | |
+
+- Both learners kill 5× more than random; δ is ahead, and earlier (5.6
+  against 4.5 kills in the second block), but within the seeds' spread.
+  Every test game ends in death (out of ammo or overrun).
+- Without the entropy bonus seed 3 settles on a near-deterministic policy
+  (1% of actions off the greedy one) and both arms land on the same score;
+  the bonus keeps the entropy at 0.65 and narrows the seeds, at the same
+  mean.
+- Not comparable to the evolved agents of D5-D12 (8 buttons, a shaped
+  reward, games until death).
+
+**5. Until death, and a whole level** (the user's follow-ups; Doom log
+D17 has the tables). On `defend_the_center` without a time limit the
+agents die as before (δ 7.1 kills, 16.8 s survival; raw reward 6.4, 16.2 s;
+random 1.3, 9.5 s). On `map01` (doom_rl's 8 buttons and shaped reward, 600
+games until death, 3 seeds) neither learner beats random on reward and none
+reaches the exit: δ's policy narrows into hiding (283 s survival, 0.5
+kills, fewer squares visited than random), the raw reward learns to kill,
+open doors and pick up items (1.0 kills, 1.2 doors) but dies sooner (89 s).
+
+Diagnostics on all runs: mean δ ≈ 0 once the critic has converged (|mean|
+< 0.005 on Doom), no actor weight at the ±10 clamp, critic weights below
+0.6. Not done from the spec: the spontaneous-versus-driven share of
+actions (only the off-greedy share is logged) and δ modulating
+habituation.
+
+## 42. Homeostatic drives
+
+**Question.** (User's spec, phase 2; Doom log D18 has the setup and tables.)
+The §41 actor-critic learned from the game's reward. Can it learn from an
+internal need instead: health as an input of the reservoir, and the reward
+the reduction of a drive, r = D(h_prev) − D(h_now), D(h) = |h* − h| / 100
+with h* = 100?
+
+**Setup.** `doom_td.py --set drives=1 --set reward=drive` on ViZDoom
+`health_gathering` and `health_gathering_supreme`; `Reservoir(direct=...)`
+feeds named sources straight into the E-R layer, also when the screen goes
+through the frozen vision bank, with a gain so that one input is not
+drowned by 500 visual ones. Arms: δ with the drive reward with and without
+the health input, δ with the scenario's reward, the raw drive reward
+without δ, random; 3 seeds, games until death (5-minute cap).
+
+**Results.**
+- `health_gathering` (150 games): δ + drive + health survives the cap in
+  every test game (161 medkits), reaching it after 15-23 games; the
+  scenario's reward also reaches the cap (295 s) but after 29-61 games;
+  without the health input or without δ about 250 s with 20% of test games
+  ending in death; random 15 s.
+- `health_gathering_supreme` (1000 games): drive reward 29-30 s and about
+  12.5 medkits with or without the health input, scenario reward 17 s and
+  4.2 medkits, random 12 s (150 games). Still rising.
+
+**What it means.**
+- A drive reduction is a denser, more direct signal than a living bonus:
+  each medkit is a step of reward, where +1 per tic only says "still
+  alive" and its credit is spread over every action.
+- The health input matters only where survival is already learned: it
+  removes the remaining deaths on the easy map (the policy can be greedy
+  for medkits when hurt) and changes nothing on the hard one.
+- Drive-reduction returns telescope to D(h_0) − D(h_end), the same for an
+  early and a late death; the discount alone makes delay valuable. A
+  level-based cost (`reward=drive_level`, −D(h) per step) is in the code
+  but untested.
+
+## 43. A place layer
+
+**Question.** (Phase 3; Doom log D19 has the tables.) §41's critic sees only
+the current frame through frozen vision, and on a whole level δ taught
+hiding. Does a sense of place fix it?
+
+**Setup.** Place cells as in Foster, Morris & Dayan (2000): the map
+position, tile-coded by 4 offset grids of 128-unit squares (4 active cells
+of 1024), and 8 head-direction cells (max(0, cos)² bumps), appended to the
+§41 features. Taken from the game's position, not learned: a stand-in for
+what a hippocampus would compute, to see whether the learner can use it.
+
+**Results.**
+- `my_way_home` (γ 0.99, 600 games, 3 seeds): vision + place finds the
+  vest in 33% of test games, place alone 28% (46% in training), vision
+  alone 9%, random 16%.
+- `map01` (600 games until death): with place cells and γ 0.99, δ scores
+  +0.1 on test (random −3.7, §41's δ −9.3), explores 45 squares (random
+  38) and survives the 5-minute cap; at γ 0.97 −4.3. No doors opened, no
+  exit.
+
+**What it means.**
+- A linear critic over place cells is a value map; it gives δ something
+  stable to rise and fall with as the agent moves, where a frame-by-frame
+  view changes with every turn. Vision alone does worse than random in
+  the maze: it settles on habits.
+- The horizon matters as much as the place: γ 0.97 (about 3.7 s ahead) is
+  too short for a level; γ 0.99 (about 11 s) let δ value exploring.
+- Doors and exits need more than place: a door is opened by a button
+  press at a spot, a sparse event that 600 games did not find.
+- Next: learned place cells (from the E-R reservoir and self-motion
+  instead of the game's coordinates), and a curiosity or novelty bonus for
+  the doors.
+
+## 44. Novelty and learned place
+
+**Question.** (Phase 4; Doom log D20 has the tables.) §43's agent explores
+`map01` with place cells from the game's coordinates but never opens a
+door, and its place cells are given, not learned. Does a lifetime novelty
+bonus find doors, and can place cells be learned?
+
+**Setup.** Novelty: β / √(1 + N) per entry into a 64-unit square entered N
+times before in the agent's life (count-based exploration, Bellemare et
+al. 2016), β 0.02 and 0.1. Learned place: 256 prototypes of the reservoir
+and vision features by online competitive learning (winner-take-all,
+local), 4 active, with or without self-motion inputs (forward and sideways
+speed, turning) into the reservoir, with or without a falling rate. 3
+seeds, 600 games each.
+
+**Results.**
+- Novelty on `map01`: test reward −2.8 (β 0.02) and −0.6 (β 0.1) against
+  +0.1 without; seeds spread from −10.6 to +3.3. One seed learns to open a
+  door in training (about one per game), never in the greedy test. No
+  exit.
+- Learned place on `my_way_home`: 2-7% test success, below random (16%)
+  and far below coordinate place cells (33%), though the cells are
+  place-like (positions where a cell wins spread 0.38-0.47 of the
+  overall). Self-motion into the reservoir without place cells: 13%, and
+  38% in late training (one seed 33% on test).
+
+**What it means.**
+- The novelty bonus is too small a push for a level: 600 games of 5
+  minutes reach 120-210 squares in all. Doors need the USE button at the
+  right spot and facing, which the exploration noise of a softmax over 8
+  buttons rarely hits twice.
+- Place from vision is view-dependent; a place code the critic can use
+  must be invariant to heading. Path integration of the self-motion
+  signal (grid-cell-like) is the obvious candidate, and self-motion alone
+  already helps.
+- Continual learning shows its cost here: prototypes that keep moving
+  change the critic's inputs under it (the settling rate helps training,
+  29% against 20%, but not the test).
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -2736,8 +2984,51 @@ without §38/§39's young neurons, against fixed layers:
     saturation trigger grows once and stops, and young neurons do not
     help evolution. Saved Doom and GoE agents need the recovery (0.9) they
     were trained at.
+35. **A TD critic is the learning signal frozen features were missing**
+    (§41): δ instead of the raw reward lifts Snake from 13 to 17 apples and
+    solves ViZDoom `basic` (99-100% kills against random's 62%, where raw
+    reward stays at random), with three conditions: the softmax policy
+    gradient (onehot − π) as the post factor, time limits that bootstrap,
+    and centred features. The E-R reservoir's memory reaches about 20
+    steps for a linear critic, and only with a spread of recovery rates; a
+    frozen Gabor bank, not the reservoir, carries what `basic` needs. On
+    `defend_the_center` δ is ahead of the raw reward (+6.1 against +5.4)
+    but within the seeds' spread; on a whole level (`map01`) it teaches
+    hiding and neither learner beats random.
+36. **An internal drive is a better teacher than a living bonus** (§42):
+    with health as a reservoir input and drive reduction as the reward,
+    the §41 actor-critic learns to gather medkits on `health_gathering` to
+    the 5-minute cap in 15-23 games without any game score, twice as fast
+    as with the scenario's reward, and on `health_gathering_supreme`
+    survives 30 s against 17 s (random 12 s). Feeling health removes the
+    last deaths on the easy map and adds nothing on the hard one.
+37. **Knowing where it is turns hiding into exploring** (§43): place and
+    head-direction cells from the map position let the §41 actor-critic
+    find the `my_way_home` vest twice as often as random (33% against 16%;
+    vision alone 9%), and on `map01` at γ 0.99 it is the first δ learner
+    above random (+0.1 against −3.7), exploring more than random instead
+    of hiding. Doors and exits stay out of reach.
+38. **Neither novelty nor learned place cells get through `map01`'s doors**
+    (§44): a lifetime count-based novelty bonus changes the test reward
+    within the seeds' spread and opens no door at test; place cells learned
+    by competitive learning are place-like but view-dependent and drifting,
+    and the critic does worse with them than with vision alone (2-7%
+    against 9% on `my_way_home`). Self-motion inputs help most among the
+    coordinate-free signals (13%, 38% late in training).
 
 ## Open questions and next steps
+
+- **More than one drive** (§42): health and ammo together (a scenario
+  with weapons), and whether a level-based drive cost (no telescoping)
+  beats drive reduction.
+- **Path integration** (§44): place cells learned from views are
+  view-dependent; integrating self-motion (a grid-cell-like layer) may
+  give a heading-invariant place code. Doors need USE at the right spot:
+  an option or a reflex, not only novelty.
+- **A reservoir that keeps where things are** (§41): random E-R mixing of
+  the Gabor bank loses the monster's position; a spatially local reservoir
+  (Conv2D / locally connected E-R) might keep it and add memory.
+- **Should δ reset habituation?** (§41, the spec's open question.)
 
 - **Does a closing critical period protect old skills?** (§39) On one
   task freezing is only a cost. Test growth with maturation-then-freeze
