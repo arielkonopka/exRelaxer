@@ -75,6 +75,12 @@ DEFAULTS = {
     # (each step's forward and sideways movement and turn, each with path_noise relative noise),
     # starting from (0, 0, 0) at every spawn, instead of the game's coordinates.
     "path": 0, "path_noise": 0.05,
+    # path=2: anchored by landmarks. `landmarks` view prototypes (the vision features, online
+    # competitive learning) remember the integrated pose where they win; a life starts lost (no
+    # place cells) and is placed when a view is recognised (similarity > landmark_match, the
+    # prototype seen >= landmark_seen times while placed); placed, recognised views pull the
+    # estimate back by landmark_pull. The first life ever is placed at its spawn.
+    "landmarks": 256, "landmark_match": 0.97, "landmark_seen": 5, "landmark_pull": 0.1, "landmark_agree": 64.0,
     # Reasons to go on (whole maps): approach = doom_rl's w_approach (reward per 64 units of new
     # closest walking distance to the exit); boredom = c: a drive that grows while no new square
     # is entered, r -= c * min(1, steps since a new square / boredom_steps), also felt (a raw feature).
@@ -165,6 +171,37 @@ class PlaceCells:
                      (vzd.GameVariable.POSITION_X, vzd.GameVariable.POSITION_Y, vzd.GameVariable.ANGLE))
 
 
+class Landmarks:
+    """Recognised views anchor path integration, as landmarks reset grid cells: each view
+    prototype keeps a running mean of the pose (x, y and heading as cos / sin) at which it won
+    while the agent knew where it was."""
+
+    def __init__(self, k, rate=0.02, match=0.97, seen=5, pull=0.1):
+        self.view = LearnedPlace(k, 0, rate, 1, settle=20000)
+        self.match, self.seen, self.pull = float(match), int(seen), float(pull)
+        self.pose = np.zeros((int(k), 4))  # x, y, cos, sin
+        self.count = np.zeros(int(k))
+
+    def recognise(self, view, learn):
+        """The winning prototype and whether the view is recognised as a known landmark."""
+        self.view(view, learn)
+        w = self.view.winner
+        if w is None:
+            return None, False
+        sim = float(self.view.W[w] @ (view / (np.linalg.norm(view) + 1e-9)))
+        return w, sim > self.match and self.count[w] >= self.seen
+
+    def remember(self, w, est):
+        a = np.radians(est[2])
+        target = np.array([est[0], est[1], np.cos(a), np.sin(a)])
+        self.count[w] += 1
+        self.pose[w] += (target - self.pose[w]) / min(self.count[w], 20.0)
+
+    def recall(self, w):
+        x, y, c, s = self.pose[w]
+        return np.array([x, y, np.degrees(np.arctan2(s, c)) % 360.0])
+
+
 class LearnedPlace:
     """Place cells learned without coordinates: K prototypes of the (unit-length) feature vector,
     learned by online competitive learning (the winner moves toward the input, a local
@@ -236,6 +273,12 @@ class Learner:
                              direct_gain=p["motion_gain"] if p["motion"] else p["drive_gain"])
         self.last_pos = None
         self.boredom_level = 0.0
+        self.landmarks = Landmarks(p["landmarks"], match=p["landmark_match"], seen=p["landmark_seen"],
+                                   pull=p["landmark_pull"]) if p["path"] == 2 else None
+        self.view = None  # the last vision features (landmarks recognise them one tick late)
+        self.lives = 0
+        self.origin = None  # the first life's spawn: the shared frame (for the error measure)
+        self.anchor_err = []
         self.vplace = LearnedPlace(p["vplace"], 0, p["vplace_rate"], p["vplace_active"],
                                                                       settle=p["vplace_settle"]) if p["vplace"] else None
         self.arm, self.p, self.buttons = arm, p, buttons
@@ -249,7 +292,11 @@ class Learner:
         if self.p["motion"]:
             inputs["motion"] = self.motion(pos)
         if self.place is not None:
-            cells = self.place(*(self.integrate(pos) if self.p["path"] else pos))
+            if self.p["path"] == 2:
+                est = self.anchored(pos, learn)
+                cells = self.place(*est) if est is not None else np.zeros(self.place.n)
+            else:
+                cells = self.place(*(self.integrate(pos) if self.p["path"] else pos))
             if self.p["place_input"]:
                 inputs["place"] = cells
         if self.drives:
@@ -268,10 +315,72 @@ class Learner:
         if self.p["boredom"] > 0:
             raw.append([self.boredom_level])
         x = self.res.step(inputs, raw=np.concatenate(raw) if raw else None)
+        if self.landmarks is not None:
+            self.view = np.asarray(self.res.net.layer_output(self.res.pool), dtype=np.float64).ravel()
         if self.vplace is not None:
             # The learned place cells read the reservoir and the vision features, not the raw inputs.
             x = np.concatenate([x, self.vplace(x[:len(x) - self.res.extra], learn)])
         return x
+
+    def anchored(self, pos, learn):
+        """path=2: integrate self-motion once placed; get placed (or corrected) by recognised views.
+        Returns the pose estimate in the shared frame, or None while lost."""
+        first = getattr(self, "path_last", None) is None
+        if first:
+            self.lives += 1
+            self.placed = self.lives == 1
+            if self.origin is None:
+                self.origin = pos
+        if first:
+            self.candidate = None
+        last = getattr(self, "path_last", None)
+        est = self.integrate(pos)  # moves self.path_est (meaningful only while placed)
+        c = getattr(self, "candidate", None)
+        if c is not None and last is not None:
+            # The candidate pose moves with the agent too (same dead reckoning, its own heading).
+            dx, dy = pos[0] - last[0], pos[1] - last[1]
+            a = np.radians(last[2])
+            fwd, side = dx * np.cos(a) + dy * np.sin(a), -dx * np.sin(a) + dy * np.cos(a)
+            b = np.radians(c[2])
+            c[0] += fwd * np.cos(b) - side * np.sin(b)
+            c[1] += fwd * np.sin(b) + side * np.cos(b)
+            c[2] = (c[2] + (pos[2] - last[2] + 180.0) % 360.0 - 180.0) % 360.0
+        lm = self.landmarks
+        if self.view is not None and not first:
+            w, known = lm.recognise(self.view, learn)
+            if w is not None:
+                if known and not self.placed:
+                    # A guess from one view is checked against the next recognised view: placed
+                    # only when two agree (after integrating the movement between them) within
+                    # landmark_agree map units, so one look-alike room cannot misplace the agent.
+                    r = lm.recall(w)
+                    c = getattr(self, "candidate", None)
+                    if c is not None and np.hypot(*(c[:2] - r[:2])) < self.p["landmark_agree"] and w != self.candidate_w:
+                        self.path_est[:] = r
+                        self.placed = True
+                        self.candidate = None
+                    else:
+                        self.candidate, self.candidate_w = r.copy(), w
+                elif known and lm.pull > 0:
+                    r = lm.recall(w)
+                    e = self.path_est
+                    e[:2] += lm.pull * (r[:2] - e[:2])
+                    e[2] = (e[2] + lm.pull * ((r[2] - e[2] + 180.0) % 360.0 - 180.0)) % 360.0
+                if self.placed and learn:
+                    lm.remember(w, self.path_est)
+        if self.placed:
+            self.anchor_err.append(self.frame_error(pos))
+            return tuple(self.path_est)
+        return None
+
+    def frame_error(self, pos):
+        """Distance between the estimate and the true position in the shared frame (the first
+        life's spawn at the origin facing 0)."""
+        ox, oy, oa = self.origin
+        a = np.radians(oa)
+        dx, dy = pos[0] - ox, pos[1] - oy
+        tx, ty = dx * np.cos(a) + dy * np.sin(a), -dx * np.sin(a) + dy * np.cos(a)
+        return float(np.hypot(self.path_est[0] - tx, self.path_est[1] - ty))
 
     def integrate(self, pos):
         """Dead reckoning: the position and heading the agent would estimate from its own
@@ -356,6 +465,8 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     learner.last_pos = None
     learner.path_last = None
     learner.boredom_level = 0.0
+    learner.view = None
+    learner.anchor_err = []
     fields = []  # test games: (winning learned place cell, x, y)
     x = learner.features(state, health, pos, learn)
     a = learner.act(x, 0.0, False, learn)
@@ -416,7 +527,8 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
     s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
-             novelty=novelty, reflexes=reflexes, lifetime_cells=len(getattr(learner.agent, "novelty_counts", {})), seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
+             novelty=novelty, reflexes=reflexes,
+             placed=len(learner.anchor_err) / max(1, steps), anchor_err=float(np.mean(learner.anchor_err)) if learner.anchor_err else -1.0, lifetime_cells=len(getattr(learner.agent, "novelty_counts", {})), seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
              spikes=learner.res.spikes / max(1, steps * learner.res.ticks))
     if shaper is not None:
         s.update({k: float(shaper.counts[k]) for k in ("kills", "items", "doors", "keys", "exits", "cells", "damage")})
@@ -472,6 +584,8 @@ def main():
     if saved is not None:
         learner.agent, learner.rng = saved["agent"], saved["rng"]
         learner.vplace = saved.get("vplace", learner.vplace)
+        if saved.get("landmarks") is not None:
+            learner.landmarks, learner.lives, learner.origin = saved["landmarks"]
         with open(log_path) as f:
             kept = f.readlines()[:start]
         with open(log_path, "w") as f:
@@ -486,7 +600,8 @@ def main():
             if args.checkpoint > 0 and ep > start and ep % args.checkpoint == 0:
                 log.flush()
                 with open(ckpt_path + ".tmp", "wb") as f:
-                    pickle.dump({"episode": ep, "agent": learner.agent, "rng": learner.rng, "vplace": learner.vplace}, f)
+                    pickle.dump({"episode": ep, "agent": learner.agent, "rng": learner.rng, "vplace": learner.vplace,
+                                 "landmarks": (learner.landmarks, learner.lives, learner.origin)}, f)
                 os.replace(ckpt_path + ".tmp", ckpt_path)
             trace = ep % p["trace_every"] == 0 or ep == args.episodes - 1
             s = episode(game, learner, scale, True, trace, shaper)
@@ -509,7 +624,7 @@ def main():
     summary = {k: float(np.mean([r[k] for r in rows]))
                for k in ("game_reward", "kills", "medkits", "visited", "steps", "seconds", "died", "spikes")}
     summary["success"] = float(np.mean([r["game_reward"] > 0.5 for r in rows]))  # my_way_home: the vest found
-    for k in ("items", "doors", "exits", "cells", "distance", "approach_reward", "closest"):
+    for k in ("items", "doors", "exits", "cells", "distance", "approach_reward", "closest", "placed"):
         if k in rows[0]:
             summary[k] = float(np.mean([r[k] for r in rows]))
     fields = [f for r in rows for f in r.pop("fields", [])]
