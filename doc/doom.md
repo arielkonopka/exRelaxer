@@ -577,6 +577,230 @@ fresh games (seed 4242, until death or 30 minutes).
 Data: `results/dynamic/doom_agent/untildeath_d1/recovery_retest.json`
 (`recovery_retest.py`).
 
+### D17. A TD critic instead of the raw reward: actor-critic on `basic`, `defend_the_center` and `map01` (2026-10-30)
+
+**Question.** (User's spec.) Does an actor-critic help, with δ = r + γV(s′) − V(s) from a
+linear TD(λ) critic as the modulator of per-action readouts over frozen
+features, learning on every step?
+
+**Setup.** `NNtesting/experiments/td_actor_critic/doom_td.py`
+([README](../NNtesting/experiments/td_actor_critic/README.md)). Not the
+shared setup above: the scenario's own 3 buttons and reward (`basic` / 100;
+`defend_the_center` as is), no sound, frame skip 4, one network tick per
+step. Screen 40 × 30 gray → frozen Gabor + centre-surround bank, max-pooled
+(500 values) → frozen 256-neuron recurrent E-R reservoir (recovery
+0.5-0.99); critic and actor read both. γ 0.97, λ 0.9, softmax actor with
+post onehot − π, features centred. 3 seeds; greedy test on fresh seeds.
+
+**Result.**
+- `basic` (3000 episodes): δ 0.99-1.00 kill rate and +69 on test, against
+  raw reward 0.56 (−105) and random actions 0.62 (−141). The reservoir
+  alone (no bank) reaches 0.67.
+- `defend_the_center` (2000 episodes): δ +6.1 (7.1 kills), raw reward +5.4
+  (6.4 kills), random +0.3 (1.3 kills); seeds spread 3.5-10.3. An entropy
+  bonus keeps exploring but gives the same mean.
+- Before it worked: a timeout scored as terminal rewarded running out the
+  clock (the agent stopped shooting); uncentred E-R thresholds kept the
+  critic from learning; pixels without the bank never beat random. Details
+  in [research §41](research.md#41-a-td-critic-δ-as-the-modulator-actor-critic).
+
+**Conclusion.** δ makes online learning work on `basic` where the raw
+reward does not; on `defend_the_center` it is slightly ahead. The frozen
+vision bank matters more than the E-R reservoir.
+
+**Data.** `results/td-actor-critic/doom/` (config, test, gzipped training
+log per run); the project's `reports/doom-td/`.
+
+**Addendum (2026-10-30, the user's follow-ups: games until death with
+survival times, and a whole level).** `doom_td.py --set until_death=M`
+(no time limit, a cap of M minutes; survival seconds logged),
+`--scenario map01` (doom_rl's 8 buttons and shaped reward) and
+`--checkpoint N` (resume after a restart).
+
+- `defend_the_center` until death (30-minute cap, 3 seeds, 30 test games):
+  δ 7.1 kills, survives 16.8 s (median 17.6, longest 30.9); δ + entropy
+  6.5 kills, 16.5 s; raw reward 6.4 kills, 16.2 s; random 1.3 kills,
+  9.5 s. The same numbers as with the 60 s limit: these agents always died
+  before it. Training survival rises 13.8 → 16.1 s (raw 12.9 → 15.0 s). They
+  shoot well but never dodge; the evolved D12 agent survives 21 minutes.
+- `map01`, 600 games until death (5-minute cap), 3 seeds, 10 test games:
+
+  | | test reward | kills | survival | squares visited | doors | items | exits |
+  |---|---|---|---|---|---|---|---|
+  | δ | −9.3 | 0.5 | 283 s | 28 | 0.0 | 1.1 | 0 |
+  | raw reward | −4.1 | 1.0 | 89 s | 37 | 1.2 | 2.0 | 0 |
+  | random | −3.7 | 0.2 | 142 s | 38 | 0.0 | 0.5 | 0 |
+
+  δ's greedy policy hides: it outlives the cap in most test games but
+  explores less than random and collects idle penalties; in training its
+  reward falls (−2.7 → −5.7) as the policy narrows (entropy 1.07 → 0.28).
+  The raw reward learns to kill (0.34 → 0.96 per game in training), open
+  doors and pick up items, and dies sooner. Neither beats random on reward
+  or reaches the exit. A first run with the reward × 0.2 and an entropy
+  bonus did not move the policy at all (entropy 2.07 of 2.08) and is kept
+  only as data (`map01/`; the comparison is `map01b/`).
+
+**Conclusion (addendum).** On an arena δ helps a little; on a whole level a
+linear critic over frozen vision with a 3.7 s horizon does not see what
+leads to reward, and δ teaches hiding. A level needs memory or a place
+representation (the spec's own open question), and probably a critic that
+sees more than the current frame.
+
+### D18. Homeostatic drives: health as an input, drive reduction as the reward (2026-10-30)
+
+**Question.** (User's spec, phase 2.) Can the D17 actor-critic learn from an
+internal drive instead of the game's score: health fed into the reservoir,
+reward r = D(h_prev) − D(h_now) with D(h) = |100 − h| / 100?
+
+**Setup.** As D17 (`doom_td.py`, frozen Gabor bank + 256-neuron E-R
+reservoir, critic and actor read both), on ViZDoom `health_gathering`
+(acid floor, medkits; 3 buttons) and `health_gathering_supreme` (also
+poison vials, a harder layout). `--set drives=1`: health / 100 is one more
+input of the reservoir (its weights × 5) and a raw feature. Arms: δ + drive
+reward + health input; δ + the scenario's reward (+1 per tic, −100 at
+death, × 0.01); δ + drive reward without the health input ("blind"); the
+raw drive reward as modulator (no δ); random. Games until death, 5-minute
+cap; 3 seeds; 20 greedy test games on fresh seeds. No ammo: these
+scenarios have no weapon.
+
+**Result.**
+- `health_gathering`, 150 games:
+
+  | | test survival | medkits | test deaths | first game at the cap |
+  |---|---|---|---|---|
+  | δ + drive + health | 300 s (cap) | 161 | 0% | 15-23 |
+  | δ + scenario reward | 295 s | 160 | 2% | 29-61 |
+  | blind | 254 s | 136 | 20% | 5-22 |
+  | raw drive (no δ) | 252 s | 138 | 22% | 34-144 |
+  | random | 15 s | 1.5 | 100% | - |
+
+- `health_gathering_supreme`, 150 games: every arm dies within about 30 s;
+  δ + drive 22 s (7.5 medkits), blind 16 s, raw drive 15 s, scenario reward
+  12 s, random 12 s.
+- `health_gathering_supreme`, 1000 games (no random or raw arm):
+
+  | | test survival (per seed) | longest | medkits | training survival, per 200 games |
+  |---|---|---|---|---|
+  | δ + drive + health | 30 s (29, 26, 35) | 78 s | 12.8 | 14 → 20 → 22 → 24 → 27 |
+  | blind | 29 s (30, 31, 27) | 81 s | 12.4 | 13 → 18 → 22 → 25 → 26 |
+  | δ + scenario reward | 17 s (20, 19, 12) | 44 s | 4.2 | 12 → 15 → 17 → 18 → 19 |
+
+  Still rising at the end; every test game ends in death.
+
+**Conclusion.** Drive reduction teaches the agent to gather medkits as well
+as the score does on the easy map, about twice as fast, and much better on
+the hard one, where +1 per tic says little about which action helped.
+Feeling health makes the easy-map policy reliable (no deaths) but adds
+nothing on `supreme`, where the medkit itself in view is what matters. A
+drive-reduction return telescopes (D(h_0) − D(h_end), about −1 for every
+game that ends in death), so only γ < 1 makes postponing damage worth
+anything; it is enough here.
+
+**Data.** `results/td-actor-critic/doom/{health_gathering,hg_supreme,hg_supreme_1k}/`
+(config, test, gzipped training log per run, `run.sh`); the project's
+`reports/doom-td/`.
+
+### D19. A place layer: place and head-direction cells on `my_way_home` and `map01` (2026-10-30)
+
+**Question.** (Phase 3, after D17's `map01` agent learned to hide.) Does
+knowing where it is let the actor-critic learn to navigate: place cells
+from the map position next to vision?
+
+**Setup.** As D17 (`doom_td.py`, frozen Gabor bank + 256-neuron E-R
+reservoir), plus `--set place=1`: the position tile-coded by 4 offset grids
+of 128-unit squares (hashed into 1024 cells, 4 active) and 8
+head-direction cells, appended to the features (a linear critic over them
+is a smoothed table of values per place). `features=place`: place cells
+alone. γ 0.99 on `my_way_home` (5 buttons, +1 for the vest, 60 s limit,
+600 games, 30 test games); `map01` as D17's `map01b` (600 games until
+death, 5-minute cap, 10 test games) at γ 0.97 and 0.99. 3 seeds.
+
+**Result.**
+- `my_way_home`:
+
+  | features | test success (per seed) | training success, last 150 games |
+  |---|---|---|
+  | vision + place | 33% (37, 30, 33) | 29% |
+  | place only | 28% (10, 27, 47) | 46% |
+  | vision only | 9% (0, 20, 7) | 17% |
+  | random | 16% | 14% |
+
+  A 300-game pilot at γ 0.97 was weaker (place only 20%, vision 5%).
+- `map01` (δ, with D17's runs and random for reference):
+
+  | | test reward (per seed) | kills | survival | squares | doors | items | exits |
+  |---|---|---|---|---|---|---|---|
+  | place, γ 0.99 | **+0.1** (1.0, −2.9, 2.3) | 0.3 | 285 s | **45** | 0.0 | 1.1 | 0 |
+  | place, γ 0.97 | −4.3 (−0.9, −6.2, −5.8) | 0.6 | 61 s | 38 | 0.9 | 1.6 | 0 |
+  | D17 δ, no place | −9.3 | 0.5 | 283 s | 28 | 0.0 | 1.1 | 0 |
+  | D17 raw reward | −4.1 | 1.0 | 89 s | 37 | 1.2 | 2.0 | 0 |
+  | random | −3.7 | 0.2 | 142 s | 38 | 0.0 | 0.5 | 0 |
+
+**Conclusion.** Place cells make navigation learnable: on `my_way_home`
+vision alone ends below random, place doubles it. On `map01` place cells
+with a longer horizon turn δ's hiding into exploring: the first
+actor-critic above random on the level (+0.1 against −3.7), visiting more
+squares than random, though it still opens no doors and finds no exit.
+
+**Data.** `results/td-actor-critic/doom/{my_way_home,map01_place}/`
+(config, test, gzipped training log per run, `run.sh`); the project's
+`reports/doom-td/`.
+
+### D20. A lifetime novelty bonus on `map01`; place cells learned without coordinates on `my_way_home` (2026-10-31)
+
+**Question.** (Phase 4, the two next steps of D19.) Does a novelty bonus
+make the D19 agent open doors? Can place cells be learned from the
+reservoir, vision and self-motion instead of read from the game?
+
+**Setup.** As D19. Novelty: `--set novelty=β` adds β / √(1 + N) for
+entering a 64-unit square entered N times before over all training games
+(not reset between games; none in tests), on top of the γ 0.99 place-cell
+agent; β 0.02 and 0.1. Learned place: `--set vplace=256` appends 256 place
+cells, prototypes of the (unit-length) reservoir + vision feature vector
+found by online competitive learning (the winner moves toward the input,
+rate 0.02; the 4 closest fire); `motion=1` feeds forward and sideways
+speed and turning into the reservoir; `vplace_settle=20000` lets the rate
+fall as 20000 / (20000 + updates). Test `field_spread`: the spread of the
+positions where each learned cell wins over the spread of all positions
+(1 = no place information). 3 seeds, 600 games.
+
+**Result.**
+- `map01` with novelty (10 test games per seed):
+
+  | | test reward (per seed) | squares | survival | doors (test / training, last 150) |
+  |---|---|---|---|---|
+  | place, no novelty (D19) | +0.1 (1.0, −2.9, 2.3) | 45 | 285 s | 0 / 0.11 |
+  | + novelty 0.02 | −2.8 (−10.6, 0.6, 1.5) | 32 | 266 s | 0 / 0.29 |
+  | + novelty 0.1 | −0.6 (3.3, −7.0, 1.9) | 47 | 300 s | 0 / 0.02 |
+
+  One seed at β 0.02 opens about one door per training game from game 150
+  on, but its greedy test policy opens none; no exit anywhere. The agents
+  see 120-210 distinct squares in their lifetime.
+- `my_way_home`, learned place (30 test games per seed):
+
+  | features | test success | training success, last 150 | field spread |
+  |---|---|---|---|
+  | coordinate place cells (D19) | 33% | 29% | |
+  | vision + self-motion | 13% (0, 7, 33) | 38% | |
+  | vision only (D19) | 9% | 17% | |
+  | learned place + motion, settling | 7% | 29% | 0.45 |
+  | learned place + motion | 6% | 20% | 0.38 |
+  | learned place | 2% | 14% | 0.47 |
+  | random (D19) | 16% | 14% | |
+
+**Conclusion.** A count-based novelty bonus does not open doors or the
+exit within 600 games: the agent's explored territory stays small and the
+door it learns to open in one seed is lost by the greedy policy. Place
+cells learned by competitive learning are place-like (each covers 40-50%
+of the overall spread) but the critic cannot use them; they are
+view-dependent (the same spot facing another way is another prototype)
+and drift while the critic learns. Self-motion alone helps the most of the
+coordinate-free inputs.
+
+**Data.** `results/td-actor-critic/doom/{map01_novelty,learned_place}/`
+(config, test, gzipped training log per run, `run.sh`); the project's
+`reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
