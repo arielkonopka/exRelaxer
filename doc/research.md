@@ -51,6 +51,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [37. Growth re-evaluated: new recovery, more seeds, from one neuron](#37-growth-re-evaluated-new-recovery-more-seeds-from-one-neuron)
 - [38. Grown neurons that start easier to fire](#38-grown-neurons-that-start-easier-to-fire)
 - [39. A critical period: grown neurons that mature](#39-a-critical-period-grown-neurons-that-mature)
+- [40. Doom and Gardens of Eris: retest and growth](#40-doom-and-gardens-of-eris-retest-and-growth)
 - [41. A TD critic: δ as the modulator (actor-critic)](#41-a-td-critic-δ-as-the-modulator-actor-critic)
 - [42. Homeostatic drives](#42-homeostatic-drives)
 - [43. A place layer](#43-a-place-layer)
@@ -2499,6 +2500,44 @@ freezes the older ones.)
   +0.57 at almost twice the neurons (17-19 against 9.5).
 - Still below the fixed right size (ER(8) 9.34 at 1,500 games, §37).
 
+## 40. Doom and Gardens of Eris: retest and growth
+
+Question (user, 2026-10-28, after §36-§39): how do the Doom and Gardens of
+Eris agents fare now, and do the growth findings carry over to them?
+
+**Retest.** Every saved agent was trained at recovery 0.9.
+- Doom ([D15](doom.md#d15-the-agents-under-the-new-default-recovery-2026-10-28)):
+  `doom_rl` had no recovery setting, so since the default became 0.5 it
+  rebuilt saved agents at 0.5. At 0.9 the D12 agent reproduces to the step
+  (+16.55, 19.8 kills, 21 minutes); at 0.5 it collapses (−3.2, 2.8 kills,
+  1.8 minutes, twice the spikes). `doom_rl` now pins 0.9.
+- Gardens of Eris ([G6](goe.md#g6-the-g3-agents-retested-2026-10-28)):
+  `goe_rl` already pinned 0.9. On the game G3 was trained on, every score
+  reproduces exactly; on today's game the mazes are harder (roaming and
+  eight-way monsters) and the grown agent still leads a random player
+  (48.0 against 35.3). At 0.5 it loses a third of its room skills.
+
+**Growth on Doom** ([D16](doom.md#d16-a-layer-that-grows-when-it-saturates-from-one-neuron-2026-1028-29)).
+Evolution of every weight (300 generations, 3 seeds, recovery 0.5) with
+h1 starting at one neuron and growing by 4 on §37's trigger, with and
+without §38/§39's young neurons, against fixed layers:
+
+| Arm | Neurons | Reward (30 fresh games, mean of 3 seeds) | Spikes per step |
+|---|---|---|---|
+| fixed 128 | 128 | +5.3 | ~330 |
+| fixed 8 | 8 | +7.2 | ~20 |
+| grows from 1 | 5 | +7.7 | ~15 |
+| grows from 1, young | 5 | +4.3 | ~18 |
+
+- The trigger fires once (1 → 5) and never again: Doom's input keeps some
+  neuron firing on most ticks (saturated 36 % of ticks with 1 neuron, 5 %
+  with 4, never with 16+). Snake's slow growth (§37) does not happen here.
+- A handful of evolved E-R neurons plays as well as 128 at 15-20× fewer
+  spikes: the clearest case so far of the question this log started with,
+  task performance per unit of neural activity.
+- Young neurons do not help under evolution (most erratic arm); the gain
+  in §39 speeds a learning rule, and ES has none.
+
 ## 41. A TD critic: δ as the modulator (actor-critic)
 
 Question (user's spec, 2026-10-30): a global reward cannot assign credit
@@ -2940,6 +2979,11 @@ seeds, 600 games each.
     older neurons at growth helps more (7.91 from one cell, the best so
     far). Layer entropy neither predicts the score nor works as a growth
     trigger.
+34. **On Doom a handful of E-R neurons is enough** (§40): grown or fixed,
+    5-8 evolved E-R neurons match 128 at 15-20× fewer spikes; the
+    saturation trigger grows once and stops, and young neurons do not
+    help evolution. Saved Doom and GoE agents need the recovery (0.9) they
+    were trained at.
 35. **A TD critic is the learning signal frozen features were missing**
     (§41): δ instead of the raw reward lifts Snake from 13 to 17 apples and
     solves ViZDoom `basic` (99-100% kills against random's 62%, where raw

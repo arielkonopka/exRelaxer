@@ -178,6 +178,46 @@ def grow(p, net_seed, arrays):
     return q, out
 
 
+def widen(p, net_seed, arrays, increment):
+    """Width growth of h1 (depth 1, no feedback): returns the wider network's parameters and
+    `arrays` (theta, Adam's m and v) mapped onto it. Old neurons keep their weights, the new
+    ones start as the wider network's own random ones (m, v at zero), and every readout reads
+    them with weight zero, so the grown network plays as before. They stay `young` for good:
+    p["young_from"] marks the first grown neuron (resting threshold, young_scale)."""
+    q = dict(p, width=p["width"] + increment)
+    if q.get("young_from") is None:
+        q["young_from"] = p["width"]
+    old, new = build(p, net_seed, None), build(q, net_seed, None)
+    fresh = split(new, q["evolve"], initial_weights(q, net_seed)[0])
+    out = []
+    for k, a in enumerate(arrays):
+        parts = split(old, p["evolve"], a)
+        grown = [np.concatenate([r, np.zeros(increment)]) for r in parts[0]]
+        grown += list(parts[1]) + [f if k == 0 else np.zeros_like(f) for f in fresh[1][p["width"]:]]
+        out.append(np.concatenate(grown))
+    return q, out
+
+
+def young_scale(p, net_seed):
+    """Per weight: young_gain for the weights of grown neurons (their own and the readouts'
+    from them), 1 elsewhere. ES samples and steps them young_gain x larger: the analogue of
+    §39's learning gain."""
+    player = build(p, net_seed, None)
+    born, gain = p.get("young_from"), p.get("young_gain", 1.0)
+    parts = []
+    for gi, group in enumerate(groups(player, p.get("evolve", "readout"))):
+        for layer, i in group:
+            n = len(player.net.weights(layer, i))
+            w = np.ones(n)
+            if born is not None:
+                if gi == 0:
+                    w[born:] = gain
+                elif i >= born:
+                    w[:] = gain
+            parts.append(w)
+    return np.concatenate(parts)
+
+
 def add_thresholds(p, net_seed, theta):
     """Weights of the same network without threshold readouts (readout_thresholds
     false) mapped onto `p`'s: each readout's weights from a layer's thresholds
@@ -199,15 +239,36 @@ def add_thresholds(p, net_seed, theta):
     return np.concatenate(out)
 
 
+class SaturationMeter:
+    """Wraps an ActivityMonitor on h1 and counts its saturated ticks over whole games
+    (the monitor's own window is 100 ticks; growth here is decided once per generation)."""
+
+    def __init__(self):
+        import exrelaxer as exr
+        self.monitor = exr.ActivityMonitor(exr.ActivitySpec(window=100))
+        self.saturated = self.ticks = 0
+
+    def observe(self, net, layer):
+        self.monitor.observe(net, layer)
+        self.saturated += bool(self.monitor.saturated_tick)
+        self.ticks += 1
+
+
 def play(task):
-    """Plays `episodes` episodes from `seed` with weights theta; returns (reward, kills, spikes per step)."""
+    """Plays `episodes` episodes from `seed` with weights theta; returns (reward, kills, spikes per step),
+    and with a 4th task item true, also the share of h1's saturated ticks (width growth)."""
     import experiment as e
-    theta, seed, episodes = task
+    theta, seed, episodes = task[:3]
     p, game = _worker["p"], _worker["game"]
     player = build(p, _worker["net_seed"], theta)  # fresh E-R state for every candidate
+    if len(task) > 3 and task[3]:
+        player.monitor = SaturationMeter()
     game.set_seed(int(seed))
     stats, _ = e.play(game, player, p, episodes, 0.0, 0.0, np.random.default_rng(0), meter=True)
-    return stats["reward"], stats["kills"], player.spikes / max(player.ticks_seen, 1) * p["ticks"]
+    out = (stats["reward"], stats["kills"], player.spikes / max(player.ticks_seen, 1) * p["ticks"])
+    if player.monitor is not None:
+        out += (player.monitor.saturated / max(player.monitor.ticks, 1),)
+    return out
 
 
 def retry(what, write, tries=5):
@@ -262,6 +323,17 @@ def main():
                     help="generations averaged to decide that the network learns")
     ap.add_argument("--grow-margin", type=float, default=1.0,
                     help="validation gain over the first window at this depth that counts as learning")
+    ap.add_argument("--grow-width", type=int, default=0,
+                    help="width growth: h1 grows by --width-increment neurons, up to this many, whenever "
+                         "the validation games saw it saturated in at least --saturated-share of the ticks "
+                         "(research §37's trigger); depth 1, no feedback")
+    ap.add_argument("--width-increment", type=int, default=4)
+    ap.add_argument("--saturated-share", type=float, default=0.25)
+    ap.add_argument("--width-hold", type=int, default=5, help="generations after a width growth before the next")
+    ap.add_argument("--young-resting", type=float, default=1.0,
+                    help="grown neurons rest at this x the layer's resting threshold, for good (§38)")
+    ap.add_argument("--young-gain", type=float, default=1.0,
+                    help="grown neurons' weights get this x the ES noise and step, for good (§39's learning gain)")
     ap.add_argument("--init", default="", help="start from these weights (a best_theta.npy of the same network)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
@@ -272,11 +344,20 @@ def main():
         if p.get("feedback_first", 0) and p.get("feedback_first_from", "all") != "all":
             raise ValueError("--grow-to needs feedback_first_from all: a top-only rung would move to every new layer")
         p["readout_from"] = "all"  # the new layer joins the readouts with zero weights
+    if args.grow_width:
+        if p["evolve"] != "all" or p["depth"] != 1 or p["feedback"] != "none" or p.get("readout_thresholds"):
+            raise ValueError("--grow-width needs evolve all, depth 1, feedback none, no readout_thresholds")
+        if args.grow_to:
+            raise ValueError("--grow-width and --grow-to do not mix")
+        p["young_resting"], p["young_gain"] = args.young_resting, args.young_gain
     state_path = os.path.join(args.out, "state.npz")
     if os.path.exists(state_path):
         saved = np.load(state_path)
         if "depth" in saved.files:
             p["depth"] = int(saved["depth"])  # a grown run resumes at its depth
+        if "width" in saved.files:
+            p["width"] = int(saved["width"])  # a widened run resumes at its width
+            p["young_from"] = None if int(saved["young_from"]) < 0 else int(saved["young_from"])
     with open(os.path.join(args.out, "config.json"), "w") as f:
         json.dump({"args": vars(args), "params": p}, f, indent=1)
 
@@ -303,7 +384,10 @@ def main():
         vals, grown_at = [], 0
         level = -np.inf  # plateau rule: the level (mean validation of the last window) at the last growth
     rng = np.random.default_rng(args.seed + gen)
+    scale = scale * young_scale(p, args.net_seed)
     sigma, lr = args.sigma * scale, args.lr * scale
+    widened_at = int(s["widened_at"]) if os.path.exists(state_path) and "widened_at" in s.files else -10 ** 9
+    saturation = float("nan")
 
     ctx = mp.get_context("spawn")
     while gen < args.generations:
@@ -314,9 +398,11 @@ def main():
                 seed = int(rng.integers(1, 1 << 30))  # every candidate plays the same episodes
                 tasks = [(theta + sigma * e, seed, args.episodes) for e in eps] + \
                         [(theta - sigma * e, seed, args.episodes) for e in eps]
-                tasks.append((theta, 777777, args.validation))  # validation: fixed episodes, current weights
+                # validation: fixed episodes, current weights (and h1's saturation for width growth)
+                tasks.append((theta, 777777, args.validation, bool(args.grow_width)))
                 results = pool.map(play, tasks)
-                val, val_kills, val_spikes = results.pop()
+                val, val_kills, val_spikes, *sat = results.pop()
+                saturation = sat[0] if sat else float("nan")
                 rewards = np.array([r[0] for r in results])
                 ranks = centred_ranks(rewards)
                 grad = (ranks[:args.pairs] - ranks[args.pairs:]) @ eps / (2 * args.pairs * sigma)
@@ -331,7 +417,8 @@ def main():
                     retry("best.exr", lambda: atomic(os.path.join(args.out, "best.exr"), net.save))
                     retry("best_theta.npy", lambda: atomic(os.path.join(args.out, "best_theta.npy"),
                                                            lambda path: save_npy(path, theta)))
-                    retry("best.json", lambda: json.dump({"generation": gen, "validation": val, "depth": p["depth"]},
+                    retry("best.json", lambda: json.dump({"generation": gen, "validation": val, "depth": p["depth"],
+                                                                    "width": p["width"], "young_from": p.get("young_from")},
                                                          open(os.path.join(args.out, "best.json"), "w")))
                 theta = theta + step
                 vals.append(val)
@@ -352,13 +439,26 @@ def main():
                     _, scale, readouts = initial_weights(p, args.net_seed)
                     sigma, lr = args.sigma * scale, args.lr * scale
                     grown_at = len(vals)
+                widened = (args.grow_width and p["width"] < args.grow_width and gen - widened_at >= args.width_hold
+                           and saturation >= args.saturated_share)
+                if widened:
+                    inc = min(args.width_increment, args.grow_width - p["width"])
+                    p, (theta, m, v) = widen(p, args.net_seed, (theta, m, v), inc)
+                    _, scale, readouts = initial_weights(p, args.net_seed)
+                    scale = scale * young_scale(p, args.net_seed)
+                    sigma, lr = args.sigma * scale, args.lr * scale
+                    widened_at = gen
+                    grew = True  # the workers restart with the wider network
                 def save_state():  # whole or not at all: a run stopped mid-write resumes from the last one
                     with open(state_path + ".tmp", "wb") as f:
                         np.savez(f, theta=theta, m=m, v=v, gen=gen, best=best, vals=np.array(vals),
-                                 grown_at=grown_at, depth=p["depth"], level=level)
+                                 grown_at=grown_at, depth=p["depth"], level=level, width=p["width"],
+                                 young_from=-1 if p.get("young_from") is None else p["young_from"],
+                                 widened_at=widened_at)
                     os.replace(state_path + ".tmp", state_path)
                 retry("state.npz", save_state)
-                line = {"generation": gen, "depth": p["depth"], "validation_reward": val, "validation_kills": val_kills,
+                line = {"generation": gen, "depth": p["depth"], "width": p["width"], "saturation": saturation,
+                        "validation_reward": val, "validation_kills": val_kills,
                         "validation_spikes_per_step": val_spikes, "population_mean": float(rewards.mean()),
                         "population_best": float(rewards.max()),
                         "kills_mean": float(np.mean([r[1] for r in results])), "best_validation": best,
@@ -370,7 +470,7 @@ def main():
                 print(f"gen {gen}: validation {val:.2f} (kills {val_kills:.1f}), population {rewards.mean():.2f} "
                       f"best {rewards.max():.2f}, {line['seconds']:.0f} s", flush=True)
                 if grew:
-                    print(f"gen {gen}: grown to {p['depth']} hidden layers", flush=True)
+                    print(f"gen {gen}: grown to {p['depth']} hidden layers of {p['width']}", flush=True)
                     break  # the workers restart with the deeper network
 
 
