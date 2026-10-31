@@ -67,6 +67,7 @@ DEFAULTS = {
     # reservoir; vplace=K appends K learned place cells, prototypes of the reservoir's state
     # and the vision features found by online competitive learning (no game coordinates).
     "motion": 0, "motion_gain": 5.0, "vplace": 0, "vplace_rate": 0.02, "vplace_active": 4,
+    "vplace_settle": 0,  # > 0: the place cells' rate falls as rate * settle / (settle + updates), a critical period
 }
 SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
           "health_gathering_supreme": 0.01}
@@ -160,8 +161,9 @@ class LearnedPlace:
     reservoir's thresholds in the input, a prototype stands for "what I see and what I just
     did", which in a level mostly means where I am."""
 
-    def __init__(self, k, size, rate=0.02, active=4, rng=None):
-        self.k, self.rate, self.active = int(k), float(rate), int(active)
+    def __init__(self, k, size, rate=0.02, active=4, rng=None, settle=0):
+        self.k, self.rate, self.active, self.settle = int(k), float(rate), int(active), float(settle)
+        self.updates = 0
         self.W = None
         self.size = size
         self.filled = 0
@@ -185,7 +187,9 @@ class LearnedPlace:
         code[top] = 1.0
         if learn:
             w = int(np.argmax(sims))
-            self.W[w] += self.rate * (x - self.W[w])
+            rate = self.rate * self.settle / (self.settle + self.updates) if self.settle > 0 else self.rate
+            self.updates += 1
+            self.W[w] += rate * (x - self.W[w])
             self.W[w] /= np.linalg.norm(self.W[w]) + 1e-9
         return code
 
@@ -220,7 +224,8 @@ class Learner:
                              extra=extra + int(self.drives), direct=direct or None,
                              direct_gain=p["motion_gain"] if p["motion"] else p["drive_gain"])
         self.last_pos = None
-        self.vplace = LearnedPlace(p["vplace"], 0, p["vplace_rate"], p["vplace_active"]) if p["vplace"] else None
+        self.vplace = LearnedPlace(p["vplace"], 0, p["vplace_rate"], p["vplace_active"],
+                                                                      settle=p["vplace_settle"]) if p["vplace"] else None
         self.arm, self.p, self.buttons = arm, p, buttons
         self.rng = np.random.default_rng(seed)
         self.agent = Agent(self.res.size + p["vplace"], buttons, p["gamma"], p["lam"], p["critic_rate"], p["actor_rate"],
