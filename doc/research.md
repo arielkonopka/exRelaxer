@@ -53,6 +53,7 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [39. A critical period: grown neurons that mature](#39-a-critical-period-grown-neurons-that-mature)
 - [41. A TD critic: δ as the modulator (actor-critic)](#41-a-td-critic-δ-as-the-modulator-actor-critic)
 - [42. Homeostatic drives](#42-homeostatic-drives)
+- [43. A place layer](#43-a-place-layer)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2668,6 +2669,40 @@ without δ, random; 3 seeds, games until death (5-minute cap).
   level-based cost (`reward=drive_level`, −D(h) per step) is in the code
   but untested.
 
+## 43. A place layer
+
+**Question.** (Phase 3; Doom log D19 has the tables.) §41's critic sees only
+the current frame through frozen vision, and on a whole level δ taught
+hiding. Does a sense of place fix it?
+
+**Setup.** Place cells as in Foster, Morris & Dayan (2000): the map
+position, tile-coded by 4 offset grids of 128-unit squares (4 active cells
+of 1024), and 8 head-direction cells (max(0, cos)² bumps), appended to the
+§41 features. Taken from the game's position, not learned: a stand-in for
+what a hippocampus would compute, to see whether the learner can use it.
+
+**Results.**
+- `my_way_home` (γ 0.99, 600 games, 3 seeds): vision + place finds the
+  vest in 33% of test games, place alone 28% (46% in training), vision
+  alone 9%, random 16%.
+- `map01` (600 games until death): with place cells and γ 0.99, δ scores
+  +0.1 on test (random −3.7, §41's δ −9.3), explores 45 squares (random
+  38) and survives the 5-minute cap; at γ 0.97 −4.3. No doors opened, no
+  exit.
+
+**What it means.**
+- A linear critic over place cells is a value map; it gives δ something
+  stable to rise and fall with as the agent moves, where a frame-by-frame
+  view changes with every turn. Vision alone does worse than random in
+  the maze: it settles on habits.
+- The horizon matters as much as the place: γ 0.97 (about 3.7 s ahead) is
+  too short for a level; γ 0.99 (about 11 s) let δ value exploring.
+- Doors and exits need more than place: a door is opened by a button
+  press at a spot, a sparse event that 600 games did not find.
+- Next: learned place cells (from the E-R reservoir and self-motion
+  instead of the game's coordinates), and a curiosity or novelty bonus for
+  the doors.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -2883,12 +2918,21 @@ without δ, random; 3 seeds, games until death (5-minute cap).
     as with the scenario's reward, and on `health_gathering_supreme`
     survives 30 s against 17 s (random 12 s). Feeling health removes the
     last deaths on the easy map and adds nothing on the hard one.
+37. **Knowing where it is turns hiding into exploring** (§43): place and
+    head-direction cells from the map position let the §41 actor-critic
+    find the `my_way_home` vest twice as often as random (33% against 16%;
+    vision alone 9%), and on `map01` at γ 0.99 it is the first δ learner
+    above random (+0.1 against −3.7), exploring more than random instead
+    of hiding. Doors and exits stay out of reach.
 
 ## Open questions and next steps
 
 - **More than one drive** (§42): health and ammo together (a scenario
   with weapons), and whether a level-based drive cost (no telescoping)
   beats drive reduction.
+- **Learned place cells** (§43): the place layer reads the game's
+  coordinates; can the E-R reservoir with self-motion inputs build its
+  own, and does a novelty bonus find doors?
 - **A reservoir that keeps where things are** (§41): random E-R mixing of
   the Gabor bank loses the monster's position; a spatially local reservoir
   (Conv2D / locally connected E-R) might keep it and add memory.
