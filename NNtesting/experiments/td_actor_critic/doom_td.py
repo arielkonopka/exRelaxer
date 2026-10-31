@@ -338,7 +338,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
                 learner.agent.step(x, r, False, learn=learn and learner.arm != "random", explore=False)
                 learner.agent.end_episode()
             else:
-                learner.act(np.zeros(learner.res.size), r, True, learn)
+                learner.act(np.zeros(len(learner.agent.critic.w)), r, True, learn)
             break
         if shaper is None:
             state = game.get_state()
