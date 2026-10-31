@@ -60,6 +60,13 @@ DEFAULTS = {
     # `tilings` offset grids of `place_size` map units hashed into `place_bins`) and
     # `headings` head-direction cells to the features (place_input=1: also into the reservoir).
     "place": 0, "place_size": 128.0, "tilings": 4, "place_bins": 1024, "headings": 8, "place_input": 0,
+    # A lifetime novelty bonus: novelty / sqrt(1 + N) for entering a `novelty_cell`-unit square
+    # entered N times before in all training games (not reset between games; none in tests).
+    "novelty": 0.0, "novelty_cell": 64.0,
+    # Learned place: motion=1 feeds self-motion (forward and sideways speed, turning) into the
+    # reservoir; vplace=K appends K learned place cells, prototypes of the reservoir's state
+    # and the vision features found by online competitive learning (no game coordinates).
+    "motion": 0, "motion_gain": 5.0, "vplace": 0, "vplace_rate": 0.02, "vplace_active": 4,
 }
 SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
           "health_gathering_supreme": 0.01}
@@ -146,6 +153,43 @@ class PlaceCells:
                      (vzd.GameVariable.POSITION_X, vzd.GameVariable.POSITION_Y, vzd.GameVariable.ANGLE))
 
 
+class LearnedPlace:
+    """Place cells learned without coordinates: K prototypes of the (unit-length) feature vector,
+    learned by online competitive learning (the winner moves toward the input, a local
+    Hebbian rule); the `active` closest prototypes fire (1), the rest stay 0. With the
+    reservoir's thresholds in the input, a prototype stands for "what I see and what I just
+    did", which in a level mostly means where I am."""
+
+    def __init__(self, k, size, rate=0.02, active=4, rng=None):
+        self.k, self.rate, self.active = int(k), float(rate), int(active)
+        self.W = None
+        self.size = size
+        self.filled = 0
+        self.winner = None
+        self.rng = rng if rng is not None else np.random.default_rng()
+
+    def __call__(self, x, learn=True):
+        x = np.asarray(x, dtype=np.float64)
+        x = x / (np.linalg.norm(x) + 1e-9)
+        if self.W is None:
+            self.W = np.zeros((self.k, len(x)))
+        code = np.zeros(self.k)
+        if self.filled < self.k:  # the first K distinct states seed the prototypes
+            if learn:
+                self.W[self.filled] = x
+                self.filled += 1
+            return code
+        sims = self.W @ x
+        self.winner = int(np.argmax(sims))
+        top = np.argpartition(-sims, self.active - 1)[:self.active]
+        code[top] = 1.0
+        if learn:
+            w = int(np.argmax(sims))
+            self.W[w] += self.rate * (x - self.W[w])
+            self.W[w] /= np.linalg.norm(self.W[w]) + 1e-9
+        return code
+
+
 def pool_screen(screen, pool):
     return screen.reshape(120 // pool, pool, 160 // pool, pool).mean(axis=(1, 3)).ravel().astype(np.float32) / 255.0
 
@@ -163,6 +207,8 @@ class Learner:
         self.place = PlaceCells(p["place_size"], p["tilings"], p["place_bins"], p["headings"]) \
             if p["place"] or p["features"] == "place" else None
         direct = {"drive": 1} if self.drives else {}
+        if p["motion"]:
+            direct["motion"] = 3
         if self.place is not None:
             extra += self.place.n
             if p["place_input"]:
@@ -172,15 +218,19 @@ class Learner:
                              vision=dict(height=120 // p["pool"], width=160 // p["pool"]) if p["vision"] == "gabor" else None,
                              with_pool=p["features"] in ("both_pool", "pool"),
                              extra=extra + int(self.drives), direct=direct or None,
-                             direct_gain=p["drive_gain"])
+                             direct_gain=p["motion_gain"] if p["motion"] else p["drive_gain"])
+        self.last_pos = None
+        self.vplace = LearnedPlace(p["vplace"], 0, p["vplace_rate"], p["vplace_active"]) if p["vplace"] else None
         self.arm, self.p, self.buttons = arm, p, buttons
         self.rng = np.random.default_rng(seed)
-        self.agent = Agent(self.res.size, buttons, p["gamma"], p["lam"], p["critic_rate"], p["actor_rate"],
+        self.agent = Agent(self.res.size + p["vplace"], buttons, p["gamma"], p["lam"], p["critic_rate"], p["actor_rate"],
                            clip=p["clip"], modulator="reward" if arm == "reward" else "td", post=p["post"],
                            tau=p["tau"], entropy=p["entropy"], center=p["center"], rng=self.rng)
 
-    def features(self, state, health=None, pos=None):
+    def features(self, state, health=None, pos=None, learn=True):
         inputs, raw = {}, []
+        if self.p["motion"]:
+            inputs["motion"] = self.motion(pos)
         if self.place is not None:
             cells = self.place(*pos)
             if self.p["place_input"]:
@@ -198,7 +248,37 @@ class Learner:
             raw.append([health / 100.0])
         if self.place is not None:
             raw.append(cells)
-        return self.res.step(inputs, raw=np.concatenate(raw) if raw else None)
+        x = self.res.step(inputs, raw=np.concatenate(raw) if raw else None)
+        if self.vplace is not None:
+            # The learned place cells read the reservoir and the vision features, not the raw inputs.
+            x = np.concatenate([x, self.vplace(x[:len(x) - self.res.extra], learn)])
+        return x
+
+    def motion(self, pos):
+        """Self-motion since the last step, as the vestibular sense would give it: forward and
+        sideways speed (map units / 20) and turning (degrees / 45), clipped to [-1, 1]."""
+        last, self.last_pos = self.last_pos, pos
+        if last is None or pos is None:
+            return np.zeros(3)
+        dx, dy = pos[0] - last[0], pos[1] - last[1]
+        a = np.radians(pos[2])
+        turn = (pos[2] - last[2] + 180.0) % 360.0 - 180.0
+        v = np.array([dx * np.cos(a) + dy * np.sin(a), -dx * np.sin(a) + dy * np.cos(a), 0.0]) / 20.0
+        v[2] = turn / 45.0
+        return np.clip(v, -1.0, 1.0)
+
+    def novelty_bonus(self, pos):
+        """Count-based novelty over the whole life of the agent (kept on the agent, so a
+        checkpoint carries it): only a square entered from another one counts."""
+        counts = self.agent.__dict__.setdefault("novelty_counts", {})
+        size = self.p["novelty_cell"]
+        cell = (int(pos[0] // size), int(pos[1] // size))
+        if cell == getattr(self, "_last_cell", None):
+            return 0.0
+        self._last_cell = cell
+        n = counts.get(cell, 0)
+        counts[cell] = n + 1
+        return self.p["novelty"] / np.sqrt(1.0 + n)
 
     def drive(self, health):
         """D(h) = |target - h| / 100: how far health is from where the body wants it."""
@@ -225,10 +305,12 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         shaper.reset(state)
     kind = learner.p["reward"]
     health = game.get_game_variable(vzd.GameVariable.HEALTH)
-    medkits, game_total = 0, 0.0
+    medkits, game_total, novelty = 0, 0.0, 0.0
     pos = PlaceCells.read(game)
     cells = set()
-    x = learner.features(state, health, pos)
+    learner.last_pos = None
+    fields = []  # test games: (winning learned place cell, x, y)
+    x = learner.features(state, health, pos, learn)
     a = learner.act(x, 0.0, False, learn)
     steps = 0
     while True:
@@ -262,17 +344,26 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             state = game.get_state()
         pos = PlaceCells.read(game)
         cells.add((int(pos[0] // 64), int(pos[1] // 64)))
-        x = learner.features(state, health, pos)
+        if learn and learner.p["novelty"] > 0:
+            bonus = learner.novelty_bonus(pos)
+            r += bonus
+            novelty += bonus
+        x = learner.features(state, health, pos, learn)
+        if not learn and learner.vplace is not None and learner.vplace.winner is not None:
+            fields.append((learner.vplace.winner, pos[0], pos[1]))
         a = learner.act(x, r, False, learn)
-    total = game_total if shaper is None else sum(learner.agent.log.rewards) / scale
+    total = game_total if shaper is None else (sum(learner.agent.log.rewards) - novelty) / scale
     kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)  # still readable after the end
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
-    s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps, seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
+    s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
+             novelty=novelty, lifetime_cells=len(getattr(learner.agent, "novelty_counts", {})), seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
              spikes=learner.res.spikes / max(1, steps * learner.res.ticks))
     if shaper is not None:
         s.update({k: float(shaper.counts[k]) for k in ("kills", "items", "doors", "keys", "exits", "cells", "damage")})
         s["distance"] = float(shaper.distance)
+    if fields:
+        s["fields"] = fields
     if trace:
         s["v_trace"] = [round(v, 4) for v in learner.agent.log.values]
         s["d_trace"] = [round(d, 4) for d in learner.agent.log.deltas]
@@ -319,6 +410,7 @@ def main():
     learner = Learner(p, game.get_available_buttons_size(), args.arm, args.seed)
     if saved is not None:
         learner.agent, learner.rng = saved["agent"], saved["rng"]
+        learner.vplace = saved.get("vplace", learner.vplace)
         with open(log_path) as f:
             kept = f.readlines()[:start]
         with open(log_path, "w") as f:
@@ -333,7 +425,7 @@ def main():
             if args.checkpoint > 0 and ep > start and ep % args.checkpoint == 0:
                 log.flush()
                 with open(ckpt_path + ".tmp", "wb") as f:
-                    pickle.dump({"episode": ep, "agent": learner.agent, "rng": learner.rng}, f)
+                    pickle.dump({"episode": ep, "agent": learner.agent, "rng": learner.rng, "vplace": learner.vplace}, f)
                 os.replace(ckpt_path + ".tmp", ckpt_path)
             trace = ep % p["trace_every"] == 0 or ep == args.episodes - 1
             s = episode(game, learner, scale, True, trace, shaper)
@@ -359,6 +451,15 @@ def main():
     for k in ("items", "doors", "exits", "cells", "distance"):
         if k in rows[0]:
             summary[k] = float(np.mean([r[k] for r in rows]))
+    fields = [f for r in rows for f in r.pop("fields", [])]
+    if fields:
+        # How place-like the learned cells are: the spread of the positions where each cell wins
+        # (weighted by its wins) over the spread of all positions; 1 = no place information.
+        f = np.asarray(fields)
+        spread = lambda q: float(np.sqrt(q[:, 1].var() + q[:, 2].var()))
+        cells = [f[f[:, 0] == c] for c in np.unique(f[:, 0])]
+        summary["field_spread"] = float(sum(len(c) * spread(c) for c in cells) / len(f) / max(spread(f), 1e-9))
+        summary["cells_used"] = len(cells)
     summary["seconds_median"] = float(np.median([r["seconds"] for r in rows]))
     summary["seconds_max"] = float(np.max([r["seconds"] for r in rows]))
     np.save(os.path.join(args.out, "actor_W.npy"), learner.agent.actor.W)
