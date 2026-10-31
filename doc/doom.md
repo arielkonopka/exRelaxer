@@ -714,6 +714,61 @@ squares than random, though it still opens no doors and finds no exit.
 (config, test, gzipped training log per run, `run.sh`); the project's
 `reports/doom-td/`.
 
+### D20. A lifetime novelty bonus on `map01`; place cells learned without coordinates on `my_way_home` (2026-10-31)
+
+**Question.** (Phase 4, the two next steps of D19.) Does a novelty bonus
+make the D19 agent open doors? Can place cells be learned from the
+reservoir, vision and self-motion instead of read from the game?
+
+**Setup.** As D19. Novelty: `--set novelty=β` adds β / √(1 + N) for
+entering a 64-unit square entered N times before over all training games
+(not reset between games; none in tests), on top of the γ 0.99 place-cell
+agent; β 0.02 and 0.1. Learned place: `--set vplace=256` appends 256 place
+cells, prototypes of the (unit-length) reservoir + vision feature vector
+found by online competitive learning (the winner moves toward the input,
+rate 0.02; the 4 closest fire); `motion=1` feeds forward and sideways
+speed and turning into the reservoir; `vplace_settle=20000` lets the rate
+fall as 20000 / (20000 + updates). Test `field_spread`: the spread of the
+positions where each learned cell wins over the spread of all positions
+(1 = no place information). 3 seeds, 600 games.
+
+**Result.**
+- `map01` with novelty (10 test games per seed):
+
+  | | test reward (per seed) | squares | survival | doors (test / training, last 150) |
+  |---|---|---|---|---|
+  | place, no novelty (D19) | +0.1 (1.0, −2.9, 2.3) | 45 | 285 s | 0 / 0.11 |
+  | + novelty 0.02 | −2.8 (−10.6, 0.6, 1.5) | 32 | 266 s | 0 / 0.29 |
+  | + novelty 0.1 | −0.6 (3.3, −7.0, 1.9) | 47 | 300 s | 0 / 0.02 |
+
+  One seed at β 0.02 opens about one door per training game from game 150
+  on, but its greedy test policy opens none; no exit anywhere. The agents
+  see 120-210 distinct squares in their lifetime.
+- `my_way_home`, learned place (30 test games per seed):
+
+  | features | test success | training success, last 150 | field spread |
+  |---|---|---|---|
+  | coordinate place cells (D19) | 33% | 29% | |
+  | vision + self-motion | 13% (0, 7, 33) | 38% | |
+  | vision only (D19) | 9% | 17% | |
+  | learned place + motion, settling | 7% | 29% | 0.45 |
+  | learned place + motion | 6% | 20% | 0.38 |
+  | learned place | 2% | 14% | 0.47 |
+  | random (D19) | 16% | 14% | |
+
+**Conclusion.** A count-based novelty bonus does not open doors or the
+exit within 600 games: the agent's explored territory stays small and the
+door it learns to open in one seed is lost by the greedy policy. Place
+cells learned by competitive learning are place-like (each covers 40-50%
+of the overall spread) but the critic cannot use them; they are
+view-dependent (the same spot facing another way is another prototype)
+and drift while the critic learns. Self-motion alone helps the most of the
+coordinate-free inputs.
+
+**Data.** `results/td-actor-critic/doom/{map01_novelty,learned_place}/`
+(config, test, gzipped training log per run, `run.sh`); the project's
+`reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
