@@ -7,7 +7,8 @@
 
 Evolution is OpenAI-ES as in es.py (antithetic pairs, centred ranks, Adam, steps
 relative to each group's weight RMS), on what the network trains now: the readouts,
-the newest column's kernels and its E-R layer. Older columns are frozen. With
+the newest column's kernels and its E-R layer. Older columns are frozen (with
+`train_old` every column keeps evolving). With
 `fitness` per_world (the default) candidates are ranked in each world and the
 ranks summed, so a maze world (rewards in the tens, a death -50) does not drown
 the rooms (a few points each).
