@@ -23,7 +23,10 @@ untrained network walks about instead of pressing the first action.
 Growing (grow.py): a new column gets its own convolution kernels (new features of the
 eye), its own E-R layer reading them, the body and the previous column, and readout
 lines that start at zero, so the grown network plays exactly as before. Older
-columns are frozen; the readouts keep learning.
+columns are frozen (train_old: they keep evolving); the readouts keep learning.
+young_resting / young_gain keep grown columns young (research §38/§39): a lower
+resting threshold, which the library does not save in net.exr (load weights.npz
+with agent.load), and larger ES steps for the newest column.
 
 Rooms: fixed chunks (Gardens-of-Eris chunk patterns) that teach one skill each,
 laid out anew from every world seed: explore, collect, doors, avatar, mines; `maze`
@@ -89,6 +92,12 @@ PARAMS = {
     "habituation_decay": (0.9, "fading habituation: factor per habituated tick"),
     "habituation_fade_after": (2, "fading habituation: repeats before fading starts"),
     "habituation_tolerance": (0.05, "fading habituation: relative change still counted as a repeat"),
+    # growth (grow.py), after research §38/§39 on Snake
+    "train_old": (False, "older columns keep evolving after growth (false: frozen, as G3)"),
+    "young_resting": (1.0, "E-R neurons of grown columns (2 on) rest at this x the layer's resting threshold, "
+                           "for good (§38: 0.5)"),
+    "young_gain": (1.0, "weights of the newest grown column get this x the ES noise and step, for good (§39's "
+                        "learning gain: 3)"),
 }
 
 
@@ -196,6 +205,12 @@ class Net:
             net.add_output(out)
             self.readouts.append(out)
         self._init_weights()
+        if p.get("young_resting", 1.0) != 1.0:
+            for layer in self.convs[1:] + self.hidden[1:]:
+                if p["conv_er"] or layer in self.hidden:
+                    rest = net.layer_spec(layer).resting_threshold * p["young_resting"]
+                    for i in range(net.layer_size(layer)):
+                        net.set_resting_threshold(layer, i, rest)
         if frozen:
             self.load(frozen)
         if theta is not None:
@@ -241,18 +256,24 @@ class Net:
             self._set_vectors(r, [w])
 
     def trainable(self):
-        """What evolves now: the readouts, the newest column's kernels and its E-R layer."""
-        return [("readouts", self.readouts), (f"c{self.columns}", [self.convs[-1]]),
-                (f"h{self.columns}", [self.hidden[-1]])]
+        """What evolves now: the readouts, the newest column's kernels and its E-R layer
+        (train_old: every column's, oldest first)."""
+        first = 1 if self.p.get("train_old", False) else self.columns
+        return [("readouts", self.readouts)] + \
+               [g for k in range(first, self.columns + 1)
+                for g in ((f"c{k}", [self.convs[k - 1]]), (f"h{k}", [self.hidden[k - 1]]))]
 
     def get_trainable(self):
         """(flat weights, RMS of each weight's group over its non-zero weights)."""
         theta, rms = [], []
-        for _, layers in self.trainable():
+        for name, layers in self.trainable():
             w = np.concatenate([v for layer in layers for v in self._vectors(layer)]).astype(np.float64)
             nz = w[w != 0]
             theta.append(w)
-            rms.append(np.full(len(w), math.sqrt(np.mean(nz ** 2)) if len(nz) else 1.0))
+            r = math.sqrt(np.mean(nz ** 2)) if len(nz) else 1.0
+            if self.columns > 1 and name in (f"c{self.columns}", f"h{self.columns}"):
+                r *= self.p.get("young_gain", 1.0)  # the newest grown column: larger steps
+            rms.append(np.full(len(w), r))
         return np.concatenate(theta), np.concatenate(rms)
 
     def set_trainable(self, theta):

@@ -652,6 +652,60 @@ agent's `agent.json`).
 Data: `results/goe/columns/retest/` (`fresh_8a3ea88_r09`, `fresh_today_r09`,
 `fresh_today_r05`, `.json.gz`, written by `fresh.py`).
 
+### G7. G3 regrown with older columns evolving and young new columns (2026-10-29)
+
+**Question.** On Snake, growth worked best with nothing frozen and the grown
+neurons young for good (research
+[§39](research.md#39-a-critical-period-grown-neurons-that-mature)). Does the
+G3 column network do better that way than with its older columns frozen?
+
+**Setup.** G3's growing run resumed from its snapshot just before its first
+growth (generation 280, one column; G3's control resumed from the same
+snapshot), on G3's own game (Gardens of Eris 8a3ea88; the first generations
+reproduce G3's control log exactly), with `train_old` (every column keeps
+evolving; ES steps relative to each column's weight RMS), `young_resting`
+0.5 (E-R neurons of grown columns rest at half the layer's threshold) and
+`young_gain` 3 (the newest column's ES noise and steps × 3). Everything else
+as G3, to 1200 generations. Then the G3 fresh-world test (`fresh.py`).
+One run.
+
+| Stage | Frozen (G3 grow): generation, columns | Control (1 column) | Evolving + young |
+|---|---|---|---|
+| + collect | 280, 2 | 290 | 290, 2 |
+| + doors | 400, 3 | 520 | 390, 3 |
+| + avatar | 570, 4 | 1060 | 790, 4 |
+
+| Player (G3's game) | Maze reward | Cells seen | Items | Doors | Avatars lost | Collect room | Avatar room | Mine room |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| evolving + young, 4 columns | **69.4** ± 6.6 | 439 | 2.4 | 1.47 | **0.27** | **29.5** | 27.0 | **−28.2** |
+| G3 grown (frozen), 4 columns | 57.8 ± 9.9 | 379 | 2.2 | 1.57 | 0.33 | 28.0 | 28.3 | −32.9 |
+| G3 control, 1 column | 49.1 ± 8.1 | 381 | 2.9 | 1.57 | 0.57 | 18.2 | 23.0 | −38.0 |
+| random player | 37.0 ± 6.4 | | 1.9 | 1.60 | 0.33 | 10.2 | 11.3 | −13.1 |
+
+Paired over the 30 mazes: +11.6 ± 12.6 against the frozen network (better in
+20 of 30), +20.3 ± 8.6 against the control. On today's game (roaming,
+eight-way monsters): 45.7 against the frozen network's 48.0 and random
+35.3; the rooms score the same on both games.
+
+**Conclusion.**
+- **Unfrozen, young growth is at least as good as G3's**, and the best maze
+  player so far on G3's game (69.4; it explores more, 439 cells against
+  379, and loses fewer avatars). Against the frozen network the gain is
+  within the noise; against one column it is about 2.4 standard errors.
+  On today's harder mazes the two are level.
+- **It learned the doors stage more slowly** (400 generations against 170
+  frozen): with every column evolving, the search space is 2-3 times larger,
+  and the new column's larger steps did not make up for it.
+- The rooms are unchanged (collect, avatar, doors within a point); the
+  mines are still unlearned (0.8 deaths per mine room).
+- `net.exr` does not keep the young columns' lower resting threshold (the
+  library does not save per-neuron resting thresholds), so `agent.py check`
+  reports the .exr playing differently; `agent.load` (weights.npz) rebuilds
+  it exactly.
+
+Data: `results/goe/columns/open_young/` (exported agent, `config.json`,
+`log.jsonl.gz`, `fresh_8a3ea88.json.gz`, `fresh_today.json.gz`, `run.sh`).
+
 ## Open questions
 
 - **Does evolution get past standing still?** Run the three designed
