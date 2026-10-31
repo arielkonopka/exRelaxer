@@ -67,7 +67,14 @@ DEFAULTS = {
     # reservoir; vplace=K appends K learned place cells, prototypes of the reservoir's state
     # and the vision features found by online competitive learning (no game coordinates).
     "motion": 0, "motion_gain": 5.0, "vplace": 0, "vplace_rate": 0.02, "vplace_active": 4,
-    "vplace_settle": 0,  # > 0: the place cells' rate falls as rate * settle / (settle + updates), a critical period
+    "vplace_settle": 0,
+    # A door reflex: door_reflex=1 presses USE (with the chosen action) whenever the last step
+    # moved the player less than 1 map unit although it tried to move: pushing against a wall.
+    "door_reflex": 0,
+    # Path integration: path=1 gives the place cells a position integrated from self-motion
+    # (each step's forward and sideways movement and turn, each with path_noise relative noise),
+    # starting from (0, 0, 0) at every spawn, instead of the game's coordinates.
+    "path": 0, "path_noise": 0.05,  # > 0: the place cells' rate falls as rate * settle / (settle + updates), a critical period
 }
 SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
           "health_gathering_supreme": 0.01}
@@ -237,7 +244,7 @@ class Learner:
         if self.p["motion"]:
             inputs["motion"] = self.motion(pos)
         if self.place is not None:
-            cells = self.place(*pos)
+            cells = self.place(*(self.integrate(pos) if self.p["path"] else pos))
             if self.p["place_input"]:
                 inputs["place"] = cells
         if self.drives:
@@ -258,6 +265,27 @@ class Learner:
             # The learned place cells read the reservoir and the vision features, not the raw inputs.
             x = np.concatenate([x, self.vplace(x[:len(x) - self.res.extra], learn)])
         return x
+
+    def integrate(self, pos):
+        """Dead reckoning: the position and heading the agent would estimate from its own
+        movement since the spawn (with noise), in its own frame (the spawn is the origin, facing
+        angle 0). Only the step's movement relative to the facing direction is used."""
+        last, self.path_last = getattr(self, "path_last", None), pos
+        if last is None:
+            self.path_est = np.zeros(3)
+            return tuple(self.path_est)
+        dx, dy = pos[0] - last[0], pos[1] - last[1]
+        a = np.radians(last[2])
+        fwd, side = dx * np.cos(a) + dy * np.sin(a), -dx * np.sin(a) + dy * np.cos(a)
+        turn = (pos[2] - last[2] + 180.0) % 360.0 - 180.0
+        noise = 1.0 + self.p["path_noise"] * self.rng.standard_normal(3)
+        fwd, side, turn = fwd * noise[0], side * noise[1], turn * noise[2]
+        e = self.path_est
+        b = np.radians(e[2])
+        e[0] += fwd * np.cos(b) - side * np.sin(b)
+        e[1] += fwd * np.sin(b) + side * np.cos(b)
+        e[2] = (e[2] + turn) % 360.0
+        return tuple(e)
 
     def motion(self, pos):
         """Self-motion since the last step, as the vestibular sense would give it: forward and
@@ -305,6 +333,11 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     learner.agent.log.new()
     learner.res.spikes = 0
     eye = np.eye(learner.buttons, dtype=int).tolist()
+    names = [str(b).split(".")[-1] for b in game.get_available_buttons()]
+    use = names.index("USE") if "USE" in names else None
+    moving = {i for i, n in enumerate(names) if n.startswith("MOVE_")}
+    reflex = bool(learner.p["door_reflex"]) and use is not None
+    blocked, reflexes = False, 0
     state = game.get_state()
     if shaper is not None:
         shaper.reset(state)
@@ -314,12 +347,19 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     pos = PlaceCells.read(game)
     cells = set()
     learner.last_pos = None
+    learner.path_last = None
     fields = []  # test games: (winning learned place cell, x, y)
     x = learner.features(state, health, pos, learn)
     a = learner.act(x, 0.0, False, learn)
     steps = 0
     while True:
-        r = game.make_action(eye[a], FRAME_SKIP) * scale
+        buttons = eye[a]
+        if reflex and blocked:
+            buttons = list(buttons)
+            buttons[use] = 1
+            reflexes += 1
+        before_pos = PlaceCells.read(game)
+        r = game.make_action(buttons, FRAME_SKIP) * scale
         game_total += r / scale
         steps += 1
         done = game.is_episode_finished()
@@ -348,6 +388,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         if shaper is None:
             state = game.get_state()
         pos = PlaceCells.read(game)
+        blocked = a in moving and np.hypot(pos[0] - before_pos[0], pos[1] - before_pos[1]) < 1.0
         cells.add((int(pos[0] // 64), int(pos[1] // 64)))
         if learn and learner.p["novelty"] > 0:
             bonus = learner.novelty_bonus(pos)
@@ -362,7 +403,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
     s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
-             novelty=novelty, lifetime_cells=len(getattr(learner.agent, "novelty_counts", {})), seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
+             novelty=novelty, reflexes=reflexes, lifetime_cells=len(getattr(learner.agent, "novelty_counts", {})), seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
              spikes=learner.res.spikes / max(1, steps * learner.res.ticks))
     if shaper is not None:
         s.update({k: float(shaper.counts[k]) for k in ("kills", "items", "doors", "keys", "exits", "cells", "damage")})

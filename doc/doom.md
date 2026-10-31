@@ -769,6 +769,49 @@ coordinate-free inputs.
 (config, test, gzipped training log per run, `run.sh`); the project's
 `reports/doom-td/`.
 
+### D21. A door reflex and path integration (2026-10-31)
+
+**Question.** (Phase 5, the two next steps of D20.) Does a door reflex get
+the D19 agent through `map01`'s doors? Can place cells read a position the
+agent integrates from its own movement instead of the game's coordinates?
+
+**Setup.** As D19 (place cells, γ 0.99). Reflex: `--set door_reflex=1`
+adds USE to the chosen action whenever the previous step tried to move
+and moved less than 1 map unit (pushing against a wall). Path integration:
+`--set path=1` feeds the place cells a dead-reckoned pose: each step's
+forward and sideways movement and turn (from the game, each with 5%
+relative noise, `path_noise`), summed from (0, 0, 0) at every spawn.
+`my_way_home` spawns in different rooms; `map01` always at the same spot.
+3 seeds; random with the reflex 100 games.
+
+**Result.**
+- `map01`:
+
+  | | test reward (per seed) | squares | survival | doors, training (first → last 100) | doors at test |
+  |---|---|---|---|---|---|
+  | place (D19) | +0.1 (1.0, −2.9, 2.3) | 45 | 285 s | 0.11 (last 150) | 0 |
+  | place + reflex | +0.3 (1.2, −2.3, 1.8) | 33 | 290 s | 0.11 → 0.01 | 0 |
+  | path-integrated place | −1.6 (−0.9, 0.9, −4.9) | 29 | 275 s | | 0 |
+  | no place (D17) | −9.3 | 28 | 283 s | | 0 |
+  | random + reflex | −3.6 | 46 | 166 s | 0.10 | 0.2 |
+  | random (D17) | −3.7 | 38 | 142 s | | 0 |
+
+- `my_way_home`, path-integrated place cells: 2% test success with 5%
+  noise, 3% exact (coordinate place cells 33%, random 16%).
+
+**Conclusion.** The reflex makes random play open doors, but the δ agent
+learns to stop: it opens one in eight games early on and almost none
+after 100-200 games, while its survival grows; behind `map01`'s doors are
+monsters, and the critic prices a door by what follows (+0.5 for the door,
+more lost to damage). Path integration needs an anchor: on `my_way_home`
+(random spawns) it is useless even when exact; on `map01` (fixed spawn) it
+recovers much of what the game's coordinates give (−1.6 against +0.1,
+against −9.3 without place).
+
+**Data.** `results/td-actor-critic/doom/{map01_reflex,path_integration,map01_path}/`
+(config, test, gzipped training log per run, `run.sh`); the project's
+`reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

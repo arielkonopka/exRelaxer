@@ -490,6 +490,12 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-31: door reflex and path integration (phase 5)
+
+- `td_actor_critic/doom_td.py`: `door_reflex` (USE added after a blocked
+  move) and `path` (place cells from a pose integrated from self-motion,
+  `path_noise`). Research §45, Doom log D21.
+
 ### 2026-10-31: novelty and learned place (phase 4)
 
 - `td_actor_critic/doom_td.py`: a lifetime count-based novelty bonus
