@@ -490,6 +490,14 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-10-31: killer instinct and guided landmarks (phases 7-8)
+
+- `td_actor_critic/doom_td.py`: `attack_reflex`, `orient_reflex` (from
+  ViZDoom's labels; `doom_rl` reads a `labels` parameter), `kill_weight`;
+  landmarks from view sequences (`landmark_seq`), a pose-spread filter
+  (`landmark_spread`) and a guided childhood (`landmark_guided`).
+  Research §47-§48, Doom log D23-D24.
+
 ### 2026-10-31: a reason to go on, anchored path integration (phase 6)
 
 - `td_actor_critic/doom_td.py`: `approach` (doom_rl's exit-approach

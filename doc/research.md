@@ -57,6 +57,8 @@ original logarithmic growth on firing, thr + alpha × ln(|v| / thr). Since
 - [44. Novelty and learned place](#44-novelty-and-learned-place)
 - [45. A door reflex and path integration](#45-a-door-reflex-and-path-integration)
 - [46. A reason to go on, and anchored path integration](#46-a-reason-to-go-on-and-anchored-path-integration)
+- [47. A killer instinct](#47-a-killer-instinct)
+- [48. Landmarks with a guided childhood](#48-landmarks-with-a-guided-childhood)
 - [Conclusions](#conclusions)
 - [Open questions and next steps](#open-questions-and-next-steps)
 
@@ -2816,6 +2818,51 @@ placed when two recognised views agree. 3 seeds, 600 games.
   recognition needs sequences of views or geometry, the same problem SLAM
   solves with loop closure.
 
+## 47. A killer instinct
+
+**Question.** (Phase 7; Doom log D23.) §46's boredom drive gets the agent
+through doors, where it dies. Do innate reflexes that fight back, a
+strike when a monster is ahead and an orienting turn toward one, keep it
+alive?
+
+**Setup.** The §46 boredom agent plus an attack reflex (ATTACK added when
+a monster is in the middle eighth of the view), an orienting reflex (a
+turn toward the biggest monster on screen), and optionally a kill reward
+of 3. Monsters come from ViZDoom's labels (a stand-in for a learned
+detector). 3 seeds, 600 games.
+
+**Results.** Strike alone: +0.7, 1.2 kills, 223 s. Strike and orient:
+**+13.1** (12.6, 9.7, 17.1), 3.9 kills, every test game to the 5-minute
+cap, 172 squares, 8.5 items, 1.5 doors. With kill × 3: +10.8. Random
+actions with both reflexes: +1.3.
+
+**What it means.**
+- Reflexes and learning combine: the reflexes alone barely beat random,
+  the learner alone hides or dies; together the learner explores the
+  level because what it meets no longer kills it. An animal is not a
+  blank learner either: orienting and striking are innate.
+- The reflex only adds a button to the learned action, so the actor
+  still learns everything else and gets credit through δ for what the
+  reflex achieves.
+- A stronger kill reward does not help (fewer squares, more seed spread):
+  the drive to explore, not the reward for killing, carries the level.
+
+## 48. Landmarks with a guided childhood
+
+**Question.** (Phase 8; Doom log D24.) Can §46's anchoring be fixed by
+view sequences, by dropping landmarks seen in several places, or by
+telling the agent its spawn pose during its first lives?
+
+**Results.** Sequences of views never recur exactly; the spread filter
+alone does not help; a guided childhood (100 lives) halves the error
+(100-320 units) but the learner still finds the `my_way_home` vest in
+only 10% of test games (unguided 3%, coordinates 33%, random 16%).
+
+**What it means.** The bottleneck is the view code: one prototype among
+256 over pooled Gabor features cannot tell look-alike rooms apart.
+Recognition needs a richer view (depth, colour, the reservoir's memory of
+the last seconds) before path integration can be anchored.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3057,18 +3104,27 @@ placed when two recognised views agree. 3 seeds, 600 games.
     (−1.6 against −3.7); the exit-approach reward does the same less well.
     Both cost survival. Anchoring path integration on single recognised
     views fails on look-alike rooms (3% on `my_way_home`).
+41. **Instinct plus learning plays the level** (§47): strike and orienting
+    reflexes added to the boredom-driven actor-critic give +13.1 on
+    `map01` (previous best +0.3), every test game survived to the
+    5-minute cap, 2.5 times the squares; the reflexes alone score +1.3.
+    No exit yet.
+42. **View landmarks alias** (§48): a guided childhood halves the
+    anchoring error, but single-prototype views still cannot tell
+    look-alike rooms apart (10% on `my_way_home`).
 
 ## Open questions and next steps
 
 - **More than one drive** (§42): health and ammo together (a scenario
   with weapons), and whether a level-based drive cost (no telescoping)
   beats drive reduction.
-- **Fighting and going on together** (§46): the boredom-driven `map01`
-  agent opens doors but dies sooner; combine it with the kill reward the
-  raw-reward agent learned (§41), or a health drive (§42).
-- **Place recognition from sequences** (§46): single views alias; anchor
-  path integration on a sequence of recognised views (or the reservoir's
-  memory of them) instead.
+- **Reaching the exit** (§47): the instinct + boredom agent survives and
+  explores but never exits; add the exit-approach reward or keys
+  (doom_rl's key reward) on top.
+- **Learned monster detection** (§47): replace the labels buffer with a
+  detector learned from the vision features.
+- **A richer view code for landmarks** (§48): depth or colour, or the
+  reservoir's memory of the last seconds, before anchoring again.
 - **A reservoir that keeps where things are** (§41): random E-R mixing of
   the Gabor bank loses the monster's position; a spatially local reservoir
   (Conv2D / locally connected E-R) might keep it and add memory.

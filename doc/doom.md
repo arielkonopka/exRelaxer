@@ -865,6 +865,75 @@ each misplacement teaches more landmarks the wrong pose.
 (config, test, gzipped training log per run, `run.sh`; `anchored_path/tuning/`
 the random-play sweeps); the project's `reports/doom-td/`.
 
+### D23. A killer instinct: strike and orienting reflexes on the boredom agent (2026-10-31)
+
+**Question.** (Phase 7, the user's "let's add a killer instinct".) D22's
+boredom agent opens doors but dies to what is behind them. Do reflexes
+that fight back keep it alive?
+
+**Setup.** D22's boredom agent (place cells, γ 0.99, door reflex,
+boredom 0.01). `--set attack_reflex=1`: ATTACK is added to the chosen
+action whenever a monster's centre is within the middle eighth of the
+screen; `orient_reflex=1`: TURN_LEFT or TURN_RIGHT is added toward the
+biggest monster on screen when it is outside that cone; `kill_weight=3`
+("bloodlust"): doom_rl's w_kill 3 instead of 1. Monsters are found in
+ViZDoom's labels buffer (a stand-in for a learned detector, as the door
+reflex uses the game's movement). 3 seeds, 600 games; random with both
+reflexes 100 games.
+
+**Result.**
+
+| `map01` | test reward (per seed) | kills | survival | squares | doors | items |
+|---|---|---|---|---|---|---|
+| boredom (D22) | −1.6 (0.1, 0.7, −5.6) | 0.7 | 80 s | 68 | 1.1 | 3.5 |
+| + strike | +0.7 (1.5, −2.0, 2.6) | 1.2 | 223 s | 77 | 0.7 | 3.1 |
+| + strike + orient | **+13.1** (12.6, 9.7, 17.1) | **3.9** | **300 s** | **172** | **1.5** | **8.5** |
+| + strike + orient + kill × 3 | +10.8 (14.0, 3.0, 15.3) | 2.8 | 272 s | 107 | 1.2 | 4.7 |
+| random + strike + orient | +1.3 | 1.0 | 279 s | 60 | 0.2 | 1.6 |
+
+No exit. Every strike + orient test game lasts to the 5-minute cap.
+
+**Conclusion.** With an orienting reflex the boredom-driven learner
+survives what it lets in and keeps exploring: +13.1 against the previous
+best +0.3 (D21), with 2.5 times the squares and 4 kills a game. The
+reflexes alone (random actions) score +1.3: the learned policy and the
+reflexes need each other. A stronger kill reward does not add to it.
+
+**Data.** `results/td-actor-critic/doom/map01_killer/` (config, test,
+gzipped training log per run, `run.sh`); the project's `reports/doom-td/`.
+
+### D24. Landmarks taught in a guided childhood (2026-10-31)
+
+**Question.** (Phase 8.) D22's view landmarks taught themselves wrong
+poses. Do sequences of views, a filter on landmarks seen in more than one
+place, or being told the spawn pose during the first lives fix
+`my_way_home` anchoring?
+
+**Setup.** As D22's `path=2`, plus `landmark_seq` (a landmark is the
+sequence of the last L distinct winning views), `landmark_spread` (a
+landmark is trusted only while the poses it was seen at stay within that
+many units) and `landmark_guided` (the spawn pose is given for the first
+N lives). Random-play sweeps (60-80 games), then the learner (600 games,
+guided 100 lives, 3 seeds): "spread" (match 0.95, seen 3, spread 64) and
+"strict" (D22's setting).
+
+**Result.**
+- Sequences of 2-3 views never recur exactly and never place the agent;
+  the spread filter alone does not lower the error (430-660 units).
+- Guided childhood (random play, 40 guided lives): afterwards placed
+  9-31% of the time, 115-230 units off (D22 unguided: 200-600).
+- Learner: 10% test success in both settings (D22 unguided 3%,
+  coordinates 33%, random 16%); after the guided lives placed 12-42% of
+  the time, median error 100-320 units.
+
+**Conclusion.** A guided childhood halves the anchoring error but not
+enough: place cells 128 units wide need errors well under 100. View
+landmarks of this kind (one winning prototype among 256 over pooled
+Gabor features) alias too much in `my_way_home`'s look-alike rooms.
+
+**Data.** `results/td-actor-critic/doom/guided_landmarks/` (`tuning/`:
+the random-play sweeps); the project's `reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
