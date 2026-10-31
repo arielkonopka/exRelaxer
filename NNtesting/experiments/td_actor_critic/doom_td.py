@@ -74,7 +74,11 @@ DEFAULTS = {
     # Path integration: path=1 gives the place cells a position integrated from self-motion
     # (each step's forward and sideways movement and turn, each with path_noise relative noise),
     # starting from (0, 0, 0) at every spawn, instead of the game's coordinates.
-    "path": 0, "path_noise": 0.05,  # > 0: the place cells' rate falls as rate * settle / (settle + updates), a critical period
+    "path": 0, "path_noise": 0.05,
+    # Reasons to go on (whole maps): approach = doom_rl's w_approach (reward per 64 units of new
+    # closest walking distance to the exit); boredom = c: a drive that grows while no new square
+    # is entered, r -= c * min(1, steps since a new square / boredom_steps), also felt (a raw feature).
+    "approach": 0.0, "boredom": 0.0, "boredom_steps": 100,  # > 0: the place cells' rate falls as rate * settle / (settle + updates), a critical period
 }
 SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
           "health_gathering_supreme": 0.01}
@@ -83,10 +87,10 @@ SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 
 MAPS = ("map01",)  # whole levels: doom_rl's 8 buttons and shaped reward (doom_rl/rewards.py)
 
 
-def doom_rl_params(scenario, skill, until_death):
+def doom_rl_params(scenario, skill, until_death, approach=0.0):
     """doom_rl's parameters for a whole map, without sound."""
     q = {k: v[0] for k, v in drl.PARAMS.items()}
-    q.update(scenario=scenario, sound=False, color=False)
+    q.update(scenario=scenario, sound=False, color=False, w_approach=float(approach))
     if skill is not None:
         q["skill"] = int(skill)
     if until_death > 0:
@@ -94,9 +98,9 @@ def doom_rl_params(scenario, skill, until_death):
     return q
 
 
-def make_game(scenario, seed, skill=None, labels=False, until_death=0):
+def make_game(scenario, seed, skill=None, labels=False, until_death=0, approach=0.0):
     if scenario in MAPS:
-        return drl.make_game(doom_rl_params(scenario, skill, until_death), seed)
+        return drl.make_game(doom_rl_params(scenario, skill, until_death, approach), seed)
     game = vzd.DoomGame()
     game.load_config(os.path.join(vzd.scenarios_path, scenario + ".cfg"))
     game.set_window_visible(False)
@@ -228,9 +232,10 @@ class Learner:
                              recovery=p["recovery"], spread=p["spread"], model=p["model"], features=kind, ticks=p["ticks"],
                              vision=dict(height=120 // p["pool"], width=160 // p["pool"]) if p["vision"] == "gabor" else None,
                              with_pool=p["features"] in ("both_pool", "pool"),
-                             extra=extra + int(self.drives), direct=direct or None,
+                             extra=extra + int(self.drives) + int(p["boredom"] > 0), direct=direct or None,
                              direct_gain=p["motion_gain"] if p["motion"] else p["drive_gain"])
         self.last_pos = None
+        self.boredom_level = 0.0
         self.vplace = LearnedPlace(p["vplace"], 0, p["vplace_rate"], p["vplace_active"],
                                                                       settle=p["vplace_settle"]) if p["vplace"] else None
         self.arm, self.p, self.buttons = arm, p, buttons
@@ -260,6 +265,8 @@ class Learner:
             raw.append([health / 100.0])
         if self.place is not None:
             raw.append(cells)
+        if self.p["boredom"] > 0:
+            raw.append([self.boredom_level])
         x = self.res.step(inputs, raw=np.concatenate(raw) if raw else None)
         if self.vplace is not None:
             # The learned place cells read the reservoir and the vision features, not the raw inputs.
@@ -348,6 +355,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     cells = set()
     learner.last_pos = None
     learner.path_last = None
+    learner.boredom_level = 0.0
     fields = []  # test games: (winning learned place cell, x, y)
     x = learner.features(state, health, pos, learn)
     a = learner.act(x, 0.0, False, learn)
@@ -375,6 +383,11 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             else:
                 state = game.get_state()
                 r = shaper.step(state) * scale
+                if learner.p["boredom"] > 0:
+                    learner.boredom_level = min(1.0, shaper.since_new / learner.p["boredom_steps"])
+                    if learn:
+                        r -= learner.p["boredom"] * learner.boredom_level
+                        novelty -= learner.p["boredom"] * learner.boredom_level  # intrinsic, not the game's
         if done:
             if game.get_episode_time() >= game.get_episode_timeout() and not game.is_player_dead():
                 # A time limit is not a terminal state: the last state seen bootstraps
@@ -408,6 +421,8 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     if shaper is not None:
         s.update({k: float(shaper.counts[k]) for k in ("kills", "items", "doors", "keys", "exits", "cells", "damage")})
         s["distance"] = float(shaper.distance)
+        s["approach_reward"] = float(shaper.totals.get("approach", 0.0))
+        s["closest"] = float(shaper.closest) if shaper.closest is not None else -1.0
     if fields:
         s["fields"] = fields
     if trace:
@@ -464,7 +479,7 @@ def main():
         print(f"{args.out} resumed at episode {start}", flush=True)
     else:
         open(log_path, "w").close()
-    shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"])) if args.scenario in MAPS else None
+    shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"], p["approach"])) if args.scenario in MAPS else None
     t0 = time.time()
     with open(log_path, "a") as log:
         for ep in range(start, args.episodes):
@@ -494,7 +509,7 @@ def main():
     summary = {k: float(np.mean([r[k] for r in rows]))
                for k in ("game_reward", "kills", "medkits", "visited", "steps", "seconds", "died", "spikes")}
     summary["success"] = float(np.mean([r["game_reward"] > 0.5 for r in rows]))  # my_way_home: the vest found
-    for k in ("items", "doors", "exits", "cells", "distance"):
+    for k in ("items", "doors", "exits", "cells", "distance", "approach_reward", "closest"):
         if k in rows[0]:
             summary[k] = float(np.mean([r[k] for r in rows]))
     fields = [f for r in rows for f in r.pop("fields", [])]
