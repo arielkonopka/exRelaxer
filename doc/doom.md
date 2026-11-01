@@ -1219,6 +1219,40 @@ colour games: alone AUC 0.78, added to colour + vision 0.945 against
 **Data.** `results/td-actor-critic/doom/map01_practice/`; the motion probe
 in `map01_colour/probe/motion.txt`.
 
+### D31. Where the agents go (2026-11-01)
+
+**Question.** (Phase 17.) Where do the trained MAP01 agents go, and why
+does the exit-approach reward not lead them out (D25)?
+
+**Setup.** `where_agents_go.py --runs DIR ...` replays each run's last
+checkpoint in fresh test games and draws the paths over the walking
+distance to the exit (green near, blue far). D25's approach agents, D23's
+"orient" instinct agents and D30's "freeze" colour-detector agents, 4
+games each. `--record DIR` also records every game (gray, as the agent
+sees it) and keeps only the games with the most kills, the longest play
+and the most doors (three different games where possible).
+
+**Result.**
+- Exit: 700 units from the spawn in a straight line, 3,600 on foot.
+- Approach agents: spawn room and big hall only; closest 2,016-2,784,
+  pacing the hall's south wall, which the distance map (heights ignored)
+  treats as passable.
+- Instinct agents: hall, north door, east wing; one seed into the rooms
+  south of the hall (closest 1,456-1,888); nobody enters the south-east
+  room that leads to the exit corridor.
+- Colour-detector agents: closest 2,016-3,600.
+- Recordings (24 games of the instinct and colour agents): most kills 7
+  (alive at the 5-minute cap, 2 doors, 208 squares); longest: 9 games
+  reach the cap; most doors 2. All three kept games are from instinct
+  agents.
+
+**Conclusion.** The approach reward has a false minimum at the hall's
+south wall. A pull toward the exit needs a distance map with heights
+and doors; the agents that get furthest are the explorers.
+
+**Data.** `results/td-actor-critic/doom/map01_paths/` (pictures, per-game
+JSON); the three videos in the project's `reports/doom-td/videos/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

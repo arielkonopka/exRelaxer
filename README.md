@@ -490,6 +490,13 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-01: where the agents go (phase 17)
+
+- `td_actor_critic/where_agents_go.py`: replays doom_td checkpoints on
+  MAP01, draws their paths over the walking distance to the exit, and
+  with `--record` keeps videos of the games with the most kills, the
+  longest play and the most doors. Research §55, Doom log D31.
+
 ### 2026-11-01: practice under guidance, frozen statistics (phases 14-15)
 
 - `td_actor_critic/doom_td.py`: `detector_steer`, `detector_freeze_stats`,

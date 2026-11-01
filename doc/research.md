@@ -3097,6 +3097,35 @@ detector's own gaze adds roughly as much again. Practice under guidance
 and frozen statistics do not change the score; the colour detector stays
 near +6.
 
+## 55. Where the agents go
+
+**Question.** (Phase 17; Doom log D31.) Where on MAP01 do the trained
+agents go, and where does the exit-approach reward lead them?
+
+**Setup.** `where_agents_go.py` replays the last checkpoint of a run in
+fresh test games (no learning) and draws the paths over the walking
+distance to the exit (`exitmap.py`). The exit is about 700 units from the
+spawn in a straight line and 3,600 on foot. Runs: §49's approach agents,
+§47's instinct agents (labels), §54's colour detector with frozen
+statistics; 4 games each.
+
+**Results.**
+- Approach agents never leave the spawn room and the big hall; their
+  closest points (2,016-2,784) lie along the hall's south wall, which the
+  distance map treats as passable (heights are ignored) but the agents
+  cannot cross.
+- Instinct agents cover the hall, the north door and the east wing; one
+  seed reaches the rooms south of the hall (closest 1,456-1,888). No agent
+  enters the large room in the south-east that leads along the corridor
+  to the exit.
+- Colour-detector agents stay closer to the spawn (closest 2,016-3,600).
+
+**What it means.** The approach reward's gradient has a false minimum at
+the hall's south wall, so it holds the agent there instead of guiding it
+round; a reward on the true route would need heights and doors in the
+distance map. The instinct agents' exploration, not a pull toward the
+exit, is what gets furthest.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3380,6 +3409,10 @@ near +6.
     frame; held-out games show its real false-alarm rate (0.13 per tick
     against 0.02). Steering practice and frozen input statistics leave the
     colour agent at +5.5 to +6.1.
+49. **A walking-distance pull can trap** (§55): the exit-approach
+    reward's map ignores heights, and the agents it trains pace a wall it
+    treats as open; exploring agents get further but never reach the
+    room that leads to the exit.
 
 ## Open questions and next steps
 

@@ -1,0 +1,32 @@
+{
+ "kills": {
+  "run": "orient_s2",
+  "game": 0,
+  "kills": 7.0,
+  "seconds": 300.0,
+  "doors": 2.0,
+  "died": 0,
+  "game_reward": 17.256000000000217,
+  "visited": 208
+ },
+ "longest": {
+  "run": "orient_s1",
+  "game": 1,
+  "kills": 3.0,
+  "seconds": 300.0,
+  "doors": 1.0,
+  "died": 0,
+  "game_reward": 13.674999999999834,
+  "visited": 182
+ },
+ "doors": {
+  "run": "orient_s2",
+  "game": 1,
+  "kills": 3.0,
+  "seconds": 139.42857142857142,
+  "doors": 2.0,
+  "died": 1,
+  "game_reward": 5.348000000000021,
+  "visited": 152
+ }
+}
