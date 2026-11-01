@@ -2969,6 +2969,129 @@ what the agent looks at moves away from what it was taught on; the
 detector should keep learning (from its own strikes and kills) after its
 childhood.
 
+## 51. A detector that keeps learning
+
+**Question.** (Phase 11; Doom log D27.) §50's detector stops learning
+after its childhood, and its false alarms grow once it steers the gaze.
+Does it help to let it keep learning from its own strikes, or to make it
+wait for evidence?
+
+**Setup.** §50's replay MLP detector (childhood 100 games) on the §47
+agent, 3 seeds, 600 games:
+- "feedback": after childhood, every strike that fires a shot teaches the
+  two middle columns: monster if ViZDoom's hit count rose, none if not.
+  The shot leaves the gun one step after the press, so the answer is
+  awaited for two steps (a first run that waited one step judged only
+  2-6 shots per game).
+- "evidence": the reflexes read a leaky accumulator per column,
+  e ← 0.5 e + 0.5 p, instead of the detector's output p.
+- One seed with a 300-game childhood.
+
+**Results.** Feedback: **+5.6** (−0.3, 9.6, 7.6), 2.2 kills, 132
+squares, dies in 83% of test games; false columns per tick fall from
+about 0.2 to 0.04-0.14 while hits per shot rise from 0.3 to 0.5-0.7, but
+recall falls to 0.07-0.13. Evidence: +0.3 (−1.0, −1.4, 3.3), one seed
+hides. 300-game childhood: false alarms jump from 0.07 to 0.57 the moment
+the detector takes over; the agent hides (−10.1). §50 without either:
++4.8; labels +13.1.
+
+**What it means.**
+- A strike's outcome is a usable teacher without labels: it makes the
+  detector fire less and hit more. It cannot correct false alarms at the
+  sides (no shot there), and misses at range teach "nothing" where there
+  was a monster, so recall drops; the score gain over §50 is within seed
+  spread.
+- Waiting for evidence costs reaction time: monsters shoot first.
+- The drift is a closed loop: the orienting reflex turns to a false
+  alarm, which shows more of the views that cause false alarms. A longer
+  childhood does not prevent it, because the childhood never shows the
+  views the detector itself will steer to.
+
+## 52. Teaching the side columns by turning
+
+**Question.** (Phase 12; Doom log D28.) §51's shots judge only the middle
+columns. Can the side false alarms be corrected by whether an orienting
+turn leads to a hit?
+
+**Setup.** §51's feedback agent plus `detector_feedback=2`: a turn toward
+a side column teaches that column: monster if a hit follows within 8
+steps, none if not. 3 seeds, 600 games.
+
+**Results.** Only 10-20% of turns end in a hit, so nearly every turn
+teaches "none"; within 200 games the detector stops firing (recall 0.01,
+false 0.005 columns per tick) and the agent is back to no reflexes:
+−1.6 (−1.4, −2.3, −1.1), 0.8 kills, dies in 90% of test games.
+
+**What it means.** Self-generated labels are lopsided: a strike or turn
+that finds nothing is common, a confirmed monster rare, and a miss does
+not prove there was nothing. Learned this way the detector talks itself
+into silence. Label-free teaching would need the negatives weighted down
+to the rate at which a miss really means "nothing", or a teacher that
+confirms presence (being hurt from that direction, a monster's sound).
+
+## 53. A detector that sees colour
+
+**Question.** (Phase 13; Doom log D29.) Every learner so far saw the
+game in gray. Do colours help the threat detector?
+
+**Setup.** The game runs in colour; the reservoir, place cells and
+everything else get its gray image as before. The detector also reads two
+colour-opponent channels (red − green, yellow − blue) averaged in 15
+bands per screen column. Offline probe as in §50 (80 random games, colour
+recorded); then §50's replay MLP detector with colour, with and without
+§51's shot feedback, 3 seeds, 600 games.
+
+**Results.**
+- Offline (64 hidden units, neighbouring columns): gray vision features
+  AUC 0.93, 39% of monster columns at 1% false alarms; colour alone 0.93,
+  56%; both **0.95, 64%**.
+- MAP01: colour detector **+5.9** (4.6, 4.9, 8.2), 2.0 kills, 115
+  squares, dies in 40% of test games (gray §50: +4.8, 60%); with shot
+  feedback +2.6 (5.1, −1.7, 4.4).
+- The online detector's recall in its childhood stays at 0.32, as with
+  gray; in test games 0.40 with 0.31 false columns per tick.
+
+**What it means.** Colour is the cue gray vision lacks offline, but the
+agent gains little: what the online detector learns in a 100-game
+childhood is far below what the same network learns from the recorded
+games offline, and the gaze loop of §51 still multiplies false alarms.
+Shot feedback does not help on top. The best label-free agent is now
++5.9, against +13.1 with labels.
+
+## 54. Practice under guidance, and where the false alarms come from
+
+**Question.** (Phases 14-15; Doom log D30.) §51 read the jump in false
+alarms after childhood as a gaze loop. Does it vanish if the detector
+steers during childhood while the labels still teach it (practice), or if
+its input normalisation stops drifting when its weights freeze? And how
+large is the false-alarm rate on views it has not just been trained on?
+
+**Setup.** §53's colour detector on the §47 agent, 3 seeds, 600 games:
+- practice: labels teach 100 games, detector steers from game 20; or
+  teach 200, steer from 50 (`detector_steer`);
+- frozen statistics: the running mean and variance stop with the
+  weights (`detector_freeze_stats=1`);
+- held-out measurement: during a 100-game childhood the detector learns
+  only in every other game (`detector_holdout=1`), 2 seeds, 150 games.
+
+**Results.**
+- Practice: +2.1 (−0.9, −0.5, 7.5) and +5.5 (−0.5, 7.2, 9.7); false
+  alarms stay at 0.02-0.05 columns per tick while the detector steers
+  and the labels teach, and rise to 0.2-0.6 as soon as the teaching ends.
+- Frozen statistics: +6.1 (8.2, 7.9, 2.2), dies in 30% of test games
+  (colour §53: +5.9, 40%); the jump at the end of childhood is unchanged.
+- Held out: in the games the detector does not learn in, with the labels
+  steering, false alarms are already 0.12-0.15 per tick (0.02 in the games
+  it learns in); after childhood 0.29-0.39.
+
+**What it means.** Most of the "jump" is a measuring artefact: learning on
+every frame keeps the detector right about the frame it just saw, since
+consecutive frames are nearly the same. Its real false-alarm rate is
+about 0.13 per tick even on the views of a label-steered gaze, and the
+detector's own gaze adds roughly as much again. Practice under guidance
+and frozen statistics do not change the score; the colour detector stays
+near +6.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3233,6 +3356,25 @@ childhood.
     replay buffer, drives the reflexes to +4.8 on `map01` (labels +13.1,
     no reflexes −1.6); without replay it does not learn the rare
     monsters at all.
+45. **The gaze teaches its own errors, less than it seemed** (§51, §54):
+    once a learned detector steers the orienting reflex, its false
+    alarms rise from 0.07 to 0.57 per tick after a long childhood, but
+    most of that is a measuring artefact (§54: on views it has not just
+    learned from, the childhood rate is already 0.13). Learning on from whether a shot hit
+    halves false alarms and lifts hits per shot to 0.6, but loses recall
+    (+5.6 against +4.8, within seed spread).
+46. **Self-taught negatives silence the eye** (§52): teaching side
+    columns "nothing" whenever a turn brings no hit switches the detector
+    off within 200 games (−1.6, the same as no reflexes).
+47. **Colour helps the eye offline more than online** (§53): colour
+    features lift offline detection from 39% to 64% of monsters at 1%
+    false alarms, but the online agent gains only +4.8 → +5.9 (fewer
+    deaths).
+48. **Online false alarms are hidden by tracking** (§54): a detector
+    trained on every frame looks right on the next, nearly identical
+    frame; held-out games show its real false-alarm rate (0.13 per tick
+    against 0.02). Steering practice and frozen input statistics leave the
+    colour agent at +5.5 to +6.1.
 
 ## Open questions and next steps
 
@@ -3242,9 +3384,12 @@ childhood.
 - **Reaching the exit** (§47, §49): neither the exit-approach reward nor
   longer games get the instinct agent out; a route (a learned map, keys)
   is still missing.
-- **Learned monster detection** (§47, §50): the replay detector keeps a
-  third of the labelled gain; let it keep learning after childhood (a
-  kill as its teacher), and give it a richer view (motion, colour).
+- **Learned monster detection** (§47, §50-§54): the best label-free
+  detector (colour, replay) reaches +6 against +13 with labels; its real
+  false-alarm rate (0.13-0.3 per tick) is the limit. Next: a presence
+  signal that confirms monsters without labels (being hit from a
+  direction, sound), motion features, or a longer childhood measured on
+  held-out games.
 - **A richer view code for landmarks** (§48): depth or colour, or the
   reservoir's memory of the last seconds, before anchoring again.
 - **A reservoir that keeps where things are** (§41): random E-R mixing of

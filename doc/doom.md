@@ -1088,6 +1088,129 @@ after its childhood.
 **Data.** `results/td-actor-critic/doom/map01_detector/` (`logistic/`,
 `probe/`); the project's `reports/doom-td/`.
 
+### D27. A detector that keeps learning (2026-11-01)
+
+**Question.** (Phase 11.) D26's detector stops learning after its
+childhood and its false alarms grow once it steers the gaze. Can it keep
+learning from its own strikes, or wait for evidence?
+
+**Setup.** D26's "mlp" agent (64 hidden units, neighbours, replay,
+threshold 0.95, childhood 100 games), 3 seeds, 600 games:
+- "feedback" (`detector_feedback=1`): a strike that fires a shot (ammo
+  drops within two steps) teaches the middle columns: monster if
+  `HITCOUNT` rose, none if not;
+- "evidence" (`detector_evidence=0.5`): the reflexes read a leaky
+  accumulator of the detector's output;
+- "child300": 300-game childhood, 1 seed.
+
+**Result.**
+
+| detector | test score | kills | seconds | squares | died |
+|---|---|---|---|---|---|
+| labels (D23) | +13.1 | 3.9 | 300 | 172 | 0% |
+| mlp (D26) | +4.8 | 2.6 | 196 | 112 | 60% |
+| mlp + feedback | +5.6 (−0.3, 9.6, 7.6) | 2.2 | 147 | 132 | 83% |
+| mlp + evidence | +0.3 (−1.0, −1.4, 3.3) | 0.7 | 174 | 65 | 57% |
+| child300 | −10.1 | 0.2 | 228 | 23 | 40% |
+
+- Feedback: 4-12 judged shots per game; hits per shot rise from 0.3 to
+  0.5-0.7, false columns per tick fall to 0.04-0.14, recall falls to
+  0.07-0.13. A first run that waited only one step for the shot judged
+  2-6 shots per game and scored +3.3.
+- child300: false columns per tick 0.07 in childhood, 0.57 right after.
+
+**Conclusion.** Hit-or-miss is a label-free teacher that makes the
+detector more precise but less sensitive; it does not fix the side false
+alarms that drive the orienting loop. Accumulating evidence slows the
+strike and loses. The best label-free agent stays around +5.
+
+**Data.** `results/td-actor-critic/doom/map01_feedback/`; the project's
+`reports/doom-td/`.
+
+### D28. Teaching the side columns by turning (2026-11-01)
+
+**Question.** (Phase 12.) D27's hit-or-miss feedback judges only the
+middle columns. Can turns judge the side columns?
+
+**Setup.** D27's "feedback" agent with `detector_feedback=2`: a turn
+toward a side column teaches that column monster if a hit follows within
+`detector_turn_steps=8` steps, none otherwise. 3 seeds, 600 games.
+
+**Result.** −1.6 (−1.4, −2.3, −1.1), 0.8 kills, 63 squares, dies in 90%
+of test games. 10-20% of judged turns end in a hit; recall falls from
+0.32 in childhood to 0.01 and false columns to 0.005 per tick: the
+detector stops firing and the agent plays as without reflexes (D22,
+−1.6).
+
+**Conclusion.** Self-made negatives outnumber positives and switch the
+detector off. Label-free teaching needs a presence signal, not only
+absence.
+
+**Data.** `results/td-actor-critic/doom/map01_feedback/turn_s*`.
+
+### D29. A detector that sees colour (2026-11-01)
+
+**Question.** (Phase 13.) Does colour help the learned threat detector?
+
+**Setup.** `detector_colour=1`: the game runs in RGB; everything but the
+detector gets the gray mean of the channels; the detector also reads
+red − green and yellow − blue in 15 bands per column (30 features). D26's
+"mlp" detector otherwise; with and without D27's shot feedback. 3 seeds,
+600 games. `detector_probe.py --color` for the offline comparison.
+
+**Result.**
+
+| detector | test score | kills | seconds | squares | died |
+|---|---|---|---|---|---|
+| labels (D23) | +13.1 | 3.9 | 300 | 172 | 0% |
+| gray mlp (D26) | +4.8 | 2.6 | 196 | 112 | 60% |
+| colour mlp | **+5.9** (4.6, 4.9, 8.2) | 2.0 | 217 | 115 | 40% |
+| colour mlp + feedback | +2.6 (5.1, −1.7, 4.4) | 1.6 | 180 | 98 | 57% |
+
+Offline, monster columns caught at 1% false alarms: gray 39%, colour 56%,
+both 64% (AUC 0.95).
+
+**Conclusion.** Colour is a strong cue offline; online, the 100-game
+childhood leaves recall at 0.32 as with gray, and the agent gains about
+one point and fewer deaths, within seed spread.
+
+**Data.** `results/td-actor-critic/doom/map01_colour/` (`probe/`).
+
+### D30. Practice under guidance and frozen statistics (2026-11-01)
+
+**Question.** (Phases 14-15.) Is D27's jump in false alarms after
+childhood a gaze loop, a drift of the detector's input normalisation, or
+something else?
+
+**Setup.** D29's colour detector, 3 seeds, 600 games:
+- "p100" / "p200": `detector_steer=20` with `detector=100`, and
+  `detector_steer=50` with `detector=200`: the detector drives the
+  reflexes while the labels still teach it;
+- "freeze": `detector_freeze_stats=1`;
+- "holdout": `detector_holdout=1`, learning only in every other childhood
+  game (2 seeds, 150 games), to measure the detector on views it has not
+  just been trained on.
+
+**Result.**
+
+| run | test score | kills | seconds | squares | died |
+|---|---|---|---|---|---|
+| colour (D29) | +5.9 | 2.0 | 217 | 115 | 40% |
+| p100 | +2.1 (−0.9, −0.5, 7.5) | 2.1 | 204 | 99 | 53% |
+| p200 | +5.5 (−0.5, 7.2, 9.7) | 1.8 | 233 | 123 | 33% |
+| freeze | +6.1 (8.2, 7.9, 2.2) | 1.9 | 234 | 121 | 30% |
+
+False columns per tick: 0.02-0.05 while the labels teach (whoever
+steers), 0.2-0.6 after; holdout: 0.02 in the games it learns in,
+0.12-0.15 in the games it does not, 0.29-0.39 after childhood.
+
+**Conclusion.** The low childhood rate is an artefact of learning on
+every nearly identical frame; the real rate is about 0.13 per tick and
+the detector's own gaze roughly doubles it. Neither practice nor frozen
+statistics helps; the colour detector stays near +6.
+
+**Data.** `results/td-actor-critic/doom/map01_practice/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
