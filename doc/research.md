@@ -2929,11 +2929,16 @@ closest point 2060-2740 units from the exit; §47 without it: +13.1. In
 (1 kill, 84 squares, no doors), the others explore 144-185 squares and die
 in a fifth to a third of the games.
 
-**What it means.** A distance-to-exit gradient on a maze level points
-through walls; the agent follows it into dead ends and stops exploring.
-Longer games do not help either: the explored area grows a little but
-the agent keeps running into the same monsters. Reaching the exit needs a
-map, a route, or keys, not more of the same drive.
+**What it means.** The approach reward follows the walking distance
+around walls (doom_rl's `exitmap.py`: a breadth-first search on a 16-unit
+grid, doors open, heights ignored), not the straight line. (An earlier
+version of this section said it pointed through walls; that was wrong.)
+Even so, the agent gets no closer than about 2,000 units, and with the
+reward it explores less (80-136 squares against §47's 172), so the
+pull costs exploration without leading it out. Longer games do not help
+either: the explored area grows a little but the agent keeps running into
+the same monsters. Reaching the exit needs a map, a route, or keys, not
+more of the same drive.
 
 ## 50. A learned threat detector
 
@@ -3384,6 +3389,9 @@ near +6.
 - **Reaching the exit** (§47, §49): neither the exit-approach reward nor
   longer games get the instinct agent out; a route (a learned map, keys)
   is still missing.
+- **Motion for the detector** (§54 addendum): frame differences per
+  column add nothing offline (colour + vision AUC 0.951, with motion
+  0.945; motion alone 0.78), so motion features were not run in play.
 - **Learned monster detection** (§47, §50-§54): the best label-free
   detector (colour, replay) reaches +6 against +13 with labels; its real
   false-alarm rate (0.13-0.3 per tick) is the limit. Next: a presence
