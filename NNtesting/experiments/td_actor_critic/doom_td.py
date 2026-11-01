@@ -107,6 +107,12 @@ DEFAULTS = {
     # columns on each side it also reads; detector_pos: weight of a column with a monster.
     "detector": 0, "detector_rate": 0.05, "detector_threshold": 0.5, "detector_hidden": 0,
     "detector_neighbours": 0, "detector_pos": 5.0, "detector_replay": 0,
+    # detector_feedback=1: after childhood every strike that fires a shot (ammo drops) teaches the
+    # middle columns: monster if the hit count rose, none if it did not (no labels).
+    "detector_feedback": 0,
+    # detector_evidence=d: the reflexes read a leaky accumulator e <- d e + (1 - d) p of the
+    # detector's output instead of p itself (0 = off).
+    "detector_evidence": 0.0,
 }
 SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
           "health_gathering_supreme": 0.01}
@@ -380,11 +386,13 @@ class ThreatDetector:
         self.w += self.rate * (g @ h) / len(g)
         self.b += self.rate * g.mean()
 
+    def cone(self, cone):
+        return int(np.floor(self.k * (0.5 - cone / 2))), int(np.ceil(self.k * (0.5 + cone / 2)))
+
     def where(self, p, cone, threshold):
         """As monster_ahead: 0 for a monster in the middle cone, -1 / +1 for the strongest one left /
         right, None for none."""
-        k = len(p)
-        lo, hi = int(np.floor(k * (0.5 - cone / 2))), int(np.ceil(k * (0.5 + cone / 2)))
+        lo, hi = self.cone(cone)
         hot = p > threshold
         if not hot.any():
             return None
@@ -634,6 +642,9 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     instinct = bool(learner.p["attack_reflex"]) and attack is not None
     strikes = 0
     det_hits = det_false = det_true = 0
+    fb_hits = fb_shots = 0
+    feedback = None  # a strike awaiting its answer (detector_feedback)
+    evidence = 0.0  # the detector's accumulated evidence per column (detector_evidence)
     if learn:
         learner.games += 1
     blocked, reflexes = False, 0
@@ -672,7 +683,21 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             if learn and learner.games < learner.p["detector"]:
                 det.learn(xcols, probs, truth)  # childhood: the labels teach
             else:
-                where = det.where(probs, learner.p["attack_cone"], learner.p["detector_threshold"])
+                if learner.p["detector_evidence"] > 0:
+                    # Evidence piles up in a leaky accumulator per column: a flicker fades, a
+                    # monster that stays on screen crosses the threshold.
+                    d = learner.p["detector_evidence"]
+                    evidence = d * evidence + (1 - d) * probs
+                    where = det.where(evidence, learner.p["attack_cone"], learner.p["detector_threshold"])
+                else:
+                    where = det.where(probs, learner.p["attack_cone"], learner.p["detector_threshold"])
+                if learn and learner.p["detector_feedback"] and where == 0 and feedback is None:
+                    # Did the strike connect? The shot leaves a step after the press, so the answer
+                    # is awaited for two steps; it teaches the middle columns after childhood.
+                    lo, hi = det.cone(learner.p["attack_cone"])
+                    feedback = [xcols[0][lo:hi], xcols[1][lo:hi], probs[lo:hi],
+                                game.get_game_variable(vzd.GameVariable.HITCOUNT),
+                                game.get_game_variable(vzd.GameVariable.SELECTED_WEAPON_AMMO), 2]
         if where == 0:
             buttons = list(buttons)
             buttons[attack] = 1
@@ -682,6 +707,17 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             buttons[names.index("TURN_LEFT" if where < 0 else "TURN_RIGHT")] = 1
         before_pos = PlaceCells.read(game)
         r = game.make_action(buttons, FRAME_SKIP) * scale
+        if feedback is not None and not game.is_episode_finished():
+            fx, fh, fp, hits, ammo, left = feedback
+            if game.get_game_variable(vzd.GameVariable.SELECTED_WEAPON_AMMO) < ammo:  # a shot went off
+                hit = float(game.get_game_variable(vzd.GameVariable.HITCOUNT) > hits)
+                det.learn((fx, fh), fp, np.full(len(fp), hit))
+                fb_hits += int(hit)
+                fb_shots += 1
+                feedback = None
+            else:
+                feedback[-1] -= 1
+                feedback = feedback if feedback[-1] > 0 else None
         game_total += r / scale
         steps += 1
         done = game.is_episode_finished()
@@ -731,7 +767,8 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     s = learner.agent.log.summary()
     s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
              novelty=novelty, reflexes=reflexes, strikes=strikes,
-             det_recall=det_hits / max(1, det_true), det_false=det_false / max(1, steps),
+             det_recall=det_hits / max(1, det_true), det_false=det_false / max(1, steps), fb_shots=fb_shots,
+             fb_hit_rate=fb_hits / max(1, fb_shots),
              placed=len(learner.anchor_err) / max(1, steps), anchor_err=float(np.mean(learner.anchor_err)) if learner.anchor_err else -1.0, lifetime_cells=len(getattr(learner.agent, "novelty_counts", {})), seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
              spikes=learner.res.spikes / max(1, steps * learner.res.ticks))
     if shaper is not None:

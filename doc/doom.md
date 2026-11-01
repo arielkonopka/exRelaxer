@@ -1088,6 +1088,45 @@ after its childhood.
 **Data.** `results/td-actor-critic/doom/map01_detector/` (`logistic/`,
 `probe/`); the project's `reports/doom-td/`.
 
+### D27. A detector that keeps learning (2026-11-01)
+
+**Question.** (Phase 11.) D26's detector stops learning after its
+childhood and its false alarms grow once it steers the gaze. Can it keep
+learning from its own strikes, or wait for evidence?
+
+**Setup.** D26's "mlp" agent (64 hidden units, neighbours, replay,
+threshold 0.95, childhood 100 games), 3 seeds, 600 games:
+- "feedback" (`detector_feedback=1`): a strike that fires a shot (ammo
+  drops within two steps) teaches the middle columns: monster if
+  `HITCOUNT` rose, none if not;
+- "evidence" (`detector_evidence=0.5`): the reflexes read a leaky
+  accumulator of the detector's output;
+- "child300": 300-game childhood, 1 seed.
+
+**Result.**
+
+| detector | test score | kills | seconds | squares | died |
+|---|---|---|---|---|---|
+| labels (D23) | +13.1 | 3.9 | 300 | 172 | 0% |
+| mlp (D26) | +4.8 | 2.6 | 196 | 112 | 60% |
+| mlp + feedback | +5.6 (−0.3, 9.6, 7.6) | 2.2 | 147 | 132 | 83% |
+| mlp + evidence | +0.3 (−1.0, −1.4, 3.3) | 0.7 | 174 | 65 | 57% |
+| child300 | −10.1 | 0.2 | 228 | 23 | 40% |
+
+- Feedback: 4-12 judged shots per game; hits per shot rise from 0.3 to
+  0.5-0.7, false columns per tick fall to 0.04-0.14, recall falls to
+  0.07-0.13. A first run that waited only one step for the shot judged
+  2-6 shots per game and scored +3.3.
+- child300: false columns per tick 0.07 in childhood, 0.57 right after.
+
+**Conclusion.** Hit-or-miss is a label-free teacher that makes the
+detector more precise but less sensitive; it does not fix the side false
+alarms that drive the orienting loop. Accumulating evidence slows the
+strike and loses. The best label-free agent stays around +5.
+
+**Data.** `results/td-actor-critic/doom/map01_feedback/`; the project's
+`reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

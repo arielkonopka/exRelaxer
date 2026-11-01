@@ -490,6 +490,13 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-01: a detector that keeps learning (phase 11)
+
+- `td_actor_critic/doom_td.py`: `detector_feedback` (after childhood a
+  shot teaches the middle columns by whether it hit), `detector_evidence`
+  (a leaky accumulator between detector and reflexes). Research §51, Doom
+  log D27.
+
 ### 2026-11-01: a learned threat detector (phase 10)
 
 - `td_actor_critic/doom_td.py`: `detector` (a per-column monster detector

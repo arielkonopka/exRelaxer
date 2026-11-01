@@ -2969,6 +2969,44 @@ what the agent looks at moves away from what it was taught on; the
 detector should keep learning (from its own strikes and kills) after its
 childhood.
 
+## 51. A detector that keeps learning
+
+**Question.** (Phase 11; Doom log D27.) §50's detector stops learning
+after its childhood, and its false alarms grow once it steers the gaze.
+Does it help to let it keep learning from its own strikes, or to make it
+wait for evidence?
+
+**Setup.** §50's replay MLP detector (childhood 100 games) on the §47
+agent, 3 seeds, 600 games:
+- "feedback": after childhood, every strike that fires a shot teaches the
+  two middle columns: monster if ViZDoom's hit count rose, none if not.
+  The shot leaves the gun one step after the press, so the answer is
+  awaited for two steps (a first run that waited one step judged only
+  2-6 shots per game).
+- "evidence": the reflexes read a leaky accumulator per column,
+  e ← 0.5 e + 0.5 p, instead of the detector's output p.
+- One seed with a 300-game childhood.
+
+**Results.** Feedback: **+5.6** (−0.3, 9.6, 7.6), 2.2 kills, 132
+squares, dies in 83% of test games; false columns per tick fall from
+about 0.2 to 0.04-0.14 while hits per shot rise from 0.3 to 0.5-0.7, but
+recall falls to 0.07-0.13. Evidence: +0.3 (−1.0, −1.4, 3.3), one seed
+hides. 300-game childhood: false alarms jump from 0.07 to 0.57 the moment
+the detector takes over; the agent hides (−10.1). §50 without either:
++4.8; labels +13.1.
+
+**What it means.**
+- A strike's outcome is a usable teacher without labels: it makes the
+  detector fire less and hit more. It cannot correct false alarms at the
+  sides (no shot there), and misses at range teach "nothing" where there
+  was a monster, so recall drops; the score gain over §50 is within seed
+  spread.
+- Waiting for evidence costs reaction time: monsters shoot first.
+- The drift is a closed loop: the orienting reflex turns to a false
+  alarm, which shows more of the views that cause false alarms. A longer
+  childhood does not prevent it, because the childhood never shows the
+  views the detector itself will steer to.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3233,6 +3271,11 @@ childhood.
     replay buffer, drives the reflexes to +4.8 on `map01` (labels +13.1,
     no reflexes −1.6); without replay it does not learn the rare
     monsters at all.
+45. **The gaze teaches its own errors** (§51): once a learned detector
+    steers the orienting reflex, its false alarms multiply (0.07 → 0.57
+    per tick after a long childhood). Learning on from whether a shot hit
+    halves false alarms and lifts hits per shot to 0.6, but loses recall
+    (+5.6 against +4.8, within seed spread).
 
 ## Open questions and next steps
 
@@ -3242,9 +3285,11 @@ childhood.
 - **Reaching the exit** (§47, §49): neither the exit-approach reward nor
   longer games get the instinct agent out; a route (a learned map, keys)
   is still missing.
-- **Learned monster detection** (§47, §50): the replay detector keeps a
-  third of the labelled gain; let it keep learning after childhood (a
-  kill as its teacher), and give it a richer view (motion, colour).
+- **Learned monster detection** (§47, §50, §51): the replay detector
+  keeps a third of the labelled gain; learning from hits helps a little.
+  Teach the side columns too (a turn that brings nothing into the middle
+  is a false alarm), and give the detector a richer view (motion,
+  colour).
 - **A richer view code for landmarks** (§48): depth or colour, or the
   reservoir's memory of the last seconds, before anchoring again.
 - **A reservoir that keeps where things are** (§41): random E-R mixing of
