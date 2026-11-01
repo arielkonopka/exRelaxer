@@ -1042,9 +1042,11 @@ never exits. Does the exit-approach reward or a longer game get it there?
   doors, survives 900 s); seeds 1 and 3 reach 144-185 squares, 3.2-3.4
   kills, 1.3-1.7 doors and die in 20-30% of the games.
 
-**Conclusion.** Straight-line distance to the exit points through walls
-on MAP01, so the approach reward pulls the agent into dead ends and costs
-it exploration. Three times the game time does not find the exit either.
+**Conclusion.** The approach reward follows the walking distance around
+walls (`exitmap.py`; an earlier version of this entry wrongly said
+straight-line distance). It still does not lead the agent out: it gets no
+closer than about 2,000 units and explores less (80-136 squares against
+D23's 172). Three times the game time does not find the exit either.
 
 **Data.** `results/td-actor-critic/doom/map01_exit/`; the project's
 `reports/doom-td/`.
@@ -1209,7 +1211,13 @@ every nearly identical frame; the real rate is about 0.13 per tick and
 the detector's own gaze roughly doubles it. Neither practice nor frozen
 statistics helps; the colour detector stays near +6.
 
-**Data.** `results/td-actor-critic/doom/map01_practice/`.
+Addendum: motion features (mean absolute frame difference in 15 bands per
+column, raw and minus the frame's mean) were probed offline on D29's 80
+colour games: alone AUC 0.78, added to colour + vision 0.945 against
+0.951 without. Not run in play.
+
+**Data.** `results/td-actor-critic/doom/map01_practice/`; the motion probe
+in `map01_colour/probe/motion.txt`.
 
 ## Open questions
 
