@@ -98,7 +98,15 @@ DEFAULTS = {
     "attack_reflex": 0, "attack_cone": 0.125, "kill_weight": 1.0,
     # orient_reflex=1: also add TURN_LEFT / TURN_RIGHT toward the biggest monster on screen when
     # it is outside the cone (the orienting reflex: the head turns to a threat).
-    "orient_reflex": 0,  # > 0: the place cells' rate falls as rate * settle / (settle + updates), a critical period
+    "orient_reflex": 0,
+    # A learned threat detector: detector=N games during which a logistic detector, one set of
+    # weights shared by the 10 screen columns of the frozen vision features (10 filters x 5
+    # rows), learns from the labels which columns hold a monster; from game N on the reflexes
+    # use the detector (threshold detector_threshold) instead of the labels.
+    # detector_hidden: tanh units before the logistic unit (0 = logistic); detector_neighbours:
+    # columns on each side it also reads; detector_pos: weight of a column with a monster.
+    "detector": 0, "detector_rate": 0.05, "detector_threshold": 0.5, "detector_hidden": 0,
+    "detector_neighbours": 0, "detector_pos": 5.0, "detector_replay": 0,
 }
 SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
           "health_gathering_supreme": 0.01}
@@ -301,6 +309,100 @@ def monster_ahead(state, cone):
     return -1 if big.x + big.width / 2 < lo else 1
 
 
+class ThreatDetector:
+    """Monster-or-not for each screen column, from the frozen vision features of that column and
+    `neighbours` columns on each side (weights shared across columns, like a convolution): a
+    logistic unit, or with `hidden` > 0 one tanh hidden layer before it. Taught online by the
+    labels during a childhood, then on its own. Monsters are rare (about 0.2% of columns), so a
+    column with one counts `pos_weight` times in the error."""
+
+    def __init__(self, channels=10, rows=5, columns=10, rate=0.05, hidden=0, neighbours=0, pos_weight=5.0,
+                 seed=0, replay=0, replay_size=2000):
+        self.c, self.r, self.k, self.rate = channels, rows, columns, float(rate)
+        # replay > 0: keep the last replay_size columns with and without a monster and relearn
+        # `replay` of each kind every tick (a rehearsal, as in sleep replay), so the rare
+        # positives are seen many times.
+        self.replay, self.replay_size = int(replay), int(replay_size)
+        self.pos_buf, self.neg_buf = [], []
+        self.rng = np.random.default_rng(seed + 7)
+        self.n, self.hidden, self.pos_weight = int(neighbours), int(hidden), float(pos_weight)
+        d = channels * rows * (2 * self.n + 1)
+        rng = np.random.default_rng(seed)
+        self.W1 = rng.normal(0, 1 / np.sqrt(d), (d, self.hidden)) if self.hidden else None
+        self.b1 = np.zeros(self.hidden)
+        self.w = rng.normal(0, 1 / np.sqrt(self.hidden), self.hidden) if self.hidden else np.zeros(d)
+        self.b = -2.0
+        self.mean, self.var = None, None
+
+    def columns(self, pool):
+        x = np.asarray(pool, dtype=np.float64).reshape(self.c, self.r, self.k)
+        x = x.transpose(2, 0, 1).reshape(self.k, -1)  # one row of features per column
+        if self.mean is None:
+            self.mean, self.var = x.mean(0), x.var(0) + 1e-3
+        else:  # slow running statistics over all columns seen
+            self.mean += 0.001 * (x.mean(0) - self.mean)
+            self.var += 0.001 * (((x - self.mean) ** 2).mean(0) - self.var)
+        x = (x - self.mean) / np.sqrt(self.var + 1e-6)
+        if self.n:
+            pad = np.pad(x, ((self.n, self.n), (0, 0)))
+            x = np.concatenate([pad[i:i + self.k] for i in range(2 * self.n + 1)], axis=1)
+        return x
+
+    def probs(self, pool):
+        x = self.columns(pool)
+        p, h = self.forward(x)
+        return p, (x, h)
+
+    def forward(self, x):
+        h = np.tanh(x @ self.W1 + self.b1) if self.hidden else x
+        return 1.0 / (1.0 + np.exp(-(h @ self.w + self.b))), h
+
+    def learn(self, xh, p, target):
+        x, h = xh
+        if self.replay:
+            for row, t in zip(x, target):
+                buf = self.pos_buf if t > 0 else self.neg_buf
+                if len(buf) < self.replay_size:
+                    buf.append(row)
+                else:
+                    buf[self.rng.integers(self.replay_size)] = row
+            if self.pos_buf:
+                pi = self.rng.integers(len(self.pos_buf), size=self.replay)
+                ni = self.rng.integers(len(self.neg_buf), size=self.replay)
+                x = np.concatenate([x, np.array([self.pos_buf[i] for i in pi]), np.array([self.neg_buf[i] for i in ni])])
+                target = np.concatenate([target, np.ones(self.replay), np.zeros(self.replay)])
+                p, h = self.forward(x)
+        g = (target - p) * np.where(target > 0, self.pos_weight, 1.0)
+        if self.hidden:
+            gh = np.outer(g, self.w) * (1 - h ** 2)
+            self.W1 += self.rate * (x.T @ gh) / len(g)
+            self.b1 += self.rate * gh.mean(0)
+        self.w += self.rate * (g @ h) / len(g)
+        self.b += self.rate * g.mean()
+
+    def where(self, p, cone, threshold):
+        """As monster_ahead: 0 for a monster in the middle cone, -1 / +1 for the strongest one left /
+        right, None for none."""
+        k = len(p)
+        lo, hi = int(np.floor(k * (0.5 - cone / 2))), int(np.ceil(k * (0.5 + cone / 2)))
+        hot = p > threshold
+        if not hot.any():
+            return None
+        if hot[lo:hi].any():
+            return 0
+        return -1 if int(np.argmax(p)) < lo else 1
+
+
+def label_columns(state, k=10):
+    """Which of k screen columns hold a monster's centre (the detector's teacher)."""
+    t = np.zeros(k)
+    width = state.screen_buffer.shape[-1]
+    for l in state.labels or []:
+        if l.object_name in MONSTERS:
+            t[min(k - 1, int((l.x + l.width / 2) * k / width))] = 1.0
+    return t
+
+
 def pool_screen(screen, pool):
     return screen.reshape(120 // pool, pool, 160 // pool, pool).mean(axis=(1, 3)).ravel().astype(np.float32) / 255.0
 
@@ -336,6 +438,10 @@ class Learner:
                                    pull=p["landmark_pull"], seq=p["landmark_seq"],
                                    spread=p["landmark_spread"]) if p["path"] == 2 else None
         self.view = None  # the last vision features (landmarks recognise them one tick late)
+        self.detector = ThreatDetector(rate=p["detector_rate"], hidden=p["detector_hidden"],
+                                       neighbours=p["detector_neighbours"], pos_weight=p["detector_pos"],
+                                       replay=p["detector_replay"], seed=seed) if p["detector"] else None
+        self.games = 0
         self.lives = 0
         self.origin = None  # the first life's spawn: the shared frame (for the error measure)
         self.anchor_err = []
@@ -375,7 +481,7 @@ class Learner:
         if self.p["boredom"] > 0:
             raw.append([self.boredom_level])
         x = self.res.step(inputs, raw=np.concatenate(raw) if raw else None)
-        if self.landmarks is not None:
+        if self.landmarks is not None or self.detector is not None:
             self.view = np.asarray(self.res.net.layer_output(self.res.pool), dtype=np.float64).ravel()
         if self.vplace is not None:
             # The learned place cells read the reservoir and the vision features, not the raw inputs.
@@ -527,6 +633,9 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     attack = names.index("ATTACK") if "ATTACK" in names else None
     instinct = bool(learner.p["attack_reflex"]) and attack is not None
     strikes = 0
+    det_hits = det_false = det_true = 0
+    if learn:
+        learner.games += 1
     blocked, reflexes = False, 0
     state = game.get_state()
     if shaper is not None:
@@ -552,6 +661,18 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             buttons[use] = 1
             reflexes += 1
         where = monster_ahead(state, learner.p["attack_cone"]) if instinct and state is not None else None
+        det = learner.detector
+        if det is not None and instinct and state is not None and learner.view is not None:
+            probs, xcols = det.probs(learner.view)
+            truth = label_columns(state)
+            guess = probs > learner.p["detector_threshold"]
+            det_hits += int((guess & (truth > 0)).sum())
+            det_false += int((guess & (truth == 0)).sum())
+            det_true += int(truth.sum())
+            if learn and learner.games < learner.p["detector"]:
+                det.learn(xcols, probs, truth)  # childhood: the labels teach
+            else:
+                where = det.where(probs, learner.p["attack_cone"], learner.p["detector_threshold"])
         if where == 0:
             buttons = list(buttons)
             buttons[attack] = 1
@@ -610,6 +731,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     s = learner.agent.log.summary()
     s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
              novelty=novelty, reflexes=reflexes, strikes=strikes,
+             det_recall=det_hits / max(1, det_true), det_false=det_false / max(1, steps),
              placed=len(learner.anchor_err) / max(1, steps), anchor_err=float(np.mean(learner.anchor_err)) if learner.anchor_err else -1.0, lifetime_cells=len(getattr(learner.agent, "novelty_counts", {})), seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
              spikes=learner.res.spikes / max(1, steps * learner.res.ticks))
     if shaper is not None:
@@ -668,6 +790,8 @@ def main():
         learner.vplace = saved.get("vplace", learner.vplace)
         if saved.get("landmarks") is not None:
             learner.landmarks, learner.lives, learner.origin = saved["landmarks"]
+        learner.detector = saved.get("detector", learner.detector)
+        learner.games = saved.get("games", learner.games)
         with open(log_path) as f:
             kept = f.readlines()[:start]
         with open(log_path, "w") as f:
@@ -684,7 +808,8 @@ def main():
                 log.flush()
                 with open(ckpt_path + ".tmp", "wb") as f:
                     pickle.dump({"episode": ep, "agent": learner.agent, "rng": learner.rng, "vplace": learner.vplace,
-                                 "landmarks": (learner.landmarks, learner.lives, learner.origin)}, f)
+                                 "landmarks": (learner.landmarks, learner.lives, learner.origin),
+                                 "detector": learner.detector, "games": learner.games}, f)
                 os.replace(ckpt_path + ".tmp", ckpt_path)
             trace = ep % p["trace_every"] == 0 or ep == args.episodes - 1
             s = episode(game, learner, scale, True, trace, shaper)
@@ -707,7 +832,8 @@ def main():
     summary = {k: float(np.mean([r[k] for r in rows]))
                for k in ("game_reward", "kills", "medkits", "visited", "steps", "seconds", "died", "spikes")}
     summary["success"] = float(np.mean([r["game_reward"] > 0.5 for r in rows]))  # my_way_home: the vest found
-    for k in ("items", "doors", "exits", "cells", "distance", "approach_reward", "closest", "placed"):
+    for k in ("items", "doors", "exits", "cells", "distance", "approach_reward", "closest", "placed",
+              "det_recall", "det_false"):
         if k in rows[0]:
             summary[k] = float(np.mean([r[k] for r in rows]))
     fields = [f for r in rows for f in r.pop("fields", [])]

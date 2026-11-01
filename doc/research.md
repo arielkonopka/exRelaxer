@@ -2887,6 +2887,40 @@ Longer games do not help either: the explored area grows a little but
 the agent keeps running into the same monsters. Reaching the exit needs a
 map, a route, or keys, not more of the same drive.
 
+## 50. A learned threat detector
+
+**Question.** (Phase 10; Doom log D26.) §47's reflexes find monsters
+through ViZDoom's labels. Can a detector learned from the frozen vision
+features replace them?
+
+**Setup.** A detector per screen column (weights shared across the 10
+columns) reads that column's pool features (10 filters × 5 rows), taught
+online by the labels for the first 100 games, then used by the strike and
+orient reflexes in place of the labels. Offline probe: 80 random games
+with label-driven reflexes, 70% to train, 30% to test.
+
+**Results.**
+- Monsters are rare: 0.2% of columns, 2% of frames.
+- Offline (many epochs): logistic AUC 0.88; a 64-unit hidden layer that
+  also reads the neighbouring columns 0.94 (43% of monster columns at 1%
+  false alarms).
+- Online, one pass: AUC 0.55-0.74; the rare positives are washed out.
+  A **replay buffer** (8 remembered monster columns and 8 empty ones
+  relearned every tick) restores 0.92 (39% at 1% false).
+- MAP01 (3 seeds, 600 games): logistic detector: two seeds never fire
+  again (−2.5, −1.2), one fires everywhere (+9.7). Replay MLP:
+  **+4.8** (2.5, 6.7, 5.3), 2.6 kills, 112 squares, dies in 60% of
+  test games; recall 0.3-0.5 but 0.3-0.4 false columns per tick once
+  it drives the reflexes (0.02 during childhood). Striking every tick:
+  −0.1. Labels: +13.1; no reflexes: −1.6.
+
+**What it means.** A learned detector keeps about a third of what the
+labelled reflexes gain. Rare events need rehearsal to be learned online.
+The false alarms grow when the detector starts steering the gaze, so
+what the agent looks at moves away from what it was taught on; the
+detector should keep learning (from its own strikes and kills) after its
+childhood.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3139,6 +3173,11 @@ map, a route, or keys, not more of the same drive.
 43. **The exit needs more than a pull** (§49): the exit-approach reward
     halves the instinct agent's score (+6.9 against +13.1) and 15-minute
     games add nothing; no run reaches the exit.
+44. **A learned eye keeps a third of the instinct** (§50): a column
+    detector over the frozen vision features, learned online with a
+    replay buffer, drives the reflexes to +4.8 on `map01` (labels +13.1,
+    no reflexes −1.6); without replay it does not learn the rare
+    monsters at all.
 
 ## Open questions and next steps
 
@@ -3148,8 +3187,9 @@ map, a route, or keys, not more of the same drive.
 - **Reaching the exit** (§47, §49): neither the exit-approach reward nor
   longer games get the instinct agent out; a route (a learned map, keys)
   is still missing.
-- **Learned monster detection** (§47): replace the labels buffer with a
-  detector learned from the vision features.
+- **Learned monster detection** (§47, §50): the replay detector keeps a
+  third of the labelled gain; let it keep learning after childhood (a
+  kill as its teacher), and give it a richer view (motion, colour).
 - **A richer view code for landmarks** (§48): depth or colour, or the
   reservoir's memory of the last seconds, before anchoring again.
 - **A reservoir that keeps where things are** (§41): random E-R mixing of

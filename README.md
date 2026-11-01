@@ -490,6 +490,14 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-01: a learned threat detector (phase 10)
+
+- `td_actor_critic/doom_td.py`: `detector` (a per-column monster detector
+  over the frozen vision features, taught by the labels for N games, then
+  driving the reflexes), `detector_hidden`, `detector_neighbours`,
+  `detector_pos`, `detector_replay`, `detector_threshold`;
+  `detector_probe.py` (offline comparison). Research §50, Doom log D26.
+
 ### 2026-11-01: reaching for the exit (phase 9)
 
 - Exit-approach reward and 15-minute games on the instinct agent; no exit.

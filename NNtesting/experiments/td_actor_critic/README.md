@@ -9,7 +9,7 @@ and its prediction error
 replaces the raw reward as the modulator of the actor's readouts: one
 global scalar, the analogue of phasic dopamine, so learning stays local
 (pre × post × δ) but is no longer sparse or late. Results: research log
-§41 (drives §42, place cells §43, novelty and learned place §44, door reflex and path integration §45, boredom and anchoring §46, killer instinct §47, guided landmarks §48, exit §49), Doom log D17-D25.
+§41 (drives §42, place cells §43, novelty and learned place §44, door reflex and path integration §45, boredom and anchoring §46, killer instinct §47, guided landmarks §48, exit §49, learned threat detector §50), Doom log D17-D26.
 
 ```
 input -> frozen features (Gabor + centre-surround bank, max-pooled)
@@ -80,6 +80,13 @@ labels) is in the middle `attack_cone` of the view, `orient_reflex=1` a
 turn toward the biggest monster on screen, `kill_weight` sets doom_rl's
 kill reward; `landmark_seq`, `landmark_spread` and `landmark_guided` vary
 the landmarks of `path=2`.
+
+Phase 10: `--set detector=N` teaches a per-column monster detector over
+the frozen vision features from the labels for N games; afterwards (and in
+test games) it, not the labels, drives the reflexes (`detector_hidden`,
+`detector_neighbours`, `detector_replay`, `detector_threshold`).
+`detector_probe.py` records random games and compares detectors offline
+and online.
 
 `doom_td.py --arm reward` is the control with the raw reward as the
 modulator (the critic still learns and is logged); `--arm random` plays

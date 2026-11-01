@@ -1,0 +1,7 @@
+frames train 58223 test 25200; monster columns 0.002 of all, frames with a monster 0.02
+pool      AUC train 0.907 test 0.884  recall at 1% false 0.08  at p>0.5: recall 0.77 false 0.157
+pool3     AUC train 0.937 test 0.887  recall at 1% false 0.17  at p>0.5: recall 0.73 false 0.144
+eye       AUC train 0.869 test 0.838  recall at 1% false 0.18  at p>0.5: recall 0.70 false 0.153
+screen    AUC train 0.911 test 0.830  recall at 1% false 0.20  at p>0.5: recall 0.69 false 0.137
+pool3+h   AUC train 0.999 test 0.941  recall at 1% false 0.43  at p>0.5: recall 0.53 false 0.018
+screen+h  AUC train 0.999 test 0.862  recall at 1% false 0.30  at p>0.5: recall 0.35 false 0.015

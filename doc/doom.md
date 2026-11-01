@@ -961,6 +961,45 @@ it exploration. Three times the game time does not find the exit either.
 **Data.** `results/td-actor-critic/doom/map01_exit/`; the project's
 `reports/doom-td/`.
 
+### D26. A learned threat detector (2026-11-01)
+
+**Question.** (Phase 10.) Can the reflexes of D23 run on a detector
+learned from vision instead of ViZDoom's labels?
+
+**Setup.** D23's "orient" agent with `detector=100`: during the first 100
+games a per-column detector over the frozen pool features learns online
+from the labels (the reflexes still use the labels); from game 100 on,
+and in every test game, the reflexes use the detector. 3 seeds, 600
+games. `detector_probe.py` compares detectors offline on 80 random games.
+- "logistic": a logistic unit, monster columns weighted 5×, threshold 0.5.
+- "mlp": 64 tanh units, the column and its two neighbours, a replay
+  buffer (`detector_replay=8`), threshold 0.95.
+- "spray": a control that strikes every tick and never orients.
+
+**Result.**
+
+| detector | test score | kills | seconds | squares | died |
+|---|---|---|---|---|---|
+| labels (D23) | +13.1 | 3.9 | 300 | 172 | 0% |
+| mlp + replay | +4.8 (2.5, 6.7, 5.3) | 2.6 | 196 | 112 | 60% |
+| logistic | +2.0 (−2.5, 9.7, −1.2) | 1.4 | 122 | 98 | 83% |
+| spray | −0.1 (1.9, 2.9, −5.1) | 0.9 | 159 | 69 | 60% |
+
+- Logistic: two seeds stop firing after childhood, one fires on about
+  one wrong column per tick and does well by spraying.
+- Probe: offline the MLP reaches AUC 0.94; learned online in one pass
+  every detector drops to 0.55-0.74; with replay 0.92.
+- The mlp detector's false columns per tick go from 0.02 in childhood
+  to 0.3-0.4 once it steers the gaze.
+
+**Conclusion.** The replay detector is the first label-free instinct
+agent above the boredom agent (−1.6) and random reflexes (+1.3), but it
+keeps only about a third of the labelled gain; it should keep learning
+after its childhood.
+
+**Data.** `results/td-actor-critic/doom/map01_detector/` (`logistic/`,
+`probe/`); the project's `reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
