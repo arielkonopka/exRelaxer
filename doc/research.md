@@ -3029,6 +3029,35 @@ into silence. Label-free teaching would need the negatives weighted down
 to the rate at which a miss really means "nothing", or a teacher that
 confirms presence (being hurt from that direction, a monster's sound).
 
+## 53. A detector that sees colour
+
+**Question.** (Phase 13; Doom log D29.) Every learner so far saw the
+game in gray. Do colours help the threat detector?
+
+**Setup.** The game runs in colour; the reservoir, place cells and
+everything else get its gray image as before. The detector also reads two
+colour-opponent channels (red − green, yellow − blue) averaged in 15
+bands per screen column. Offline probe as in §50 (80 random games, colour
+recorded); then §50's replay MLP detector with colour, with and without
+§51's shot feedback, 3 seeds, 600 games.
+
+**Results.**
+- Offline (64 hidden units, neighbouring columns): gray vision features
+  AUC 0.93, 39% of monster columns at 1% false alarms; colour alone 0.93,
+  56%; both **0.95, 64%**.
+- MAP01: colour detector **+5.9** (4.6, 4.9, 8.2), 2.0 kills, 115
+  squares, dies in 40% of test games (gray §50: +4.8, 60%); with shot
+  feedback +2.6 (5.1, −1.7, 4.4).
+- The online detector's recall in its childhood stays at 0.32, as with
+  gray; in test games 0.40 with 0.31 false columns per tick.
+
+**What it means.** Colour is the cue gray vision lacks offline, but the
+agent gains little: what the online detector learns in a 100-game
+childhood is far below what the same network learns from the recorded
+games offline, and the gaze loop of §51 still multiplies false alarms.
+Shot feedback does not help on top. The best label-free agent is now
++5.9, against +13.1 with labels.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3301,6 +3330,10 @@ confirms presence (being hurt from that direction, a monster's sound).
 46. **Self-taught negatives silence the eye** (§52): teaching side
     columns "nothing" whenever a turn brings no hit switches the detector
     off within 200 games (−1.6, the same as no reflexes).
+47. **Colour helps the eye offline more than online** (§53): colour
+    features lift offline detection from 39% to 64% of monsters at 1%
+    false alarms, but the online agent gains only +4.8 → +5.9 (fewer
+    deaths).
 
 ## Open questions and next steps
 

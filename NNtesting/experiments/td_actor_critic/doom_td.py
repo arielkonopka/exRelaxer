@@ -115,6 +115,10 @@ DEFAULTS = {
     # detector_evidence=d: the reflexes read a leaky accumulator e <- d e + (1 - d) p of the
     # detector's output instead of p itself (0 = off).
     "detector_evidence": 0.0,
+    # detector_colour=1: the game runs in colour (everything else sees its gray image) and the
+    # detector also reads two colour-opponent channels (red-green, yellow-blue) in 15 bands
+    # per column.
+    "detector_colour": 0,
 }
 SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
           "health_gathering_supreme": 0.01}
@@ -123,10 +127,10 @@ SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 
 MAPS = ("map01",)  # whole levels: doom_rl's 8 buttons and shaped reward (doom_rl/rewards.py)
 
 
-def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kill=None):
+def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kill=None, color=False):
     """doom_rl's parameters for a whole map, without sound."""
     q = {k: v[0] for k, v in drl.PARAMS.items()}
-    q.update(scenario=scenario, sound=False, color=False, w_approach=float(approach), labels=bool(labels))
+    q.update(scenario=scenario, sound=False, color=bool(color), w_approach=float(approach), labels=bool(labels))
     if kill is not None:
         q["w_kill"] = float(kill)
     if skill is not None:
@@ -136,9 +140,9 @@ def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kil
     return q
 
 
-def make_game(scenario, seed, skill=None, labels=False, until_death=0, approach=0.0):
+def make_game(scenario, seed, skill=None, labels=False, until_death=0, approach=0.0, color=False):
     if scenario in MAPS:
-        return drl.make_game(doom_rl_params(scenario, skill, until_death, approach, labels), seed)
+        return drl.make_game(doom_rl_params(scenario, skill, until_death, approach, labels, color=color), seed)
     game = vzd.DoomGame()
     game.load_config(os.path.join(vzd.scenarios_path, scenario + ".cfg"))
     game.set_window_visible(False)
@@ -306,7 +310,7 @@ MONSTERS = {"Zombieman", "ShotgunGuy", "ChaingunGuy", "DoomImp", "Demon", "Spect
 def monster_ahead(state, cone):
     """0 when a monster's centre is within the middle `cone` of the screen width (labels buffer),
     -1 / +1 when the biggest monster on screen is to the left / right, None when none is seen."""
-    width = state.screen_buffer.shape[-1]
+    width = screen_width(state.screen_buffer)
     lo, hi = width * (0.5 - cone / 2), width * (0.5 + cone / 2)
     seen = [l for l in state.labels or [] if l.object_name in MONSTERS]
     if not seen:
@@ -325,7 +329,7 @@ class ThreatDetector:
     column with one counts `pos_weight` times in the error."""
 
     def __init__(self, channels=10, rows=5, columns=10, rate=0.05, hidden=0, neighbours=0, pos_weight=5.0,
-                 seed=0, replay=0, replay_size=2000):
+                 seed=0, replay=0, replay_size=2000, extra=0):
         self.c, self.r, self.k, self.rate = channels, rows, columns, float(rate)
         # replay > 0: keep the last replay_size columns with and without a monster and relearn
         # `replay` of each kind every tick (a rehearsal, as in sleep replay), so the rare
@@ -334,7 +338,7 @@ class ThreatDetector:
         self.pos_buf, self.neg_buf = [], []
         self.rng = np.random.default_rng(seed + 7)
         self.n, self.hidden, self.pos_weight = int(neighbours), int(hidden), float(pos_weight)
-        d = channels * rows * (2 * self.n + 1)
+        d = (channels * rows + int(extra)) * (2 * self.n + 1)  # extra: more features per column (colour)
         rng = np.random.default_rng(seed)
         self.W1 = rng.normal(0, 1 / np.sqrt(d), (d, self.hidden)) if self.hidden else None
         self.b1 = np.zeros(self.hidden)
@@ -342,9 +346,11 @@ class ThreatDetector:
         self.b = -2.0
         self.mean, self.var = None, None
 
-    def columns(self, pool):
+    def columns(self, pool, extra=None):
         x = np.asarray(pool, dtype=np.float64).reshape(self.c, self.r, self.k)
         x = x.transpose(2, 0, 1).reshape(self.k, -1)  # one row of features per column
+        if extra is not None:
+            x = np.concatenate([x, extra], axis=1)
         if self.mean is None:
             self.mean, self.var = x.mean(0), x.var(0) + 1e-3
         else:  # slow running statistics over all columns seen
@@ -356,8 +362,8 @@ class ThreatDetector:
             x = np.concatenate([pad[i:i + self.k] for i in range(2 * self.n + 1)], axis=1)
         return x
 
-    def probs(self, pool):
-        x = self.columns(pool)
+    def probs(self, pool, extra=None):
+        x = self.columns(pool, extra)
         p, h = self.forward(x)
         return p, (x, h)
 
@@ -406,14 +412,38 @@ class ThreatDetector:
 def label_columns(state, k=10):
     """Which of k screen columns hold a monster's centre (the detector's teacher)."""
     t = np.zeros(k)
-    width = state.screen_buffer.shape[-1]
+    width = screen_width(state.screen_buffer)
     for l in state.labels or []:
         if l.object_name in MONSTERS:
             t[min(k - 1, int((l.x + l.width / 2) * k / width))] = 1.0
     return t
 
 
+def screen_width(screen):
+    return screen.shape[1] if screen.ndim == 3 and screen.shape[-1] == 3 else screen.shape[-1]
+
+
+def gray(screen):
+    """The gray image (120 x 160) of a GRAY8 or RGB24 screen."""
+    return screen.mean(axis=2) if screen.ndim == 3 else screen
+
+
+def colour_columns(screen, columns=10, rows=15):
+    """Colour per screen column for the detector: for each of `rows` bands the mean of the two
+    opponent channels (red - green, (red + green)/2 - blue) of an RGB24 screen, scaled to about
+    -1..1; (columns, 2 * rows)."""
+    x = screen.astype(np.float64) / 255.0
+    rg = x[..., 0] - x[..., 1]
+    yb = (x[..., 0] + x[..., 1]) / 2 - x[..., 2]
+    h, w = rg.shape
+    out = []
+    for ch in (rg, yb):
+        out.append(ch.reshape(rows, h // rows, columns, w // columns).mean(axis=(1, 3)).T)
+    return np.concatenate(out, axis=1)
+
+
 def pool_screen(screen, pool):
+    screen = gray(screen)
     return screen.reshape(120 // pool, pool, 160 // pool, pool).mean(axis=(1, 3)).ravel().astype(np.float32) / 255.0
 
 
@@ -450,8 +480,10 @@ class Learner:
         self.view = None  # the last vision features (landmarks recognise them one tick late)
         self.detector = ThreatDetector(rate=p["detector_rate"], hidden=p["detector_hidden"],
                                        neighbours=p["detector_neighbours"], pos_weight=p["detector_pos"],
-                                       replay=p["detector_replay"], seed=seed) if p["detector"] else None
+                                       replay=p["detector_replay"], seed=seed,
+                                       extra=30 if p["detector_colour"] else 0) if p["detector"] else None
         self.games = 0
+        self.colour = None  # colour features per screen column (detector_colour)
         self.lives = 0
         self.origin = None  # the first life's spawn: the shared frame (for the error measure)
         self.anchor_err = []
@@ -482,6 +514,8 @@ class Learner:
             raw.append(oracle_features(state))
         else:
             inputs["eye"] = pool_screen(state.screen_buffer, self.p["pool"])
+            if self.p["detector_colour"]:
+                self.colour = colour_columns(state.screen_buffer)
             if self.p["features"] in ("both_eye", "eye"):
                 raw.append(inputs["eye"])
         if self.drives:
@@ -678,7 +712,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         where = monster_ahead(state, learner.p["attack_cone"]) if instinct and state is not None else None
         det = learner.detector
         if det is not None and instinct and state is not None and learner.view is not None:
-            probs, xcols = det.probs(learner.view)
+            probs, xcols = det.probs(learner.view, learner.colour)
             truth = label_columns(state)
             guess = probs > learner.p["detector_threshold"]
             det_hits += int((guess & (truth > 0)).sum())
@@ -840,7 +874,7 @@ def main():
         start = saved["episode"]
     # A resumed run plays new games from the restart on (the game's seed moves with the episode).
     game = make_game(args.scenario, 10_000 + args.seed + 7919 * start, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]),
-                     p["until_death"])
+                     p["until_death"], color=bool(p["detector_colour"]))
     learner = Learner(p, game.get_available_buttons_size(), args.arm, args.seed)
     if saved is not None:
         learner.agent, learner.rng = saved["agent"], saved["rng"]
@@ -883,7 +917,8 @@ def main():
                       f"H {s['entropy']:.2f} t {time.time() - t0:.0f}s", flush=True)
     game.close()
     # Greedy test on fresh episodes, no learning.
-    test_game = make_game(args.scenario, 20_000 + args.seed, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]), p["until_death"])
+    test_game = make_game(args.scenario, 20_000 + args.seed, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]), p["until_death"],
+                          color=bool(p["detector_colour"]))
     rows = [episode(test_game, learner, scale, False, shaper=shaper) for _ in range(p["test"])]
     test_game.close()
     summary = {k: float(np.mean([r[k] for r in rows]))

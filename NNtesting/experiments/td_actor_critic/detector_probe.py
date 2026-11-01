@@ -27,16 +27,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import doom_td as dt  # noqa: E402
 
 
-def collect(games, seed, minutes):
+def collect(games, seed, minutes, color=False):
     p = dict(dt.DEFAULTS)
     p.update(features="both_pool", attack_reflex=1, orient_reflex=1, until_death=minutes, detector=1)
-    game = dt.make_game("map01", seed, p["skill"], labels=True, until_death=minutes)
+    game = dt.make_game("map01", seed, p["skill"], labels=True, until_death=minutes, color=color)
     learner = dt.Learner(p, game.get_available_buttons_size(), "random", seed)
     names = [b.name for b in game.get_available_buttons()]
     attack = names.index("ATTACK")
     rng = np.random.default_rng(seed)
     n = len(names)
-    screens, pools, cols, gid = [], [], [], []
+    screens, pools, cols, gid, colours = [], [], [], [], []
     for g in range(games):
         game.set_seed(seed * 1000 + g)
         game.new_episode()
@@ -47,7 +47,9 @@ def collect(games, seed, minutes):
         while not game.is_episode_finished():
             state = game.get_state()
             learner.features(state, 100.0, dt.PlaceCells.read(game), False)
-            screens.append(state.screen_buffer.reshape(60, 2, 80, 2).mean(axis=(1, 3)).astype(np.uint8))
+            screens.append(dt.gray(state.screen_buffer).reshape(60, 2, 80, 2).mean(axis=(1, 3)).astype(np.uint8))
+            if color:
+                colours.append(dt.colour_columns(state.screen_buffer).astype(np.float32))
             pools.append(learner.view.astype(np.float32))
             cols.append(dt.label_columns(state))
             gid.append(g)
@@ -62,12 +64,19 @@ def collect(games, seed, minutes):
                 buttons[names.index("TURN_LEFT" if where < 0 else "TURN_RIGHT")] = 1
             game.make_action(buttons, dt.FRAME_SKIP)
         print(f"game {g}: {len(gid)} frames, {int(np.sum(cols))} monster columns", flush=True)
-    return np.array(screens), np.array(pools), np.array(cols), np.array(gid)
+    return np.array(screens), np.array(pools), np.array(cols), np.array(gid), np.array(colours)
 
 
-def column_rows(kind, screens, pools):
+def column_rows(kind, screens, pools, colours=None):
     """(frames, 10, features) per kind."""
     f = len(pools)
+    if kind == "colour":
+        return colours
+    if kind == "colour3":
+        pad = np.pad(colours, ((0, 0), (1, 1), (0, 0)))
+        return np.concatenate([pad[:, :-2], pad[:, 1:-1], pad[:, 2:]], axis=2)
+    if kind == "pool3colour3":
+        return np.concatenate([column_rows("pool3", screens, pools), column_rows("colour3", screens, pools, colours)], 2)
     if kind == "pool":
         return pools.reshape(f, 10, 5, 10).transpose(0, 3, 1, 2).reshape(f, 10, 50)
     if kind == "pool3":
@@ -138,15 +147,18 @@ def recall_at(score, y, false_rate=0.01):
     return float((score[y > 0] > thr).mean()), float(thr)
 
 
-def evaluate(screens, pools, cols, gid, train_frac=0.7):
+def evaluate(screens, pools, cols, gid, colours=None, train_frac=0.7):
     games = np.unique(gid)
     cut = games[int(len(games) * train_frac)]
     tr, te = gid < cut, gid >= cut
     print(f"frames train {tr.sum()} test {te.sum()}; monster columns {cols.mean():.3f} of all, "
           f"frames with a monster {(cols.sum(1) > 0).mean():.2f}")
     out = {}
-    for kind, hidden in (("pool", 0), ("pool3", 0), ("eye", 0), ("screen", 0), ("pool3+h", 64), ("screen+h", 64)):
-        x = column_rows(kind.split("+")[0], screens, pools)
+    kinds = (("pool", 0), ("pool3", 0), ("eye", 0), ("screen", 0), ("pool3+h", 64), ("screen+h", 64))
+    if colours is not None and len(colours):
+        kinds = (("pool3+h", 64), ("colour", 0), ("colour3+h", 64), ("pool3colour3", 0), ("pool3colour3+h", 64))
+    for kind, hidden in kinds:
+        x = column_rows(kind.split("+")[0], screens, pools, colours)
         xtr, ytr = x[tr].reshape(-1, x.shape[2]), cols[tr].ravel()
         xte, yte = x[te].reshape(-1, x.shape[2]), cols[te].ravel()
         predict = fit(xtr, ytr, hidden=hidden, epochs=400 if hidden else 300)
@@ -199,14 +211,15 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out", default="probe.npz")
     ap.add_argument("--load", default=None)
+    ap.add_argument("--color", action="store_true", help="RGB screen; adds colour-opponent column features")
     ap.add_argument("--online", action="store_true", help="only the online (doom_td) detectors")
     args = ap.parse_args()
     if args.load:
         d = np.load(args.load)
-        data = d["screens"], d["pools"], d["cols"], d["gid"]
+        data = d["screens"], d["pools"], d["cols"], d["gid"], (d["colours"] if "colours" in d else None)
     else:
-        data = collect(args.games, args.seed, args.minutes)
-        np.savez_compressed(args.out, screens=data[0], pools=data[1], cols=data[2], gid=data[3])
+        data = collect(args.games, args.seed, args.minutes, args.color)
+        np.savez_compressed(args.out, screens=data[0], pools=data[1], cols=data[2], gid=data[3], colours=data[4])
     if args.online:
         out = online(data[1], data[2], data[3], ONLINE)
     else:

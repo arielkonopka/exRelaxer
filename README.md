@@ -490,6 +490,12 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-01: a detector that sees colour (phase 13)
+
+- `td_actor_critic/doom_td.py`: `detector_colour` (RGB game, colour-opponent
+  features for the detector, gray for everything else);
+  `detector_probe.py --color`. Research §53, Doom log D29.
+
 ### 2026-11-01: a detector that keeps learning (phase 11)
 
 - `td_actor_critic/doom_td.py`: `detector_feedback` (after childhood a

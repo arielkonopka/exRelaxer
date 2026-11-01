@@ -1148,6 +1148,34 @@ absence.
 
 **Data.** `results/td-actor-critic/doom/map01_feedback/turn_s*`.
 
+### D29. A detector that sees colour (2026-11-01)
+
+**Question.** (Phase 13.) Does colour help the learned threat detector?
+
+**Setup.** `detector_colour=1`: the game runs in RGB; everything but the
+detector gets the gray mean of the channels; the detector also reads
+red − green and yellow − blue in 15 bands per column (30 features). D26's
+"mlp" detector otherwise; with and without D27's shot feedback. 3 seeds,
+600 games. `detector_probe.py --color` for the offline comparison.
+
+**Result.**
+
+| detector | test score | kills | seconds | squares | died |
+|---|---|---|---|---|---|
+| labels (D23) | +13.1 | 3.9 | 300 | 172 | 0% |
+| gray mlp (D26) | +4.8 | 2.6 | 196 | 112 | 60% |
+| colour mlp | **+5.9** (4.6, 4.9, 8.2) | 2.0 | 217 | 115 | 40% |
+| colour mlp + feedback | +2.6 (5.1, −1.7, 4.4) | 1.6 | 180 | 98 | 57% |
+
+Offline, monster columns caught at 1% false alarms: gray 39%, colour 56%,
+both 64% (AUC 0.95).
+
+**Conclusion.** Colour is a strong cue offline; online, the 100-game
+childhood leaves recall at 0.32 as with gray, and the agent gains about
+one point and fewer deaths, within seed spread.
+
+**Data.** `results/td-actor-critic/doom/map01_colour/` (`probe/`).
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
