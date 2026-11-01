@@ -953,6 +953,141 @@ each misplacement teaches more landmarks the wrong pose.
 (config, test, gzipped training log per run, `run.sh`; `anchored_path/tuning/`
 the random-play sweeps); the project's `reports/doom-td/`.
 
+### D23. A killer instinct: strike and orienting reflexes on the boredom agent (2026-10-31)
+
+**Question.** (Phase 7, the user's "let's add a killer instinct".) D22's
+boredom agent opens doors but dies to what is behind them. Do reflexes
+that fight back keep it alive?
+
+**Setup.** D22's boredom agent (place cells, γ 0.99, door reflex,
+boredom 0.01). `--set attack_reflex=1`: ATTACK is added to the chosen
+action whenever a monster's centre is within the middle eighth of the
+screen; `orient_reflex=1`: TURN_LEFT or TURN_RIGHT is added toward the
+biggest monster on screen when it is outside that cone; `kill_weight=3`
+("bloodlust"): doom_rl's w_kill 3 instead of 1. Monsters are found in
+ViZDoom's labels buffer (a stand-in for a learned detector, as the door
+reflex uses the game's movement). 3 seeds, 600 games; random with both
+reflexes 100 games.
+
+**Result.**
+
+| `map01` | test reward (per seed) | kills | survival | squares | doors | items |
+|---|---|---|---|---|---|---|
+| boredom (D22) | −1.6 (0.1, 0.7, −5.6) | 0.7 | 80 s | 68 | 1.1 | 3.5 |
+| + strike | +0.7 (1.5, −2.0, 2.6) | 1.2 | 223 s | 77 | 0.7 | 3.1 |
+| + strike + orient | **+13.1** (12.6, 9.7, 17.1) | **3.9** | **300 s** | **172** | **1.5** | **8.5** |
+| + strike + orient + kill × 3 | +10.8 (14.0, 3.0, 15.3) | 2.8 | 272 s | 107 | 1.2 | 4.7 |
+| random + strike + orient | +1.3 | 1.0 | 279 s | 60 | 0.2 | 1.6 |
+
+No exit. Every strike + orient test game lasts to the 5-minute cap.
+
+**Conclusion.** With an orienting reflex the boredom-driven learner
+survives what it lets in and keeps exploring: +13.1 against the previous
+best +0.3 (D21), with 2.5 times the squares and 4 kills a game. The
+reflexes alone (random actions) score +1.3: the learned policy and the
+reflexes need each other. A stronger kill reward does not add to it.
+
+**Data.** `results/td-actor-critic/doom/map01_killer/` (config, test,
+gzipped training log per run, `run.sh`); the project's `reports/doom-td/`.
+
+### D24. Landmarks taught in a guided childhood (2026-10-31)
+
+**Question.** (Phase 8.) D22's view landmarks taught themselves wrong
+poses. Do sequences of views, a filter on landmarks seen in more than one
+place, or being told the spawn pose during the first lives fix
+`my_way_home` anchoring?
+
+**Setup.** As D22's `path=2`, plus `landmark_seq` (a landmark is the
+sequence of the last L distinct winning views), `landmark_spread` (a
+landmark is trusted only while the poses it was seen at stay within that
+many units) and `landmark_guided` (the spawn pose is given for the first
+N lives). Random-play sweeps (60-80 games), then the learner (600 games,
+guided 100 lives, 3 seeds): "spread" (match 0.95, seen 3, spread 64) and
+"strict" (D22's setting).
+
+**Result.**
+- Sequences of 2-3 views never recur exactly and never place the agent;
+  the spread filter alone does not lower the error (430-660 units).
+- Guided childhood (random play, 40 guided lives): afterwards placed
+  9-31% of the time, 115-230 units off (D22 unguided: 200-600).
+- Learner: 10% test success in both settings (D22 unguided 3%,
+  coordinates 33%, random 16%); after the guided lives placed 12-42% of
+  the time, median error 100-320 units.
+
+**Conclusion.** A guided childhood halves the anchoring error but not
+enough: place cells 128 units wide need errors well under 100. View
+landmarks of this kind (one winning prototype among 256 over pooled
+Gabor features) alias too much in `my_way_home`'s look-alike rooms.
+
+**Data.** `results/td-actor-critic/doom/guided_landmarks/` (`tuning/`:
+the random-play sweeps); the project's `reports/doom-td/`.
+
+### D25. Reaching for the exit (2026-11-01)
+
+**Question.** (Phase 9.) D23's instinct agent explores and survives but
+never exits. Does the exit-approach reward or a longer game get it there?
+
+**Setup.** D23's "orient" agent (boredom 0.01, door reflex, place cells
+γ .99, strike and orient reflexes), 3 seeds, 600 games:
+- "approach": plus `approach=0.1` (doom_rl's reward for new closest
+  distance to the exit), 5-minute games;
+- "long": no approach reward, 15-minute games (`until_death=15`).
+
+**Result.**
+- No exit in any training or test game.
+- approach: test score without the approach part +6.9 (3.2, 7.2, 10.5),
+  1.0-3.2 kills, 0-1.5 doors, closest 2060-2740 units from the exit
+  (D23 without it: +13.1, 3.9 kills).
+- long: −1.5 (−7.3, 2.7, 0.1); seed 2 hides (1 kill, 84 squares, no
+  doors, survives 900 s); seeds 1 and 3 reach 144-185 squares, 3.2-3.4
+  kills, 1.3-1.7 doors and die in 20-30% of the games.
+
+**Conclusion.** Straight-line distance to the exit points through walls
+on MAP01, so the approach reward pulls the agent into dead ends and costs
+it exploration. Three times the game time does not find the exit either.
+
+**Data.** `results/td-actor-critic/doom/map01_exit/`; the project's
+`reports/doom-td/`.
+
+### D26. A learned threat detector (2026-11-01)
+
+**Question.** (Phase 10.) Can the reflexes of D23 run on a detector
+learned from vision instead of ViZDoom's labels?
+
+**Setup.** D23's "orient" agent with `detector=100`: during the first 100
+games a per-column detector over the frozen pool features learns online
+from the labels (the reflexes still use the labels); from game 100 on,
+and in every test game, the reflexes use the detector. 3 seeds, 600
+games. `detector_probe.py` compares detectors offline on 80 random games.
+- "logistic": a logistic unit, monster columns weighted 5×, threshold 0.5.
+- "mlp": 64 tanh units, the column and its two neighbours, a replay
+  buffer (`detector_replay=8`), threshold 0.95.
+- "spray": a control that strikes every tick and never orients.
+
+**Result.**
+
+| detector | test score | kills | seconds | squares | died |
+|---|---|---|---|---|---|
+| labels (D23) | +13.1 | 3.9 | 300 | 172 | 0% |
+| mlp + replay | +4.8 (2.5, 6.7, 5.3) | 2.6 | 196 | 112 | 60% |
+| logistic | +2.0 (−2.5, 9.7, −1.2) | 1.4 | 122 | 98 | 83% |
+| spray | −0.1 (1.9, 2.9, −5.1) | 0.9 | 159 | 69 | 60% |
+
+- Logistic: two seeds stop firing after childhood, one fires on about
+  one wrong column per tick and does well by spraying.
+- Probe: offline the MLP reaches AUC 0.94; learned online in one pass
+  every detector drops to 0.55-0.74; with replay 0.92.
+- The mlp detector's false columns per tick go from 0.02 in childhood
+  to 0.3-0.4 once it steers the gaze.
+
+**Conclusion.** The replay detector is the first label-free instinct
+agent above the boredom agent (−1.6) and random reflexes (+1.3), but it
+keeps only about a third of the labelled gain; it should keep learning
+after its childhood.
+
+**Data.** `results/td-actor-critic/doom/map01_detector/` (`logistic/`,
+`probe/`); the project's `reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

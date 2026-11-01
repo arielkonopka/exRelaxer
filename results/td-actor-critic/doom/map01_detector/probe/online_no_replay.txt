@@ -1,0 +1,8 @@
+Online single pass without replay (detector_probe.py --online, the first ONLINE set; same probe.npz):
+logistic pos5 (phase 10) AUC 0.743  recall at 1% false 0.08 (threshold 0.02)  at p>0.5: recall 0.00 false 0.0000
+logistic pos50           AUC 0.554  recall at 1% false 0.04 (threshold 0.06)  at p>0.5: recall 0.00 false 0.0005
+logistic n1 pos50        AUC 0.637  recall at 1% false 0.12 (threshold 0.06)  at p>0.5: recall 0.05 false 0.0031
+mlp64 n1 pos50 r.05      AUC 0.693  recall at 1% false 0.08 (threshold 0.03)  at p>0.5: recall 0.00 false 0.0000
+mlp64 n1 pos50 r.2       AUC 0.703  recall at 1% false 0.05 (threshold 0.00)  at p>0.5: recall 0.01 false 0.0010
+mlp64 n1 pos20 r.2       AUC 0.724  recall at 1% false 0.07 (threshold 0.02)  at p>0.5: recall 0.01 false 0.0008
+mlp128 n2 pos50 r.2      AUC 0.702  recall at 1% false 0.04 (threshold 0.00)  at p>0.5: recall 0.02 false 0.0048
