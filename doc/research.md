@@ -2863,6 +2863,30 @@ only 10% of test games (unguided 3%, coordinates 33%, random 16%).
 Recognition needs a richer view (depth, colour, the reservoir's memory of
 the last seconds) before path integration can be anchored.
 
+## 49. Reaching for the exit
+
+**Question.** (Phase 9; Doom log D25.) §47's instinct agent survives and
+explores but never exits. Does the exit-approach reward, or simply more
+time (15-minute games), get it there?
+
+**Setup.** The §47 agent (boredom, door reflex, place cells γ .99, strike
+and orient) plus doom_rl's exit-approach reward (`approach=0.1`) in
+5-minute games; and the same agent without it in 15-minute games. 3 seeds,
+600 games each.
+
+**Results.** No run reaches the exit in training or test. With the
+approach reward the game score without it is +6.9 (3.2, 7.2, 10.5), the
+closest point 2060-2740 units from the exit; §47 without it: +13.1. In
+15-minute games: −1.5 (−7.3, 2.7, 0.1); one seed settles into hiding
+(1 kill, 84 squares, no doors), the others explore 144-185 squares and die
+in a fifth to a third of the games.
+
+**What it means.** A distance-to-exit gradient on a maze level points
+through walls; the agent follows it into dead ends and stops exploring.
+Longer games do not help either: the explored area grows a little but
+the agent keeps running into the same monsters. Reaching the exit needs a
+map, a route, or keys, not more of the same drive.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3112,15 +3136,18 @@ the last seconds) before path integration can be anchored.
 42. **View landmarks alias** (§48): a guided childhood halves the
     anchoring error, but single-prototype views still cannot tell
     look-alike rooms apart (10% on `my_way_home`).
+43. **The exit needs more than a pull** (§49): the exit-approach reward
+    halves the instinct agent's score (+6.9 against +13.1) and 15-minute
+    games add nothing; no run reaches the exit.
 
 ## Open questions and next steps
 
 - **More than one drive** (§42): health and ammo together (a scenario
   with weapons), and whether a level-based drive cost (no telescoping)
   beats drive reduction.
-- **Reaching the exit** (§47): the instinct + boredom agent survives and
-  explores but never exits; add the exit-approach reward or keys
-  (doom_rl's key reward) on top.
+- **Reaching the exit** (§47, §49): neither the exit-approach reward nor
+  longer games get the instinct agent out; a route (a learned map, keys)
+  is still missing.
 - **Learned monster detection** (§47): replace the labels buffer with a
   detector learned from the vision features.
 - **A richer view code for landmarks** (§48): depth or colour, or the

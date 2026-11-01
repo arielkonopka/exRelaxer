@@ -490,6 +490,11 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-01: reaching for the exit (phase 9)
+
+- Exit-approach reward and 15-minute games on the instinct agent; no exit.
+  Research §49, Doom log D25.
+
 ### 2026-10-31: killer instinct and guided landmarks (phases 7-8)
 
 - `td_actor_critic/doom_td.py`: `attack_reflex`, `orient_reflex` (from

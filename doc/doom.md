@@ -934,6 +934,33 @@ Gabor features) alias too much in `my_way_home`'s look-alike rooms.
 **Data.** `results/td-actor-critic/doom/guided_landmarks/` (`tuning/`:
 the random-play sweeps); the project's `reports/doom-td/`.
 
+### D25. Reaching for the exit (2026-11-01)
+
+**Question.** (Phase 9.) D23's instinct agent explores and survives but
+never exits. Does the exit-approach reward or a longer game get it there?
+
+**Setup.** D23's "orient" agent (boredom 0.01, door reflex, place cells
+γ .99, strike and orient reflexes), 3 seeds, 600 games:
+- "approach": plus `approach=0.1` (doom_rl's reward for new closest
+  distance to the exit), 5-minute games;
+- "long": no approach reward, 15-minute games (`until_death=15`).
+
+**Result.**
+- No exit in any training or test game.
+- approach: test score without the approach part +6.9 (3.2, 7.2, 10.5),
+  1.0-3.2 kills, 0-1.5 doors, closest 2060-2740 units from the exit
+  (D23 without it: +13.1, 3.9 kills).
+- long: −1.5 (−7.3, 2.7, 0.1); seed 2 hides (1 kill, 84 squares, no
+  doors, survives 900 s); seeds 1 and 3 reach 144-185 squares, 3.2-3.4
+  kills, 1.3-1.7 doors and die in 20-30% of the games.
+
+**Conclusion.** Straight-line distance to the exit points through walls
+on MAP01, so the approach reward pulls the agent into dead ends and costs
+it exploration. Three times the game time does not find the exit either.
+
+**Data.** `results/td-actor-critic/doom/map01_exit/`; the project's
+`reports/doom-td/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

@@ -9,7 +9,7 @@ and its prediction error
 replaces the raw reward as the modulator of the actor's readouts: one
 global scalar, the analogue of phasic dopamine, so learning stays local
 (pre × post × δ) but is no longer sparse or late. Results: research log
-§41 (drives §42, place cells §43, novelty and learned place §44, door reflex and path integration §45, boredom and anchoring §46, killer instinct §47, guided landmarks §48), Doom log D17-D24.
+§41 (drives §42, place cells §43, novelty and learned place §44, door reflex and path integration §45, boredom and anchoring §46, killer instinct §47, guided landmarks §48, exit §49), Doom log D17-D25.
 
 ```
 input -> frozen features (Gabor + centre-surround bank, max-pooled)
