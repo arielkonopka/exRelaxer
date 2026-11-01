@@ -9,7 +9,7 @@ and its prediction error
 replaces the raw reward as the modulator of the actor's readouts: one
 global scalar, the analogue of phasic dopamine, so learning stays local
 (pre × post × δ) but is no longer sparse or late. Results: research log
-§41 (drives §42, place cells §43, novelty and learned place §44, door reflex and path integration §45, boredom and anchoring §46, killer instinct §47, guided landmarks §48, exit §49, learned threat detector §50, detector feedback §51), Doom log D17-D27.
+§41 (drives §42, place cells §43, novelty and learned place §44, door reflex and path integration §45, boredom and anchoring §46, killer instinct §47, guided landmarks §48, exit §49, learned threat detector §50, detector feedback §51-§52), Doom log D17-D28.
 
 ```
 input -> frozen features (Gabor + centre-surround bank, max-pooled)
@@ -87,6 +87,8 @@ test games) it, not the labels, drives the reflexes (`detector_hidden`,
 `detector_neighbours`, `detector_replay`, `detector_threshold`). Phase 11:
 `detector_feedback=1` keeps it learning from whether its shots hit,
 `detector_evidence=d` puts a leaky accumulator before the reflexes.
+Phase 12: `detector_feedback=2` also judges turns (a hit within
+`detector_turn_steps`).
 `detector_probe.py` records random games and compares detectors offline
 and online.
 

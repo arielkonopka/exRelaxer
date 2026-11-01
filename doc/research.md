@@ -3007,6 +3007,28 @@ the detector takes over; the agent hides (−10.1). §50 without either:
   childhood does not prevent it, because the childhood never shows the
   views the detector itself will steer to.
 
+## 52. Teaching the side columns by turning
+
+**Question.** (Phase 12; Doom log D28.) §51's shots judge only the middle
+columns. Can the side false alarms be corrected by whether an orienting
+turn leads to a hit?
+
+**Setup.** §51's feedback agent plus `detector_feedback=2`: a turn toward
+a side column teaches that column: monster if a hit follows within 8
+steps, none if not. 3 seeds, 600 games.
+
+**Results.** Only 10-20% of turns end in a hit, so nearly every turn
+teaches "none"; within 200 games the detector stops firing (recall 0.01,
+false 0.005 columns per tick) and the agent is back to no reflexes:
+−1.6 (−1.4, −2.3, −1.1), 0.8 kills, dies in 90% of test games.
+
+**What it means.** Self-generated labels are lopsided: a strike or turn
+that finds nothing is common, a confirmed monster rare, and a miss does
+not prove there was nothing. Learned this way the detector talks itself
+into silence. Label-free teaching would need the negatives weighted down
+to the rate at which a miss really means "nothing", or a teacher that
+confirms presence (being hurt from that direction, a monster's sound).
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3276,6 +3298,9 @@ the detector takes over; the agent hides (−10.1). §50 without either:
     per tick after a long childhood). Learning on from whether a shot hit
     halves false alarms and lifts hits per shot to 0.6, but loses recall
     (+5.6 against +4.8, within seed spread).
+46. **Self-taught negatives silence the eye** (§52): teaching side
+    columns "nothing" whenever a turn brings no hit switches the detector
+    off within 200 games (−1.6, the same as no reflexes).
 
 ## Open questions and next steps
 

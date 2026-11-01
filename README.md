@@ -495,7 +495,8 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 - `td_actor_critic/doom_td.py`: `detector_feedback` (after childhood a
   shot teaches the middle columns by whether it hit), `detector_evidence`
   (a leaky accumulator between detector and reflexes). Research §51, Doom
-  log D27.
+  log D27. `detector_feedback=2` also teaches side columns by whether a
+  turn leads to a hit (phase 12, research §52, Doom log D28).
 
 ### 2026-11-01: a learned threat detector (phase 10)
 

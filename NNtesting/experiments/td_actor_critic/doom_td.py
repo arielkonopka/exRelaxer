@@ -109,7 +109,9 @@ DEFAULTS = {
     "detector_neighbours": 0, "detector_pos": 5.0, "detector_replay": 0,
     # detector_feedback=1: after childhood every strike that fires a shot (ammo drops) teaches the
     # middle columns: monster if the hit count rose, none if it did not (no labels).
-    "detector_feedback": 0,
+    # detector_feedback=2: also, a turn toward a side column teaches that column: monster if a hit
+    # follows within detector_turn_steps steps, none if not.
+    "detector_feedback": 0, "detector_turn_steps": 8,
     # detector_evidence=d: the reflexes read a leaky accumulator e <- d e + (1 - d) p of the
     # detector's output instead of p itself (0 = off).
     "detector_evidence": 0.0,
@@ -644,6 +646,8 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     det_hits = det_false = det_true = 0
     fb_hits = fb_shots = 0
     feedback = None  # a strike awaiting its answer (detector_feedback)
+    turn_check = None  # an orienting turn awaiting its answer (detector_feedback=2)
+    turn_hits = turn_checks = 0
     evidence = 0.0  # the detector's accumulated evidence per column (detector_evidence)
     if learn:
         learner.games += 1
@@ -698,6 +702,11 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
                     feedback = [xcols[0][lo:hi], xcols[1][lo:hi], probs[lo:hi],
                                 game.get_game_variable(vzd.GameVariable.HITCOUNT),
                                 game.get_game_variable(vzd.GameVariable.SELECTED_WEAPON_AMMO), 2]
+                if learn and learner.p["detector_feedback"] >= 2 and where in (-1, 1) and turn_check is None:
+                    # A turn toward a side column is right if a hit follows within a few steps.
+                    c = int(np.argmax(probs))
+                    turn_check = [xcols[0][c:c + 1], xcols[1][c:c + 1], probs[c:c + 1],
+                                  game.get_game_variable(vzd.GameVariable.HITCOUNT), learner.p["detector_turn_steps"]]
         if where == 0:
             buttons = list(buttons)
             buttons[attack] = 1
@@ -707,6 +716,16 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             buttons[names.index("TURN_LEFT" if where < 0 else "TURN_RIGHT")] = 1
         before_pos = PlaceCells.read(game)
         r = game.make_action(buttons, FRAME_SKIP) * scale
+        if turn_check is not None and not game.is_episode_finished():
+            tx, th, tp, hits, left = turn_check
+            hit = game.get_game_variable(vzd.GameVariable.HITCOUNT) > hits
+            if hit or left <= 1:
+                det.learn((tx, th), tp, np.full(1, float(hit)))
+                turn_hits += int(hit)
+                turn_checks += 1
+                turn_check = None
+            else:
+                turn_check[-1] -= 1
         if feedback is not None and not game.is_episode_finished():
             fx, fh, fp, hits, ammo, left = feedback
             if game.get_game_variable(vzd.GameVariable.SELECTED_WEAPON_AMMO) < ammo:  # a shot went off
@@ -768,7 +787,8 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
              novelty=novelty, reflexes=reflexes, strikes=strikes,
              det_recall=det_hits / max(1, det_true), det_false=det_false / max(1, steps), fb_shots=fb_shots,
-             fb_hit_rate=fb_hits / max(1, fb_shots),
+             fb_hit_rate=fb_hits / max(1, fb_shots), turn_checks=turn_checks,
+             turn_hit_rate=turn_hits / max(1, turn_checks),
              placed=len(learner.anchor_err) / max(1, steps), anchor_err=float(np.mean(learner.anchor_err)) if learner.anchor_err else -1.0, lifetime_cells=len(getattr(learner.agent, "novelty_counts", {})), seconds=steps * FRAME_SKIP / 35.0, died=died, kills=float(kills),
              spikes=learner.res.spikes / max(1, steps * learner.res.ticks))
     if shaper is not None:

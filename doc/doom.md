@@ -1127,6 +1127,27 @@ strike and loses. The best label-free agent stays around +5.
 **Data.** `results/td-actor-critic/doom/map01_feedback/`; the project's
 `reports/doom-td/`.
 
+### D28. Teaching the side columns by turning (2026-11-01)
+
+**Question.** (Phase 12.) D27's hit-or-miss feedback judges only the
+middle columns. Can turns judge the side columns?
+
+**Setup.** D27's "feedback" agent with `detector_feedback=2`: a turn
+toward a side column teaches that column monster if a hit follows within
+`detector_turn_steps=8` steps, none otherwise. 3 seeds, 600 games.
+
+**Result.** −1.6 (−1.4, −2.3, −1.1), 0.8 kills, 63 squares, dies in 90%
+of test games. 10-20% of judged turns end in a hit; recall falls from
+0.32 in childhood to 0.01 and false columns to 0.005 per tick: the
+detector stops firing and the agent plays as without reflexes (D22,
+−1.6).
+
+**Conclusion.** Self-made negatives outnumber positives and switch the
+detector off. Label-free teaching needs a presence signal, not only
+absence.
+
+**Data.** `results/td-actor-critic/doom/map01_feedback/turn_s*`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
