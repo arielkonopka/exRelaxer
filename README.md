@@ -490,6 +490,11 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-01: practice under guidance, frozen statistics (phases 14-15)
+
+- `td_actor_critic/doom_td.py`: `detector_steer`, `detector_freeze_stats`,
+  `detector_holdout`. Research §54, Doom log D30.
+
 ### 2026-11-01: a detector that sees colour (phase 13)
 
 - `td_actor_critic/doom_td.py`: `detector_colour` (RGB game, colour-opponent

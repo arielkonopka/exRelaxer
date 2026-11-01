@@ -119,6 +119,16 @@ DEFAULTS = {
     # detector also reads two colour-opponent channels (red-green, yellow-blue) in 15 bands
     # per column.
     "detector_colour": 0,
+    # detector_steer=M: the detector drives the reflexes from training game M on, even while the
+    # labels still teach it (games M..detector: a guided practice on the views its own gaze
+    # brings); -1 = from the end of childhood.
+    "detector_steer": -1,
+    # detector_freeze_stats=1: the detector's input standardisation (running mean and variance)
+    # stops adapting after childhood, as its weights do.
+    "detector_freeze_stats": 0,
+    # detector_holdout=1: during childhood the detector learns only in even games, so the odd
+    # games measure it on views it has not just been trained on.
+    "detector_holdout": 0,
 }
 SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 0.2, "health_gathering": 0.01,
           "health_gathering_supreme": 0.01}
@@ -345,6 +355,7 @@ class ThreatDetector:
         self.w = rng.normal(0, 1 / np.sqrt(self.hidden), self.hidden) if self.hidden else np.zeros(d)
         self.b = -2.0
         self.mean, self.var = None, None
+        self.adapt = True  # whether the input statistics still move (detector_freeze_stats)
 
     def columns(self, pool, extra=None):
         x = np.asarray(pool, dtype=np.float64).reshape(self.c, self.r, self.k)
@@ -353,7 +364,7 @@ class ThreatDetector:
             x = np.concatenate([x, extra], axis=1)
         if self.mean is None:
             self.mean, self.var = x.mean(0), x.var(0) + 1e-3
-        else:  # slow running statistics over all columns seen
+        elif self.adapt:  # slow running statistics over all columns seen
             self.mean += 0.001 * (x.mean(0) - self.mean)
             self.var += 0.001 * (((x - self.mean) ** 2).mean(0) - self.var)
         x = (x - self.mean) / np.sqrt(self.var + 1e-6)
@@ -712,15 +723,19 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         where = monster_ahead(state, learner.p["attack_cone"]) if instinct and state is not None else None
         det = learner.detector
         if det is not None and instinct and state is not None and learner.view is not None:
+            # detector_freeze_stats: the input statistics stop moving when the teaching stops.
+            det.adapt = not learner.p["detector_freeze_stats"] or (learn and learner.games < learner.p["detector"])
             probs, xcols = det.probs(learner.view, learner.colour)
             truth = label_columns(state)
             guess = probs > learner.p["detector_threshold"]
             det_hits += int((guess & (truth > 0)).sum())
             det_false += int((guess & (truth == 0)).sum())
             det_true += int(truth.sum())
-            if learn and learner.games < learner.p["detector"]:
+            if learn and learner.games < learner.p["detector"] and \
+                    not (learner.p["detector_holdout"] and learner.games % 2 == 1):
                 det.learn(xcols, probs, truth)  # childhood: the labels teach
-            else:
+            steer = learner.p["detector_steer"] if learner.p["detector_steer"] >= 0 else learner.p["detector"]
+            if not learn or learner.games >= steer:  # the detector steers the reflexes
                 if learner.p["detector_evidence"] > 0:
                     # Evidence piles up in a leaky accumulator per column: a flicker fades, a
                     # monster that stays on screen crosses the threshold.

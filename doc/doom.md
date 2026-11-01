@@ -1176,6 +1176,41 @@ one point and fewer deaths, within seed spread.
 
 **Data.** `results/td-actor-critic/doom/map01_colour/` (`probe/`).
 
+### D30. Practice under guidance and frozen statistics (2026-11-01)
+
+**Question.** (Phases 14-15.) Is D27's jump in false alarms after
+childhood a gaze loop, a drift of the detector's input normalisation, or
+something else?
+
+**Setup.** D29's colour detector, 3 seeds, 600 games:
+- "p100" / "p200": `detector_steer=20` with `detector=100`, and
+  `detector_steer=50` with `detector=200`: the detector drives the
+  reflexes while the labels still teach it;
+- "freeze": `detector_freeze_stats=1`;
+- "holdout": `detector_holdout=1`, learning only in every other childhood
+  game (2 seeds, 150 games), to measure the detector on views it has not
+  just been trained on.
+
+**Result.**
+
+| run | test score | kills | seconds | squares | died |
+|---|---|---|---|---|---|
+| colour (D29) | +5.9 | 2.0 | 217 | 115 | 40% |
+| p100 | +2.1 (−0.9, −0.5, 7.5) | 2.1 | 204 | 99 | 53% |
+| p200 | +5.5 (−0.5, 7.2, 9.7) | 1.8 | 233 | 123 | 33% |
+| freeze | +6.1 (8.2, 7.9, 2.2) | 1.9 | 234 | 121 | 30% |
+
+False columns per tick: 0.02-0.05 while the labels teach (whoever
+steers), 0.2-0.6 after; holdout: 0.02 in the games it learns in,
+0.12-0.15 in the games it does not, 0.29-0.39 after childhood.
+
+**Conclusion.** The low childhood rate is an artefact of learning on
+every nearly identical frame; the real rate is about 0.13 per tick and
+the detector's own gaze roughly doubles it. Neither practice nor frozen
+statistics helps; the colour detector stays near +6.
+
+**Data.** `results/td-actor-critic/doom/map01_practice/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
