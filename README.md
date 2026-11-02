@@ -490,6 +490,18 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-02: a ledge-aware exit map and a poke reflex (phases 18-19)
+
+- `doom_rl/exitmap.py`: `DistanceField(..., heights=True)` treats a step
+  up of more than 24 units as a wall; doom_rl's `approach_heights` and
+  doom_td's `--set approach_heights=1` use it for the exit-approach
+  reward.
+- `doom_td.py --set poke=p`: a random USE press with probability p per
+  step. With it a TD agent left MAP01 for the first time (27 training
+  games on one seed); it forgets the route after about game 390.
+- `where_agents_go.py --heights`, and `best_exit.mp4` when a recorded
+  game left the level. Research §56-§57, Doom log D32-D33.
+
 ### 2026-11-01: where the agents go (phase 17)
 
 - `td_actor_critic/where_agents_go.py`: replays doom_td checkpoints on

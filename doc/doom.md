@@ -1253,6 +1253,54 @@ and doors; the agents that get furthest are the explorers.
 **Data.** `results/td-actor-critic/doom/map01_paths/` (pictures, per-game
 JSON); the three videos in the project's `reports/doom-td/videos/`.
 
+### D32. A ledge-aware exit map (2026-11-01)
+
+**Question.** (Phase 18.) Does the exit-approach reward guide the agent
+when its distance map knows about ledges (D31's false minimum)?
+
+**Setup.** `exitmap.py` `heights=True` (step up > 24 units is a wall; a
+door sector takes its neighbour's floor); spawn to exit 4,944 units on
+foot. doom_td with the D23 instincts and `approach_heights=1`, approach
+0.1 / 0.3, 3 seeds, 600 games of up to 5 minutes, 10 test games.
+
+**Result.**
+- Reward excluding approach: 0.1 +7.6 (3.3 / 10.3 / 9.3), 3.1 kills;
+  0.3 +8.1 (5.1 / 13.3 / 5.9), 4.8 kills (D25 flat map: +6.9).
+- Closest to the exit 1,325-2,149 for four seeds; two 0.1 seeds still
+  roam the hall (2,760 and 3,627); nobody paces the hall's south wall.
+- 0.1 seed 3 reaches the exit room and stands at the switch in replays
+  without pressing it; one exit in training (game 541).
+- Videos (24 games): most kills 7, alive at the cap, 4 doors.
+
+**Conclusion.** The ledge-aware pull leads to the exit room; leaving
+needs a USE press at the switch, which nothing asks for.
+
+**Data.** `results/td-actor-critic/doom/map01_heights/`; videos in the
+project's `reports/doom-td/videos_h/`.
+
+### D33. A poke reflex: first exits (2026-11-01)
+
+**Question.** (Phase 19.) Does a random USE (`poke=0.1`) find the exit
+switch, and does the learner keep the route?
+
+**Setup.** D32 plus `poke=0.1`, approach 0.1 / 0.3, 3 seeds, 600 games.
+Seed 2 at 0.3 rerun to game 361 for testing and recording.
+
+**Result.**
+- Training exits: 0.3 seed 2: 27 (first at game 265, 18 in games
+  350-399, then 1-3 per 50 games); 0.3 seed 3: 4; 0.1 seed 2: 1.
+- Test after 600 games: no exits; reward excluding approach +6.0 (0.1)
+  and +4.3 (0.3).
+- Stopped at game 361: 3 of 10 test games exit, 7 kills, 0 deaths,
+  reward +38.9. Recorded 10 more: 3 exits; quickest 2:12 with 8 kills;
+  the most-doors game (4 doors, 9 kills) also exits.
+
+**Conclusion.** The first TD agent to leave MAP01. The route is learned
+for about 40 games and then forgotten.
+
+**Data.** `results/td-actor-critic/doom/map01_poke/`; videos in the
+project's `reports/doom-td/videos_exit/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

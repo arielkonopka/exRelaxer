@@ -59,7 +59,8 @@ def replay(run, games, seed, record=None):
     learner.detector = saved.get("detector", learner.detector)
     learner.games = saved.get("games", learner.games)
     shaper = dt.drl.make_shaper(dt.doom_rl_params("map01", p["skill"], p["until_death"], p["approach"],
-                                                  kill=p["kill_weight"]))
+                                                  kill=p["kill_weight"],
+                                                  heights=bool(p.get("approach_heights", 0))))
     paths = []
     read = dt.PlaceCells.read
     for n in range(games):
@@ -140,6 +141,12 @@ def keep_best(runs, folder):
         shutil.copy(os.path.join(folder, f"{name}_g{n}.mp4"), os.path.join(folder, f"best_{label}.mp4"))
         picks[label] = dict(run=name, game=n, kills=s["kills"], seconds=s["seconds"], doors=s["doors"],
                             died=s["died"], game_reward=s["game_reward"], visited=s["visited"])
+    exits = [g for g in games if g[2].get("exits", 0) > 0]
+    if exits:  # also the quickest game that left the level
+        name, n, s = min(exits, key=lambda g: g[2]["seconds"])
+        shutil.copy(os.path.join(folder, f"{name}_g{n}.mp4"), os.path.join(folder, "best_exit.mp4"))
+        picks["exit"] = dict(run=name, game=n, kills=s["kills"], seconds=s["seconds"], doors=s["doors"],
+                             died=s["died"], game_reward=s["game_reward"], visited=s["visited"])
     for name, n, _ in games:
         os.remove(os.path.join(folder, f"{name}_g{n}.mp4"))
     with open(os.path.join(folder, "best.json"), "w") as f:
@@ -153,6 +160,8 @@ def main():
     ap.add_argument("--games", type=int, default=5)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out", default="paths.png")
+    ap.add_argument("--heights", action="store_true",
+                    help="measure and draw the ledge-aware walking distance (exitmap heights=True)")
     ap.add_argument("--record", default=None,
                     help="folder: record every game as video, then keep only the games with the most kills, "
                          "the longest play and the most doors opened, three different games where possible "
@@ -169,13 +178,13 @@ def main():
     state = None
     game.new_episode()
     state = game.get_state()
-    field = drl_ex.exit_field("map01", state)
+    field = drl_ex.exit_field("map01", state, args.heights)
     for name, paths in runs:
         rows = []
         for path, s in paths:
             dists = [field(x, y) for x, y in path]
             i = int(np.argmin(dists))
-            rows.append(dict(closest=float(dists[i]), at=[float(path[i][0]), float(path[i][1])],
+            rows.append(dict(closest=float(dists[i]), at=[float(path[i][0]), float(path[i][1])], exits=s["exits"],
                              seconds=s["seconds"], died=s["died"], kills=s["kills"], game_reward=s["game_reward"]))
         report[name] = rows
         print(name, [round(r["closest"]) for r in rows], flush=True)

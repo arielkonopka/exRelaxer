@@ -95,9 +95,15 @@ game M while the labels still teach; `detector_freeze_stats=1` stops its
 input normalisation with its weights; `detector_holdout=1` learns only in
 every other childhood game, to measure it on held-out views.
 
-`where_agents_go.py --runs DIR ... --games N --out paths.png [--record videos]`
+Phase 18: `--set approach_heights=1` measures the exit-approach reward on a
+ledge-aware walking distance (a step up of more than 24 units is a wall).
+Phase 19: `--set poke=p` presses USE at random with probability p per
+step (the exit is a switch).
+
+`where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
 replays trained MAP01 runs and draws where they go (phase 17); `--record`
-keeps three videos (most kills, longest play, most doors).
+keeps three videos (most kills, longest play, most doors) and, when a game
+left the level, the quickest exit (`best_exit.mp4`).
 `detector_probe.py` records random games and compares detectors offline
 and online.
 
