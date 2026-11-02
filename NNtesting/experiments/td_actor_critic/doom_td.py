@@ -112,7 +112,8 @@ DEFAULTS = {
     # Restless learning (phase 25): restless = N > 0: before the anchor is set, N training games
     # in a row without leaving the level restart the actor_settle clock (the rate climbs back to
     # actor_rate times the consolidation factor and settles again).
-    "restless": 0,
+    # restless_after_exit=1: the drought counts only once the agent has left the level at least once.
+    "restless": 0, "restless_after_exit": 0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -956,7 +957,7 @@ def main():
                 learner.agent.actor.rate = p["anchor_rate"]
             elif p["actor_settle"] > 0:  # times the consolidation factor (consolidate), kept on the agent
                 ag = learner.agent.__dict__
-                if p["restless"] > 0 and \
+                if p["restless"] > 0 and (not p["restless_after_exit"] or "last_exit" in ag) and \
                         learner.games - max(ag.get("last_exit", 0), ag.get("settle_from", 0)) >= p["restless"]:
                     ag["settle_from"] = learner.games
                     ag["restarts"] = ag.get("restarts", 0) + 1

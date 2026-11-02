@@ -3444,6 +3444,46 @@ time a settled agent needs to find the switch) would keep the early
 progress; the higher reward excluding approach says the restarts also
 leave better fighters behind.
 
+## 64. Restless only after a first exit
+
+**Question.** (Phase 26; Doom log D40.) §63's restarts came before any
+agent could find the exit and slowed every seed. If the drought counts
+only once the agent has left the level at least once, are the early
+learners left alone and the late finder still rescued?
+
+**Setup.** §62's recipe plus `restless=150` and `restless_after_exit=1`;
+seeds 1-6, 1200 games, 10 test games. Seeds 1-5 anchored before any
+drought of 150 games after an exit, so they never restarted and follow
+§62's runs exactly until their resume (seed 2 ran without one and equals
+§62's seed 2); after a resume they play a new game stream.
+
+**Results.**
+
+| seed | restarts | anchored at (§62) | exits (§62) | last 100 (§62) | test exits (§62) | excl. approach |
+|---|---|---|---|---|---|---|
+| 1 | 0 | 457 (457) | 198 (176) | 60 (51) | 0 (4) | +4.6 |
+| 2 | 0 | 356 (356) | 464 (464) | 62 (62) | 7 (7) | +18.6 |
+| 3 | 0 | 348 (348) | 410 (383) | 78 (46) | 5 (6) | +15.8 |
+| 4 | 0 | 409 (409) | 550 (531) | 80 (81) | 8 (6) | +21.6 |
+| 5 | 0 | 701 (701) | 188 (196) | 65 (46) | 5 (3) | +18.4 |
+| 6 | 2 | 840 (never) | 109 (9) | 49 (2) | 3 (0) | +13.2 |
+
+- Seed 6 is rescued: two restarts after its first exits, the anchor at
+  game 840, and 49 exits in its last 100 games (§62: 2).
+- Every seed now exits in at least half of its last 100 games (49-80);
+  tests 4.7 of 10 on average (§62 4.3, §63 4.5).
+- Seed 1 died in all 10 greedy test games although it died in 31% of its
+  last 100 training games; in the recorded games (another game seed) it
+  exits twice in three. The 10-game test is noisy for a single seed.
+- Recorded (3 games per seed, 18 games): 11 exits, every seed at least
+  once; the quickest leaves after 42 s with 3 kills; most kills 8.
+
+**What it means.** A learner that grows restless only when its first
+success is not followed by more keeps what the early finders learned and
+gives the late finder a second chance. With settling, consolidation, the
+anchor and this restlessness, every one of six agents learns to leave
+MAP01 with its learning still on.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3763,6 +3803,10 @@ leave better fighters behind.
     the settling after 150 games without an exit gets every seed to the
     anchor and ends with tests 4.5 of 10 and +19.8 excluding approach
     (recipe 4.3, +16.4), but every seed anchors later.
+58. **Restless after a first success** (§64): counting the drought only
+    after a first exit leaves the early learners as they were and
+    rescues the late finder; all six seeds exit in 49-80% of their last
+    100 games, tests 4.7 of 10.
 
 ## Open questions and next steps
 

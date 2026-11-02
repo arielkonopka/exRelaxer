@@ -490,6 +490,12 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-03: restless only after a first exit (phase 26)
+
+- `doom_td.py --set restless_after_exit=1`: the drought of `restless`
+  counts only after the first exit. All six MAP01 seeds become regular
+  exiters (49-80% of their last 100 games). Research §64, Doom log D40.
+
 ### 2026-11-03: restless learning (phase 25)
 
 - `doom_td.py --set restless=N`: before the anchor is set, N games in a

@@ -1452,6 +1452,27 @@ first exit or a longer drought.
 **Data.** `results/td-actor-critic/doom/map01_restless/`; videos in the
 project's `reports/doom-td/videos_restless/`.
 
+### D40. Restless only after a first exit (2026-11-03)
+
+**Question.** (Phase 26.) Restlessness that starts only after the first
+exit: early learners untouched, late finder rescued?
+
+**Setup.** D38's recipe plus `restless=150`, `restless_after_exit=1`;
+seeds 1-6, 1200 games, 10 tests. Seeds 1-5 never restart (same as D38
+up to their resume).
+
+**Result.**
+- Seed 6: 2 restarts, anchored at game 840, 109 exits, 49 in the last 100
+  (D38: 9 / 2), test 3 of 10.
+- Last 100 games: 60 / 62 / 78 / 80 / 65 / 49; tests 0 / 7 / 5 / 8 / 5 / 3
+  (mean 4.7); seed 1's 0 is test noise (it exits 2 of 3 recorded games).
+- Videos (18 games): 11 exits, every seed at least once; quickest 42 s.
+
+**Conclusion.** All six agents learn to leave MAP01 with learning on.
+
+**Data.** `results/td-actor-critic/doom/map01_restless2/`; videos in the
+project's `reports/doom-td/videos_restless2/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

@@ -109,7 +109,8 @@ factor is below f; learning then goes on at `anchor_rate`, each game
 without an exit pulls the weights back toward the anchor by
 `anchor_pull`, and each exit moves the anchor to the current weights.
 Phase 25: `restless=N`: before the anchor is set, N games in a row
-without an exit restart the `actor_settle` clock.
+without an exit restart the `actor_settle` clock. Phase 26:
+`restless_after_exit=1` counts that drought only after a first exit.
 
 `where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
 replays trained MAP01 runs and draws where they go (phase 17); `--record`

@@ -1,0 +1,42 @@
+{
+ "kills": {
+  "run": "rx_s6",
+  "game": 0,
+  "kills": 8.0,
+  "seconds": 198.17142857142858,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 52.685500000000346,
+  "visited": 196
+ },
+ "longest": {
+  "run": "rx_s6",
+  "game": 2,
+  "kills": 4.0,
+  "seconds": 300.0,
+  "doors": 2.0,
+  "died": 0,
+  "game_reward": 19.010000000001263,
+  "visited": 104
+ },
+ "doors": {
+  "run": "rx_s4",
+  "game": 0,
+  "kills": 7.0,
+  "seconds": 131.88571428571427,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 51.682999999999765,
+  "visited": 179
+ },
+ "exit": {
+  "run": "rx_s5",
+  "game": 0,
+  "kills": 3.0,
+  "seconds": 41.714285714285715,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 42.79099999999996,
+  "visited": 103
+ }
+}
