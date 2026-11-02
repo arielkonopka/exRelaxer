@@ -3401,6 +3401,49 @@ never gets the chance to keep it. A plasticity that rises again when
 nothing is found (boredom for the learner, not only the body) is the
 natural next step.
 
+## 63. Restless learning
+
+**Question.** (Phase 25; Doom log D39.) In §62 one seed never found the
+switch while it was still plastic. Does a learner that grows plastic
+again after a long run of failures rescue such agents?
+
+**Setup.** §62's recipe plus `restless=150`: before the anchor is set,
+150 training games in a row without leaving the level restart the
+settling clock (the actor's rate climbs back to 0.1 times the
+consolidation factor and settles again). Seeds 1-6, 1200 games, 10 test
+games; resumed once. Compared with §62's runs (same seeds).
+
+**Results.**
+
+| seed | exits (recipe) | last 100 | anchored at (recipe) | restarts | test exits (recipe) | excl. approach (recipe) |
+|---|---|---|---|---|---|---|
+| 1 | 151 (176) | 44 | 547 (457) | 1 | 6 (4) | +19.7 (+15.6) |
+| 2 | 407 (464) | 68 | 447 (356) | 2 | 9 (7) | +23.5 (+18.6) |
+| 3 | 135 (383) | 35 | 738 (348) | 3 | 3 (6) | +16.6 (+21.1) |
+| 4 | 208 (531) | 76 | 707 (409) | 3 | 6 (6) | +19.3 (+19.0) |
+| 5 | 76 (196) | 34 | 962 (701) | 5 | 3 (3) | +24.2 (+14.5) |
+| 6 | 14 (9) | 3 | 1086 (never) | 4 | 0 (0) | +15.4 (+9.3) |
+
+- Restless agents start slower: the first restart comes at game 150,
+  before any agent could have found the exit, and every seed anchors
+  later than in §62 (by 90-390 games), so they exit less in total.
+- They end level or ahead: tests 4.5 of 10 on average (§62: 4.3),
+  reward excluding approach +19.8 (+16.4), deaths 10-40% in tests, and
+  every seed's exit rate still rising at game 1200.
+- All six seeds reach the anchor, seed 6 included (game 1086, 14 exits),
+  but seed 6 has not yet learned the route (3 exits in the last 100).
+- Recorded (3 games per seed, 18 games): 6 exits, the quickest after
+  57 s with 7 kills; most kills 9; seed 1 survived three full games
+  without exiting.
+
+**What it means.** Restlessness trades early progress for coverage: it
+keeps every agent searching until it finds the switch, at the cost of
+unsettling agents that would have found it soon anyway. A restart
+triggered only after a first exit (or after a drought longer than the
+time a settled agent needs to find the switch) would keep the early
+progress; the higher reward excluding approach says the restarts also
+leave better fighters behind.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3716,6 +3759,10 @@ natural next step.
     together make 5 of 6 seeds regular exiters (46-81% of games after
     1200, tests 4.3 of 10, +16.4 excluding approach); the sixth never
     finds the switch while it is still plastic.
+57. **Restlessness rescues late finders, at a price** (§63): restarting
+    the settling after 150 games without an exit gets every seed to the
+    anchor and ends with tests 4.5 of 10 and +19.8 excluding approach
+    (recipe 4.3, +16.4), but every seed anchors later.
 
 ## Open questions and next steps
 

@@ -109,6 +109,10 @@ DEFAULTS = {
     # back toward the anchor by the fraction anchor_pull, and a game that leaves the level moves
     # the anchor to the current weights (success updates what is kept).
     "anchor_at": 0.0, "anchor_rate": 0.02, "anchor_pull": 0.05,
+    # Restless learning (phase 25): restless = N > 0: before the anchor is set, N training games
+    # in a row without leaving the level restart the actor_settle clock (the rate climbs back to
+    # actor_rate times the consolidation factor and settles again).
+    "restless": 0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -951,7 +955,13 @@ def main():
             if anchor is not None:
                 learner.agent.actor.rate = p["anchor_rate"]
             elif p["actor_settle"] > 0:  # times the consolidation factor (consolidate), kept on the agent
-                learner.agent.actor.rate = p["actor_rate"] / (1.0 + learner.games / p["actor_settle"]) * \
+                ag = learner.agent.__dict__
+                if p["restless"] > 0 and \
+                        learner.games - max(ag.get("last_exit", 0), ag.get("settle_from", 0)) >= p["restless"]:
+                    ag["settle_from"] = learner.games
+                    ag["restarts"] = ag.get("restarts", 0) + 1
+                learner.agent.actor.rate = p["actor_rate"] / \
+                    (1.0 + (learner.games - ag.get("settle_from", 0)) / p["actor_settle"]) * \
                     learner.agent.__dict__.get("consolidation", 1.0)
             act = learner.agent.actor
             if anchor is None and p["anchor_at"] > 0 and p["consolidate"] < 1.0 and \
@@ -972,6 +982,9 @@ def main():
                 act.rate *= p["consolidate"]
                 learner.agent.consolidation = learner.agent.__dict__.get("consolidation", 1.0) * p["consolidate"]
             s["anchored"] = int(learner.agent.__dict__.get("anchor") is not None)
+            if s.get("exits", 0) > 0:
+                learner.agent.last_exit = learner.games
+            s["restarts"] = learner.agent.__dict__.get("restarts", 0)
             s["actor_rate"] = float(learner.agent.actor.rate)
             s["clamped"] = learner.agent.actor.clamped()
             s["critic_w_max"] = float(np.abs(learner.agent.critic.w).max())

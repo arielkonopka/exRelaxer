@@ -1428,6 +1428,30 @@ plastic stays a wanderer.
 **Data.** `results/td-actor-critic/doom/map01_recipe/`; videos in the
 project's `reports/doom-td/videos_recipe/`.
 
+### D39. Restless learning (2026-11-03)
+
+**Question.** (Phase 25.) Does restarting the settling after a long run
+of games without an exit rescue agents that never find the switch?
+
+**Setup.** D38's recipe plus `restless=150` (before the anchor, 150 games
+without an exit restart the `actor_settle` clock); seeds 1-6, 1200 games,
+10 tests; resumed once.
+
+**Result.**
+- Exits 151 / 407 / 135 / 208 / 76 / 14 (D38: 176 / 464 / 383 / 531 / 196
+  / 9); last 100 games 44 / 68 / 35 / 76 / 34 / 3, all rising.
+- All six anchored (games 447-1086; D38: five, 348-701), 1-5 restarts.
+- Tests 6 / 9 / 3 / 6 / 3 / 0 (mean 4.5, D38 4.3); +19.8 excluding
+  approach (D38 +16.4).
+- Videos (18 games): 6 exits, quickest 57 s with 7 kills; most kills 9.
+
+**Conclusion.** Restless learning gets every seed to the anchor and ends
+slightly ahead, but costs early progress; it should start only after a
+first exit or a longer drought.
+
+**Data.** `results/td-actor-critic/doom/map01_restless/`; videos in the
+project's `reports/doom-td/videos_restless/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

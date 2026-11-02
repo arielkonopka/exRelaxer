@@ -490,6 +490,13 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-03: restless learning (phase 25)
+
+- `doom_td.py --set restless=N`: before the anchor is set, N games in a
+  row without leaving the level restart the actor's settling. Every seed
+  reaches the anchor; tests 4.5 of 10 (recipe 4.3). Research §63, Doom
+  log D39.
+
 ### 2026-11-02: the whole recipe from scratch (phase 24)
 
 - Settling, consolidation and an anchor together, from the first game:
