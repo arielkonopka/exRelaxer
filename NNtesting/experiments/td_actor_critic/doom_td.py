@@ -27,6 +27,7 @@ import argparse
 import json
 import os
 import pickle
+import shutil
 import sys
 import time
 
@@ -97,6 +98,11 @@ DEFAULTS = {
     "approach": 0.0, "boredom": 0.0, "boredom_steps": 100,
     # approach_heights=1: the exit-approach distance respects ledges (doom_rl approach_heights).
     "approach_heights": 0,
+    # Keeping a route once found (phase 20): exit_weight = doom_rl's w_exit (reward for leaving
+    # the level, 10 when unset); consolidate = c < 1: every training game that leaves the level
+    # multiplies the actor's learning rate by c (success makes the policy less plastic);
+    # actor_settle = S > 0: the actor's rate falls as actor_rate / (1 + games / S) whatever happens.
+    "exit_weight": 0.0, "consolidate": 1.0, "actor_settle": 0.0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -143,12 +149,14 @@ MAPS = ("map01",)  # whole levels: doom_rl's 8 buttons and shaped reward (doom_r
 
 
 def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kill=None, color=False,
-                   heights=False):
+                   heights=False, exit_reward=None):
     """doom_rl's parameters for a whole map, without sound."""
     q = {k: v[0] for k, v in drl.PARAMS.items()}
     q.update(scenario=scenario, sound=False, color=bool(color), approach_heights=bool(heights), w_approach=float(approach), labels=bool(labels))
     if kill is not None:
         q["w_kill"] = float(kill)
+    if exit_reward:
+        q["w_exit"] = float(exit_reward)
     if skill is not None:
         q["skill"] = int(skill)
     if until_death > 0:
@@ -874,6 +882,8 @@ def main():
     ap.add_argument("--set", action="append", default=[])
     ap.add_argument("--checkpoint", type=int, default=0,
                     help="save the learner every N episodes and resume from DIR/checkpoint.pkl when restarted")
+    ap.add_argument("--keep_every", type=int, default=0,
+                    help="also keep a copy of the checkpoint every N episodes (DIR/checkpoint_EP.pkl, a multiple of --checkpoint)")
     args = ap.parse_args()
     exr.set_threads(1)
     p = dict(DEFAULTS)
@@ -917,7 +927,8 @@ def main():
     else:
         open(log_path, "w").close()
     shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"], p["approach"],
-                                            kill=p["kill_weight"], heights=bool(p["approach_heights"]))) if args.scenario in MAPS else None
+                                            kill=p["kill_weight"], heights=bool(p["approach_heights"]),
+                                            exit_reward=p["exit_weight"])) if args.scenario in MAPS else None
     t0 = time.time()
     with open(log_path, "a") as log:
         for ep in range(start, args.episodes):
@@ -928,9 +939,16 @@ def main():
                                  "landmarks": (learner.landmarks, learner.lives, learner.origin),
                                  "detector": learner.detector, "games": learner.games}, f)
                 os.replace(ckpt_path + ".tmp", ckpt_path)
+                if args.keep_every > 0 and ep % args.keep_every == 0:
+                    shutil.copy(ckpt_path, os.path.join(args.out, f"checkpoint_{ep}.pkl"))
+            if p["actor_settle"] > 0:
+                learner.agent.actor.rate = p["actor_rate"] / (1.0 + learner.games / p["actor_settle"])
             trace = ep % p["trace_every"] == 0 or ep == args.episodes - 1
             s = episode(game, learner, scale, True, trace, shaper)
             s["episode"] = ep
+            if p["consolidate"] < 1.0 and s.get("exits", 0) > 0:
+                learner.agent.actor.rate *= p["consolidate"]
+            s["actor_rate"] = float(learner.agent.actor.rate)
             s["clamped"] = learner.agent.actor.clamped()
             s["critic_w_max"] = float(np.abs(learner.agent.critic.w).max())
             if trace:

@@ -1301,6 +1301,33 @@ for about 40 games and then forgotten.
 **Data.** `results/td-actor-critic/doom/map01_poke/`; videos in the
 project's `reports/doom-td/videos_exit/`.
 
+### D34. Keeping the route (2026-11-02)
+
+**Question.** (Phase 20.) D33's route was forgotten after about 40
+games. Larger exit reward, consolidation after exits, or a settling
+actor rate?
+
+**Setup.** D33 (approach 0.3, poke 0.1) with `exit_weight=50`,
+`consolidate=0.8` (actor rate ×0.8 per exit) or `actor_settle=200` (actor
+rate 0.1 / (1 + games / 200)); 3 seeds, 600 games, 10 tests;
+`--keep_every 50`. Resumed once from checkpoints (a resumed run continues
+on a new game random stream).
+
+**Result.**
+- Exit 50: training exits 0 / 23 / 1, none in tests; +10.7 excluding
+  approach.
+- Consolidate: 0 / 87 / 2; seed 2 exits 3 of 10 tests (+19.4); mean +12.0.
+- Settle: 33 / 34 / 55 (21, 12, 39 in the last 100 games); test exits
+  1 / 2 / 5 of 10; +15.1 (D33: +4.3).
+- Videos (20 games of the settle seeds and consolidated seed 2): 3 exits,
+  quickest 1:45 with 7 kills; most kills 9.
+
+**Conclusion.** A falling actor rate keeps the route on every seed;
+consolidation only where exits come early; a larger exit reward does not.
+
+**Data.** `results/td-actor-critic/doom/map01_keep/`; videos in the
+project's `reports/doom-td/videos_keep/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

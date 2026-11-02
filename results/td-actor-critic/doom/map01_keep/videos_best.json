@@ -1,0 +1,42 @@
+{
+ "kills": {
+  "run": "cons_s2",
+  "game": 3,
+  "kills": 9.0,
+  "seconds": 300.0,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 47.16999999999945,
+  "visited": 263
+ },
+ "longest": {
+  "run": "settle_s3",
+  "game": 3,
+  "kills": 8.0,
+  "seconds": 300.0,
+  "doors": 4.0,
+  "died": 0,
+  "game_reward": 46.22799999999936,
+  "visited": 264
+ },
+ "doors": {
+  "run": "settle_s3",
+  "game": 4,
+  "kills": 7.0,
+  "seconds": 213.14285714285714,
+  "doors": 4.0,
+  "died": 0,
+  "game_reward": 50.09999999999913,
+  "visited": 186
+ },
+ "exit": {
+  "run": "cons_s2",
+  "game": 4,
+  "kills": 7.0,
+  "seconds": 104.8,
+  "doors": 4.0,
+  "died": 0,
+  "game_reward": 48.92199999999971,
+  "visited": 139
+ }
+}

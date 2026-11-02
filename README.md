@@ -490,6 +490,14 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-02: keeping the exit route (phase 20)
+
+- `doom_td.py`: `exit_weight` (doom_rl's w_exit), `consolidate` (actor
+  rate ×c after each game that leaves the level), `actor_settle` (actor
+  rate falls as 1 / (1 + games / S)), `--keep_every N` (keeps a
+  checkpoint every N games). A settling rate keeps MAP01's exit route on
+  every seed. Research §58, Doom log D34.
+
 ### 2026-11-02: a ledge-aware exit map and a poke reflex (phases 18-19)
 
 - `doom_rl/exitmap.py`: `DistanceField(..., heights=True)` treats a step

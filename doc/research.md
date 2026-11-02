@@ -3194,6 +3194,55 @@ collecting kill and exploration reward after it, and later games (and the
 large share of games that do not reach the switch) pull the policy away.
 The learned route is not protected; keeping it is the next problem.
 
+## 58. Keeping the route
+
+**Question.** (Phase 20; Doom log D34.) §57's agent found the exit and
+then lost the route about 40 games later. Which keeps it: a larger exit
+reward, consolidation (success makes the policy less plastic) or a
+learning rate that settles with age?
+
+**Setup.** §57's agent (approach 0.3, ledge-aware, poke 0.1) with one of
+- `exit_weight=50`: leaving the level pays 50 instead of 10;
+- `consolidate=0.8`: every training game that leaves the level multiplies
+  the actor's learning rate by 0.8;
+- `actor_settle=200`: the actor's rate is 0.1 / (1 + games / 200), so 0.025
+  at game 600, whatever happens.
+
+3 seeds, 600 games, 10 test games; `--keep_every 50` keeps a checkpoint
+every 50 games. The runs were resumed once from their checkpoints
+(games 470-550); a resumed run continues on a new game random stream,
+because the game is seeded once per process, so runs that are identical up
+to the resume point (`cons_s1` and `exit50_s1`, which never exit, equal
+§57's seed 1 until game 530) part there.
+
+**Results.** Exits in training games (per 100 games), test exits out of
+10, test reward excluding approach (§57 after 600 games: no test exits,
++4.3):
+
+| arm | seed 1 | seed 2 | seed 3 | test exits | excl. approach |
+|---|---|---|---|---|---|
+| exit 50 | 0 | 23 (13 in 300-399, then 2, 6) | 1 | 0 / 0 / 0 | +10.7 |
+| consolidate 0.8 | 0 | 87 (30, 27, 24 per 100 from game 300) | 2 | 0 / 3 / 0 | +12.0 |
+| settle 200 | 33 (21 in the last 100) | 34 | 55 (39 in the last 100) | 1 / 2 / 5 | +15.1 |
+
+- Consolidation works where exits happen: seed 2's rate fell to almost
+  zero after its first exits and the route stayed (3 test exits, +19.4).
+  On the other seeds it never starts.
+- Settling gives exits on every seed, still rising at game 600.
+- Recorded 20 more test games (settle seeds and consolidated seed 2, game
+  seed 3): 3 exits (settle seed 3 twice, consolidated seed 2 once, after
+  1:45); settle seeds 1 and 2 stayed in the hall and the east wing in
+  these games, and settle seed 3 reached the switch without pressing it
+  in another.
+
+**What it means.** Forgetting here is drift under a constant, high actor
+rate. A falling rate lets the critic and actor keep what the first exits
+taught while the agent still finds more of them; tying plasticity to
+success holds the route only where success came early. A bigger reward
+for the exit does not protect it. The learner stays always on, only
+slower: this is the trade the critical period of §39 made for grown
+neurons.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3488,6 +3537,11 @@ The learned route is not protected; keeping it is the next problem.
     pressed at random lets a TD agent leave MAP01 (27 training games, 3
     of 10 test games at its best point), but it forgets the route about
     40 games later.
+52. **A settling learning rate keeps the route** (§58): actor rate
+    0.1 / (1 + games / 200) gives exits on every seed, rising to the end,
+    and reward excluding approach +15.1 (constant rate +4.3);
+    consolidating after each exit works only on the seed that exits
+    early; a bigger exit reward does not help.
 
 ## Open questions and next steps
 
