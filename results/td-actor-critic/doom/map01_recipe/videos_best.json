@@ -1,0 +1,42 @@
+{
+ "kills": {
+  "run": "r_s4",
+  "game": 1,
+  "kills": 9.0,
+  "seconds": 290.74285714285713,
+  "doors": 4.0,
+  "died": 1,
+  "game_reward": 38.942999999998875,
+  "visited": 260
+ },
+ "longest": {
+  "run": "r_s6",
+  "game": 2,
+  "kills": 7.0,
+  "seconds": 300.0,
+  "doors": 2.0,
+  "died": 0,
+  "game_reward": 35.17899999999815,
+  "visited": 232
+ },
+ "doors": {
+  "run": "r_s3",
+  "game": 1,
+  "kills": 6.0,
+  "seconds": 125.25714285714285,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 50.78699999999983,
+  "visited": 178
+ },
+ "exit": {
+  "run": "r_s4",
+  "game": 0,
+  "kills": 5.0,
+  "seconds": 47.31428571428572,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 44.771999999999956,
+  "visited": 103
+ }
+}

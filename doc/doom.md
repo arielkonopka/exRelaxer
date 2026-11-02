@@ -1405,6 +1405,29 @@ stay on, and the agents get better at leaving MAP01 on every seed.
 **Data.** `results/td-actor-critic/doom/map01_anchor/`; videos in the
 project's `reports/doom-td/videos_anchor/`.
 
+### D38. The whole recipe from scratch (2026-11-02)
+
+**Question.** (Phase 24.) Settle + consolidate + anchor from the first
+game: how many seeds become regular exiters?
+
+**Setup.** D33's agent with `actor_settle=200`, `consolidate=0.8`,
+`anchor_at=0.1`, `anchor_rate=0.02`, `anchor_pull=0.2`; seeds 1-6, 1200
+games, 10 tests; resumed once.
+
+**Result.**
+- Exits in the last 100 games: 51 / 62 / 46 / 81 / 46 / 2; anchored at
+  games 457 / 356 / 348 / 409 / 701 / never.
+- Tests: 4 / 7 / 6 / 6 / 3 / 0 exits of 10 (mean 4.3); +16.4 excluding
+  approach (best +21.1); deaths 17-45% of the last 200 games.
+- Videos (18 games): 10 exits, quickest 47 s with 5 kills; most kills 9.
+
+**Conclusion.** Five of six agents learn to leave MAP01 and keep
+improving with learning on; the one that never finds the switch while
+plastic stays a wanderer.
+
+**Data.** `results/td-actor-critic/doom/map01_recipe/`; videos in the
+project's `reports/doom-td/videos_recipe/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
