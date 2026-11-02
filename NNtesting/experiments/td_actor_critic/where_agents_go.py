@@ -162,6 +162,8 @@ def main():
     ap.add_argument("--out", default="paths.png")
     ap.add_argument("--heights", action="store_true",
                     help="measure and draw the ledge-aware walking distance (exitmap heights=True)")
+    ap.add_argument("--sample", action="store_true",
+                    help="choose actions by sampling the policy, as in training, instead of greedily (still no learning)")
     ap.add_argument("--record", default=None,
                     help="folder: record every game as video, then keep only the games with the most kills, "
                          "the longest play and the most doors opened, three different games where possible "
@@ -169,6 +171,9 @@ def main():
     args = ap.parse_args()
     if args.record:
         os.makedirs(args.record, exist_ok=True)
+    if args.sample:
+        dt.Learner.act = lambda self, x, reward, terminal, learn: \
+            self.agent.step(x, reward, terminal, learn=False, explore=True)
     runs, report = [], {}
     game = None
     for run in args.runs:

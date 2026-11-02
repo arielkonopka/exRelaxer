@@ -1,0 +1,42 @@
+{
+ "kills": {
+  "run": "s200c8_s2",
+  "game": 8,
+  "kills": 8.0,
+  "seconds": 300.0,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 40.94899999999819,
+  "visited": 229
+ },
+ "longest": {
+  "run": "s200c8_s3",
+  "game": 0,
+  "kills": 8.0,
+  "seconds": 300.0,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 44.53199999999997,
+  "visited": 256
+ },
+ "doors": {
+  "run": "s200c8_s3",
+  "game": 1,
+  "kills": 7.0,
+  "seconds": 259.0857142857143,
+  "doors": 4.0,
+  "died": 0,
+  "game_reward": 55.054999999999254,
+  "visited": 221
+ },
+ "exit": {
+  "run": "s200c8_s3",
+  "game": 5,
+  "kills": 7.0,
+  "seconds": 156.34285714285716,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 50.92799999999927,
+  "visited": 178
+ }
+}

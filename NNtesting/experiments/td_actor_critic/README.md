@@ -107,7 +107,7 @@ stream (the game is seeded once per process).
 
 `where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
 replays trained MAP01 runs and draws where they go (phase 17); `--record`
-keeps three videos (most kills, longest play, most doors) and, when a game
+keeps three videos (most kills, longest play, most doors); `--sample` chooses actions by sampling the policy as in training and, when a game
 left the level, the quickest exit (`best_exit.mp4`).
 `detector_probe.py` records random games and compares detectors offline
 and online.

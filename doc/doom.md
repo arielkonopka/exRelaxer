@@ -1354,6 +1354,30 @@ falls; time alone is the wrong signal for when to settle.
 **Data.** `results/td-actor-critic/doom/map01_settle/`; videos in the
 project's `reports/doom-td/videos_settle/`.
 
+### D36. Search, then lock in (2026-11-02)
+
+**Question.** (Phase 22.) Settling plus consolidation (fixed): keep
+searching, then hold the route once exits come?
+
+**Setup.** `actor_settle` 200 + `consolidate` 0.8, 400 + 0.8, 400 + 0.9;
+3 seeds, 800 games, 10 greedy tests; settle-200 agents also replayed 10
+games each with sampled actions (`where_agents_go.py --sample`).
+
+**Result.**
+- Settle 200 + 0.8: training exits 42 / 100 / 101, 10-26 per 100 games
+  to the end on every seed (rate ~0 from game ~500); greedy tests
+  0 / 2 / 1; sampled 0 / 0 / 3; +11.0 excluding approach.
+- Settle 400 + 0.8: 0 / 0 / 11, no test exits. 400 + 0.9: 0 / 0 / 15,
+  test 0 / 0 / 2.
+- Videos (30 sampled games): 3 exits (seed 3), quickest 2:36, 7 kills;
+  most kills 8; most doors 4 (also an exit).
+
+**Conclusion.** The route is held on every seed, but in a fifth of the
+games; a frozen policy cannot get better at it.
+
+**Data.** `results/td-actor-critic/doom/map01_search/`; videos in the
+project's `reports/doom-td/videos_search/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

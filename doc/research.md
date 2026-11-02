@@ -3283,6 +3283,43 @@ forgetting. A plasticity that falls with time alone cannot tell the two
 apart; it needs to know when something worth keeping happened, which is
 what consolidation was meant to add.
 
+## 60. Search, then lock in
+
+**Question.** (Phase 22; Doom log D36.) §59 suggested plasticity should
+fall when something worth keeping happens, not with time alone. Settling
+combined with consolidation (now multiplied into the settled rate) should
+keep searching until exits come and then hold them.
+
+**Setup.** §59 with `actor_settle=200, consolidate=0.8`, `actor_settle=400,
+consolidate=0.8` and `actor_settle=400, consolidate=0.9`; 3 seeds, 800
+games, 10 greedy test games; resumed once. The three settle-200 agents
+were also replayed in 10 games each with actions sampled from the policy
+as in training (`where_agents_go.py --sample`, no learning).
+
+**Results.**
+
+| arm | training exits (per 100 from game 400) | greedy test exits | excl. approach |
+|---|---|---|---|
+| settle 200 + cons 0.8 | 42 (10, 9, 9, 10) / 100 (19, 25, 16, 20) / 101 (13, 19, 24, 26) | 0 / 2 / 1 | +11.0 (10.7 / 8.4 / 13.7) |
+| settle 400 + cons 0.8 | 0 / 0 / 11 | 0 / 0 / 0 | +12.3 |
+| settle 400 + cons 0.9 | 0 / 0 / 15 | 0 / 0 / 2 | +10.4 |
+
+- Settle 200 + consolidation is the first setting where every seed keeps
+  exiting to the end of training (learning frozen by game ~500); the
+  exit rate stays at 10-26% of games.
+- Sampled replays: 0 / 0 / 3 exits of 10, so greedy tests are not the
+  cause; the frozen policies exit in about the share of games they did in
+  training. 11 of the 30 sampled games end in death.
+- Settling over 400 games leaves the rate high while the agents still
+  have not found the switch; only seed 3 exits, rarely, as in §59.
+
+**What it means.** Consolidation on success holds a route, but what it
+holds is a policy that reaches the exit in one game out of five; the
+rest of the games are spent fighting and dying on the way. Freezing early
+also freezes the agent's skill elsewhere. Making the exit reliable needs
+learning to go on after the route is fixed (for example in a part of the
+network that does not carry the route), not a lower rate everywhere.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3586,6 +3623,9 @@ what consolidation was meant to add.
     100 games makes the exit a habit on the one seed that found it early
     (8 of 10 tests) and freezes the others before they find it; settling
     over 400 keeps them searching and forgetting.
+54. **Locking in holds a route, not a skill** (§60): settling plus
+    consolidation keeps every seed exiting to the end, but in only
+    10-26% of games, greedy or sampled; the frozen policy cannot improve.
 
 ## Open questions and next steps
 

@@ -490,6 +490,12 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-02: search, then lock in (phase 22)
+
+- `where_agents_go.py --sample`: replays with actions sampled from the
+  policy, as in training. Settling plus consolidation keeps every seed
+  exiting MAP01, in 10-26% of games. Research §60, Doom log D36.
+
 ### 2026-11-02: how fast to settle (phase 21)
 
 - `doom_td.py`: `consolidate` now multiplies the settling rate of
