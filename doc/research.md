@@ -3360,6 +3360,47 @@ exit are kept and others decay. It is a ratchet on the actor's weights,
 in the spirit of the growth idea (old parts kept, new learning on top),
 without a second network. The pull strength matters less than having one.
 
+## 62. The whole recipe from scratch
+
+**Question.** (Phase 24; Doom log D38.) §58-§61 were pieced together, the
+anchor starting from saved agents. Run end to end from the first game,
+on more seeds and for longer, how many agents become regular exiters?
+
+**Setup.** §57's agent (instincts, ledge-aware approach 0.3, poke 0.1)
+with the whole recipe: `actor_settle=200`, `consolidate=0.8`,
+`anchor_at=0.1` (anchored after 11 exits), `anchor_rate` 0.02,
+`anchor_pull` 0.2. Seeds 1-6, 1200 games, 10 test games; resumed once.
+
+**Results.**
+
+| seed | exits | last 100 games | anchored at game | test exits | excl. approach | deaths, last 200 |
+|---|---|---|---|---|---|---|
+| 1 | 176 | 51 | 457 | 4 | +15.6 | 38% |
+| 2 | 464 | 62 (peak 76) | 356 | 7 | +18.6 | 31% |
+| 3 | 383 | 46 (peak 71) | 348 | 6 | +21.1 | 27% |
+| 4 | 531 | 81 (peak 84) | 409 | 6 | +19.0 | 17% |
+| 5 | 196 | 46 | 701 | 3 | +14.5 | 45% |
+| 6 | 9 | 2 | never | 0 | +9.3 | 44% |
+
+- Five of six seeds become regular exiters (46-81% of their last 100
+  games; tests 4.3 of 10 on average over all six, +16.4 excluding
+  approach). Once anchored, every seed's exit rate rises for hundreds of
+  games.
+- Seed 6 found the switch 9 times and never reached the 11 exits that
+  set the anchor; its rate (0.002 at game 1200, settled and consolidated by its 9 exits) is too low to
+  learn the route.
+- Recorded (3 games per seed, 18 games): 10 exits, the quickest after
+  47 s with 5 kills; most kills 9; seed 6 survives two full games
+  without finding the exit.
+
+**What it means.** Settling, consolidation on success and an anchor
+that success moves forward together make leaving MAP01 a learned habit
+for most agents, while learning stays on. What is left is the search:
+an agent that does not stumble on the switch while it is still plastic
+never gets the chance to keep it. A plasticity that rises again when
+nothing is found (boredom for the learner, not only the body) is the
+natural next step.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3671,6 +3712,10 @@ without a second network. The pull strength matters less than having one.
     exit, raises exits on every seed (tests 2-5 of 10 against 0-1
     frozen, up to 62% of training games) and reward excluding approach
     from +10.6 to +15-16.
+56. **Settle, consolidate, anchor** (§62): from scratch the three
+    together make 5 of 6 seeds regular exiters (46-81% of games after
+    1200, tests 4.3 of 10, +16.4 excluding approach); the sixth never
+    finds the switch while it is still plastic.
 
 ## Open questions and next steps
 

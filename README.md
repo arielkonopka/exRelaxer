@@ -490,6 +490,12 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-02: the whole recipe from scratch (phase 24)
+
+- Settling, consolidation and an anchor together, from the first game:
+  5 of 6 MAP01 agents become regular exiters (46-81% of games after
+  1200, tests 4.3 of 10 on average). Research §62, Doom log D38.
+
 ### 2026-11-02: an anchored route, learning on (phase 23)
 
 - `doom_td.py`: `anchor_at`, `anchor_rate`, `anchor_pull`: once
