@@ -71,6 +71,9 @@ DEFAULTS = {
     # A door reflex: door_reflex=1 presses USE (with the chosen action) whenever the last step
     # moved the player less than 1 map unit although it tried to move: pushing against a wall.
     "door_reflex": 0,
+    # poke=p: press USE with probability p every step, whatever the actor chose (exit switches,
+    # doors the blocked test misses).
+    "poke": 0.0,
     # Path integration: path=1 gives the place cells a position integrated from self-motion
     # (each step's forward and sideways movement and turn, each with path_noise relative noise),
     # starting from (0, 0, 0) at every spawn, instead of the game's coordinates.
@@ -92,6 +95,8 @@ DEFAULTS = {
     # closest walking distance to the exit); boredom = c: a drive that grows while no new square
     # is entered, r -= c * min(1, steps since a new square / boredom_steps), also felt (a raw feature).
     "approach": 0.0, "boredom": 0.0, "boredom_steps": 100,
+    # approach_heights=1: the exit-approach distance respects ledges (doom_rl approach_heights).
+    "approach_heights": 0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -137,10 +142,11 @@ SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 
 MAPS = ("map01",)  # whole levels: doom_rl's 8 buttons and shaped reward (doom_rl/rewards.py)
 
 
-def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kill=None, color=False):
+def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kill=None, color=False,
+                   heights=False):
     """doom_rl's parameters for a whole map, without sound."""
     q = {k: v[0] for k, v in drl.PARAMS.items()}
-    q.update(scenario=scenario, sound=False, color=bool(color), w_approach=float(approach), labels=bool(labels))
+    q.update(scenario=scenario, sound=False, color=bool(color), approach_heights=bool(heights), w_approach=float(approach), labels=bool(labels))
     if kill is not None:
         q["w_kill"] = float(kill)
     if skill is not None:
@@ -697,6 +703,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     if learn:
         learner.games += 1
     blocked, reflexes = False, 0
+    pokes = 0
     state = game.get_state()
     if shaper is not None:
         shaper.reset(state)
@@ -720,6 +727,10 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             buttons = list(buttons)
             buttons[use] = 1
             reflexes += 1
+        elif use is not None and learner.p["poke"] > 0 and learner.rng.random() < learner.p["poke"]:
+            buttons = list(buttons)  # the poke reflex: press USE now and then, at whatever is ahead
+            buttons[use] = 1
+            pokes += 1
         where = monster_ahead(state, learner.p["attack_cone"]) if instinct and state is not None else None
         det = learner.detector
         if det is not None and instinct and state is not None and learner.view is not None:
@@ -834,7 +845,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
     s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
-             novelty=novelty, reflexes=reflexes, strikes=strikes,
+             novelty=novelty, reflexes=reflexes, strikes=strikes, pokes=pokes,
              det_recall=det_hits / max(1, det_true), det_false=det_false / max(1, steps), fb_shots=fb_shots,
              fb_hit_rate=fb_hits / max(1, fb_shots), turn_checks=turn_checks,
              turn_hit_rate=turn_hits / max(1, turn_checks),
@@ -906,7 +917,7 @@ def main():
     else:
         open(log_path, "w").close()
     shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"], p["approach"],
-                                                   kill=p["kill_weight"])) if args.scenario in MAPS else None
+                                            kill=p["kill_weight"], heights=bool(p["approach_heights"]))) if args.scenario in MAPS else None
     t0 = time.time()
     with open(log_path, "a") as log:
         for ep in range(start, args.episodes):

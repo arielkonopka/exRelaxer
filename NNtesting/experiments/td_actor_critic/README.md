@@ -9,7 +9,7 @@ and its prediction error
 replaces the raw reward as the modulator of the actor's readouts: one
 global scalar, the analogue of phasic dopamine, so learning stays local
 (pre × post × δ) but is no longer sparse or late. Results: research log
-§41 (drives §42, place cells §43, novelty and learned place §44, door reflex and path integration §45, boredom and anchoring §46, killer instinct §47, guided landmarks §48, exit §49, learned threat detector §50, detector feedback §51-§52, colour §53, practice §54), Doom log D17-D30.
+§41 (drives §42, place cells §43, novelty and learned place §44, door reflex and path integration §45, boredom and anchoring §46, killer instinct §47, guided landmarks §48, exit §49, learned threat detector §50, detector feedback §51-§52, colour §53, practice §54, paths §55), Doom log D17-D31.
 
 ```
 input -> frozen features (Gabor + centre-surround bank, max-pooled)
@@ -94,6 +94,16 @@ Phases 14-15: `detector_steer=M` lets the detector drive the reflexes from
 game M while the labels still teach; `detector_freeze_stats=1` stops its
 input normalisation with its weights; `detector_holdout=1` learns only in
 every other childhood game, to measure it on held-out views.
+
+Phase 18: `--set approach_heights=1` measures the exit-approach reward on a
+ledge-aware walking distance (a step up of more than 24 units is a wall).
+Phase 19: `--set poke=p` presses USE at random with probability p per
+step (the exit is a switch).
+
+`where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
+replays trained MAP01 runs and draws where they go (phase 17); `--record`
+keeps three videos (most kills, longest play, most doors) and, when a game
+left the level, the quickest exit (`best_exit.mp4`).
 `detector_probe.py` records random games and compares detectors offline
 and online.
 

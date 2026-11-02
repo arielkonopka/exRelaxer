@@ -3097,6 +3097,103 @@ detector's own gaze adds roughly as much again. Practice under guidance
 and frozen statistics do not change the score; the colour detector stays
 near +6.
 
+## 55. Where the agents go
+
+**Question.** (Phase 17; Doom log D31.) Where on MAP01 do the trained
+agents go, and where does the exit-approach reward lead them?
+
+**Setup.** `where_agents_go.py` replays the last checkpoint of a run in
+fresh test games (no learning) and draws the paths over the walking
+distance to the exit (`exitmap.py`). The exit is about 700 units from the
+spawn in a straight line and 3,600 on foot. Runs: §49's approach agents,
+§47's instinct agents (labels), §54's colour detector with frozen
+statistics; 4 games each.
+
+**Results.**
+- Approach agents never leave the spawn room and the big hall; their
+  closest points (2,016-2,784) lie along the hall's south wall, which the
+  distance map treats as passable (heights are ignored) but the agents
+  cannot cross.
+- Instinct agents cover the hall, the north door and the east wing; one
+  seed reaches the rooms south of the hall (closest 1,456-1,888). No agent
+  enters the large room in the south-east that leads along the corridor
+  to the exit.
+- Colour-detector agents stay closer to the spawn (closest 2,016-3,600).
+
+**What it means.** The approach reward's gradient has a false minimum at
+the hall's south wall, so it holds the agent there instead of guiding it
+round; a reward on the true route would need heights and doors in the
+distance map. The instinct agents' exploration, not a pull toward the
+exit, is what gets furthest.
+
+## 56. A ledge-aware exit map
+
+**Question.** (Phase 18; Doom log D32.) §55's approach agents paced a wall
+that the distance map treated as open because it ignored heights. Does
+the exit-approach reward guide the agent once the map knows about ledges?
+
+**Setup.** `exitmap.py` with `heights=True`: each 16-unit cell takes its
+sector's floor height (a door sector takes its neighbour's highest floor,
+since a closed door's floor and ceiling meet), and the breadth-first
+search refuses a step up of more than 24 units (the player's step
+height). The spawn is now 4,944 units from the exit on foot (3,600
+without heights). doom_td as in §49 with the instincts of §47 (labels for
+strike and orient, door reflex, boredom 0.01, place cells, γ .99) and
+`approach_heights=1`; approach weight 0.1 and 0.3, 3 seeds, 600 games of
+up to 5 minutes, 10 test games.
+
+**Results.** Test game reward excluding the approach reward (mean of 3
+seeds; §49's flat-map approach agents: +6.9):
+
+| approach | seeds | mean | kills | closest to exit |
+|---|---|---|---|---|
+| 0.1 | 3.3 / 10.3 / 9.3 | +7.6 | 3.1 | 1,325-3,627 |
+| 0.3 | 5.1 / 13.3 / 5.9 | +8.1 | 4.8 | 1,419-2,149 |
+
+- No agent paces the hall's south wall any more. Two seeds at 0.1 still
+  roam the hall and the north room; the other four go through the east
+  wing into the rooms south of the hall.
+- Seed 3 at 0.1 reaches the exit room, and in replays stands at the exit
+  switch (distance 0) without pressing it; it left the level once in
+  training (game 541).
+- Recorded games: most kills 7 (alive at the cap, 4 doors), and the
+  agents keep fighting while they travel.
+
+**What it means.** With ledges in the map, the approach reward's gradient
+points along a walkable route and gets the agent to the exit room. The
+last step is missing: the exit is a switch, and no action the agent is
+rewarded for presses USE at a wall that does not block it.
+
+## 57. A poke reflex
+
+**Question.** (Phase 19; Doom log D33.) The door reflex presses USE only
+when a move is blocked. Does a random poke (USE at any time, with
+probability 0.1 per step) let the agent find the exit switch, and does
+the TD learner then keep the route?
+
+**Setup.** §56 with `poke=0.1`, approach 0.1 and 0.3, 3 seeds, 600 games.
+Leaving the level pays doom_rl's +10 and ends the game. Seed 2 at 0.3 was
+rerun to game 361 (bit-exact with the 600-game run up to there) and
+tested and recorded with `where_agents_go.py --heights --record`.
+
+**Results.**
+- Training exits (first ever for a TD agent on MAP01): 0.3 seed 2: 27
+  (first at game 265; 18 between games 350 and 399, then 1-3 per 50
+  games); 0.3 seed 3: 4; 0.1 seed 2: 1.
+- Test after 600 games: no exits; reward excluding approach +6.0 (0.1:
+  4.1 / 9.5 / 4.4) and +4.3 (0.3: 7.0 / 2.1 / 3.9), below §56.
+- The same seed stopped at game 361: 3 exits in 10 test games, 7 kills,
+  no deaths, reward +38.9 (+19.7 excluding approach), closest 856. A
+  second set of 10 recorded games: 3 exits again; the quickest leaves
+  after 2:12 with 8 kills.
+
+**What it means.** The poke supplies the missing action, and the δ
+learner does pick up the route to the exit for a while (games 350-391).
+It then loses it: an exit ends the game early, so the agent stops
+collecting kill and exploration reward after it, and later games (and the
+large share of games that do not reach the switch) pull the policy away.
+The learned route is not protected; keeping it is the next problem.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3380,6 +3477,17 @@ near +6.
     frame; held-out games show its real false-alarm rate (0.13 per tick
     against 0.02). Steering practice and frozen input statistics leave the
     colour agent at +5.5 to +6.1.
+49. **A walking-distance pull can trap** (§55): the exit-approach
+    reward's map ignores heights, and the agents it trains pace a wall it
+    treats as open; exploring agents get further but never reach the
+    room that leads to the exit.
+50. **A map with ledges makes the pull work** (§56): measured on a
+    ledge-aware walking distance, the approach reward leads to the exit
+    room; the agent then stands at the switch without pressing it.
+51. **A random poke finds the exit, the learner loses it** (§57): USE
+    pressed at random lets a TD agent leave MAP01 (27 training games, 3
+    of 10 test games at its best point), but it forgets the route about
+    40 games later.
 
 ## Open questions and next steps
 

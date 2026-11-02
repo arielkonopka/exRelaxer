@@ -1,0 +1,42 @@
+{
+ "kills": {
+  "run": "ph03_s2_g361",
+  "game": 3,
+  "kills": 9.0,
+  "seconds": 300.0,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 38.741999999997056,
+  "visited": 210
+ },
+ "longest": {
+  "run": "ph03_s2_g361",
+  "game": 0,
+  "kills": 7.0,
+  "seconds": 300.0,
+  "doors": 4.0,
+  "died": 0,
+  "game_reward": 44.58699999999932,
+  "visited": 241
+ },
+ "doors": {
+  "run": "ph03_s2_g361",
+  "game": 8,
+  "kills": 9.0,
+  "seconds": 251.0857142857143,
+  "doors": 4.0,
+  "died": 0,
+  "game_reward": 56.04399999999947,
+  "visited": 236
+ },
+ "exit": {
+  "run": "ph03_s2_g361",
+  "game": 9,
+  "kills": 8.0,
+  "seconds": 131.88571428571427,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 50.608999999999824,
+  "visited": 159
+ }
+}
