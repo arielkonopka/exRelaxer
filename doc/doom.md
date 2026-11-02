@@ -1328,6 +1328,32 @@ consolidation only where exits come early; a larger exit reward does not.
 **Data.** `results/td-actor-critic/doom/map01_keep/`; videos in the
 project's `reports/doom-td/videos_keep/`.
 
+### D35. How fast to settle (2026-11-02)
+
+**Question.** (Phase 21.) Settle the actor rate over 100 or 400 games
+instead of 200; does a kept route become a habit by game 800?
+
+**Setup.** D34 with `actor_settle` 100 / 400, and settle 200 run to 800
+games (meant as settle 200 + consolidate 0.8, but the settling rate
+overwrote the consolidation each game; fixed afterwards). 3 seeds, 800
+games, 10 tests; resumed once.
+
+**Result.**
+- Settle 100: training exits 0 / 187 / 0; seed 2 65 in the last 100,
+  test 8 of 10 (+22.5); mean +15.4 excluding approach.
+- Settle 200 to 800: 22 / 39 / 146; test 0 / 0 / 4; +9.9.
+- Settle 400: 0 / 0 / 15; test 0 / 0 / 3; +15.7.
+- Videos (15 games of settle 100 seed 2, settle 200 seed 3, settle 400
+  seed 3): 3 exits, all settle 100 seed 2, quickest 1:35; most kills 8;
+  most doors 5 (also an exit).
+
+**Conclusion.** The first agent that leaves MAP01 most of the time. Which
+seeds keep the route depends on finding the switch before the rate
+falls; time alone is the wrong signal for when to settle.
+
+**Data.** `results/td-actor-critic/doom/map01_settle/`; videos in the
+project's `reports/doom-td/videos_settle/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

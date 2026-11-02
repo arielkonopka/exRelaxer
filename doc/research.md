@@ -3243,6 +3243,46 @@ for the exit does not protect it. The learner stays always on, only
 slower: this is the trade the critical period of §39 made for grown
 neurons.
 
+## 59. How fast to settle
+
+**Question.** (Phase 21; Doom log D35.) §58's settling actor rate kept
+the route. How fast should it settle, and do the agents that keep it make
+leaving the level a habit given more games?
+
+**Setup.** §58 with `actor_settle` 100 or 400 (rate 0.1 / (1 + games / S):
+at game 800, 0.011 and 0.033), and a third arm meant as settle 200 plus
+consolidation 0.8. In that arm the settling rate was recomputed every game
+and overwrote the consolidation (fixed afterwards), so it is settle 200
+run to 800 games. 3 seeds, 800 games, 10 test games; resumed once from
+checkpoints (new game random stream).
+
+**Results.** Training exits (per 100 games from game 400), test exits out
+of 10, test reward excluding approach:
+
+| settle | seed 1 | seed 2 | seed 3 | test exits | excl. approach |
+|---|---|---|---|---|---|
+| 100 | 0 | 187 (24, 32, 43, 65) | 0 | 0 / 8 / 0 | +15.4 (10.1 / 22.5 / 13.6) |
+| 200 (to 800) | 22 (8, 5, 1, 3) | 39 (17, 2, 14, 1) | 146 (12, 29, 40, 61) | 0 / 0 / 4 | +9.9 (4.0 / 7.3 / 18.4) |
+| 400 | 0 | 0 | 15 (2, 4, 3, 3) | 0 / 0 / 3 | +15.7 (16.9 / 11.9 / 18.3) |
+
+- One agent makes it a habit: settle 100, seed 2 leaves the level in 65 of
+  its last 100 games and 8 of 10 tests. Recorded (5 more games): 3 exits,
+  the quickest after 1:35 with 6 kills; it dies in the other two.
+- Settle 200's seed 3 keeps rising (61 in the last 100); its seeds 1 and
+  2, which exited in §58's tests, fade between games 600 and 800 (this
+  part is after a resume, so the game stream differs from §58's).
+- The two seeds that never exit at settle 100 froze (rate 0.03 by game
+  300) before finding the switch; at settle 400 the rate is still high
+  enough that only seed 3 finds it, rarely.
+
+**What it means.** Whether an agent keeps the exit depends mostly on
+whether it finds the switch while it is still plastic. A fast settle
+locks in whatever was found by game ~300 (the route on one seed,
+wandering on the others); a slow settle keeps the agent searching and
+forgetting. A plasticity that falls with time alone cannot tell the two
+apart; it needs to know when something worth keeping happened, which is
+what consolidation was meant to add.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3542,6 +3582,10 @@ neurons.
     and reward excluding approach +15.1 (constant rate +4.3);
     consolidating after each exit works only on the seed that exits
     early; a bigger exit reward does not help.
+53. **Plasticity has to fall at the right time** (§59): settling over
+    100 games makes the exit a habit on the one seed that found it early
+    (8 of 10 tests) and freezes the others before they find it; settling
+    over 400 keeps them searching and forgetting.
 
 ## Open questions and next steps
 

@@ -490,6 +490,13 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-02: how fast to settle (phase 21)
+
+- `doom_td.py`: `consolidate` now multiplies the settling rate of
+  `actor_settle` instead of being overwritten by it. Settling over 100
+  games gives the first agent that leaves MAP01 in 8 of 10 tests.
+  Research §59, Doom log D35.
+
 ### 2026-11-02: keeping the exit route (phase 20)
 
 - `doom_td.py`: `exit_weight` (doom_rl's w_exit), `consolidate` (actor

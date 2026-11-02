@@ -941,13 +941,15 @@ def main():
                 os.replace(ckpt_path + ".tmp", ckpt_path)
                 if args.keep_every > 0 and ep % args.keep_every == 0:
                     shutil.copy(ckpt_path, os.path.join(args.out, f"checkpoint_{ep}.pkl"))
-            if p["actor_settle"] > 0:
-                learner.agent.actor.rate = p["actor_rate"] / (1.0 + learner.games / p["actor_settle"])
+            if p["actor_settle"] > 0:  # times the consolidation factor (consolidate), kept on the agent
+                learner.agent.actor.rate = p["actor_rate"] / (1.0 + learner.games / p["actor_settle"]) * \
+                    learner.agent.__dict__.get("consolidation", 1.0)
             trace = ep % p["trace_every"] == 0 or ep == args.episodes - 1
             s = episode(game, learner, scale, True, trace, shaper)
             s["episode"] = ep
             if p["consolidate"] < 1.0 and s.get("exits", 0) > 0:
                 learner.agent.actor.rate *= p["consolidate"]
+                learner.agent.consolidation = learner.agent.__dict__.get("consolidation", 1.0) * p["consolidate"]
             s["actor_rate"] = float(learner.agent.actor.rate)
             s["clamped"] = learner.agent.actor.clamped()
             s["critic_w_max"] = float(np.abs(learner.agent.critic.w).max())
