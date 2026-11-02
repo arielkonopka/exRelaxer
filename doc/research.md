@@ -3320,6 +3320,46 @@ also freezes the agent's skill elsewhere. Making the exit reliable needs
 learning to go on after the route is fixed (for example in a part of the
 network that does not carry the route), not a lower rate everywhere.
 
+## 61. An anchored route, learning on
+
+**Question.** (Phase 23; Doom log D37.) §60's consolidated agents keep
+the exit route but cannot improve, because their learning is off. Can
+learning go back on without losing the route, if the weights are pulled
+back toward a kept copy?
+
+**Setup.** `anchor_at=0.1`: once the consolidation factor (0.8 per exit)
+is below 0.1, the actor's weights are copied as an anchor and the actor
+learns again at `anchor_rate` 0.02; after every training game that does
+not leave the level the weights move back toward the anchor by
+`anchor_pull` (0.05 or 0.2); a game that leaves the level moves the anchor
+to the current weights. Every run starts from §60's settle-200 +
+consolidation agents at game 500 (all three already frozen around the
+route) and plays to game 800; the control continues frozen from the same
+checkpoints, so all arms share the resume.
+
+**Results.** Training exits in games 500-800 (per 100 games), test exits
+out of 10, test reward excluding approach:
+
+| arm | seed 1 | seed 2 | seed 3 | test exits | excl. approach |
+|---|---|---|---|---|---|
+| frozen | 39 (12, 18, 9) | 50 (18, 19, 13) | 67 (22, 20, 25) | 0 / 1 / 1 | +10.6 |
+| anchor, pull 0.05 | 110 (13, 35, 62) | 139 (32, 53, 54) | 71 (18, 22, 31) | 2 / 5 / 3 | +15.2 |
+| anchor, pull 0.2 | 55 (13, 9, 33) | 92 (18, 34, 40) | 85 (22, 25, 38) | 5 / 3 / 4 | +16.1 |
+
+- Every anchored seed exits more often than its frozen copy, and the
+  rate is still rising at game 800 (to 62% of games for pull 0.05, seed
+  1).
+- Recorded (4 games per anchored run, 24 games): 11 exits; the quickest
+  leaves after 53 s with 7 kills; most kills 8 (alive at the cap); most
+  doors 4 (also an exit). Deaths in training stay at 20-60% of games.
+
+**What it means.** Learning can stay on once a route is found if what was
+learned is anchored: the pull keeps the policy near what last worked,
+and success moves that point forward, so improvements that lead to the
+exit are kept and others decay. It is a ratchet on the actor's weights,
+in the spirit of the growth idea (old parts kept, new learning on top),
+without a second network. The pull strength matters less than having one.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3626,6 +3666,11 @@ network that does not carry the route), not a lower rate everywhere.
 54. **Locking in holds a route, not a skill** (§60): settling plus
     consolidation keeps every seed exiting to the end, but in only
     10-26% of games, greedy or sampled; the frozen policy cannot improve.
+55. **An anchor lets learning stay on** (§61): learning again at a modest
+    rate while being pulled back to a kept copy, which moves on each
+    exit, raises exits on every seed (tests 2-5 of 10 against 0-1
+    frozen, up to 62% of training games) and reward excluding approach
+    from +10.6 to +15-16.
 
 ## Open questions and next steps
 

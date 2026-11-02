@@ -490,6 +490,14 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-02: an anchored route, learning on (phase 23)
+
+- `doom_td.py`: `anchor_at`, `anchor_rate`, `anchor_pull`: once
+  consolidated, the actor's weights are anchored, learning resumes, and
+  every game pulls the weights back to the anchor, which moves on each
+  exit. Exits rise on every seed (tests 2-5 of 10 against 0-1 frozen).
+  Research §61, Doom log D37.
+
 ### 2026-11-02: search, then lock in (phase 22)
 
 - `where_agents_go.py --sample`: replays with actions sampled from the

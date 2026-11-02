@@ -1378,6 +1378,33 @@ games; a frozen policy cannot get better at it.
 **Data.** `results/td-actor-critic/doom/map01_search/`; videos in the
 project's `reports/doom-td/videos_search/`.
 
+### D37. An anchored route, learning on (2026-11-02)
+
+**Question.** (Phase 23.) Can the consolidated agents of D36 learn again
+without losing the route?
+
+**Setup.** From D36's settle-200 + consolidation checkpoints at game 500
+to game 800: `anchor_at=0.1` (anchor the actor's weights once the
+consolidation factor < 0.1), learning at `anchor_rate` 0.02, a pull back
+to the anchor of `anchor_pull` 0.05 or 0.2 after each game without an exit,
+the anchor moves to the current weights on each exit; control frozen from
+the same checkpoints.
+
+**Result.**
+- Frozen: training exits 39 / 50 / 67 (last 100: 9 / 13 / 25), tests
+  0 / 1 / 1, +10.6 excluding approach.
+- Pull 0.05: 110 / 139 / 71 (last 100: 62 / 54 / 31), tests 2 / 5 / 3,
+  +15.2.
+- Pull 0.2: 55 / 92 / 85 (last 100: 33 / 40 / 38), tests 5 / 3 / 4, +16.1.
+- Videos (24 games): 11 exits, quickest 53 s with 7 kills; most kills 8;
+  most doors 4.
+
+**Conclusion.** With an anchor that success moves forward, learning can
+stay on, and the agents get better at leaving MAP01 on every seed.
+
+**Data.** `results/td-actor-critic/doom/map01_anchor/`; videos in the
+project's `reports/doom-td/videos_anchor/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

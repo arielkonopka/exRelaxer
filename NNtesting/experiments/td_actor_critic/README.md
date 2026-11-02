@@ -104,6 +104,10 @@ each training game that leaves it, `actor_settle=S` lets the actor's rate
 fall as actor_rate / (1 + games / S); `--keep_every N` keeps a copy of the
 checkpoint every N games. A resumed run continues on a new game random
 stream (the game is seeded once per process).
+Phase 23: `anchor_at=f` anchors the actor's weights once the consolidation
+factor is below f; learning then goes on at `anchor_rate`, each game
+without an exit pulls the weights back toward the anchor by
+`anchor_pull`, and each exit moves the anchor to the current weights.
 
 `where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
 replays trained MAP01 runs and draws where they go (phase 17); `--record`

@@ -103,6 +103,12 @@ DEFAULTS = {
     # multiplies the actor's learning rate by c (success makes the policy less plastic);
     # actor_settle = S > 0: the actor's rate falls as actor_rate / (1 + games / S) whatever happens.
     "exit_weight": 0.0, "consolidate": 1.0, "actor_settle": 0.0,
+    # An anchored route (phase 23): once consolidation has brought its factor (the product of
+    # consolidate over the exits so far) below anchor_at, the actor's weights are copied as an anchor and learning goes on at
+    # anchor_rate (no more settling or consolidation); after every training game the weights move
+    # back toward the anchor by the fraction anchor_pull, and a game that leaves the level moves
+    # the anchor to the current weights (success updates what is kept).
+    "anchor_at": 0.0, "anchor_rate": 0.02, "anchor_pull": 0.05,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -941,15 +947,31 @@ def main():
                 os.replace(ckpt_path + ".tmp", ckpt_path)
                 if args.keep_every > 0 and ep % args.keep_every == 0:
                     shutil.copy(ckpt_path, os.path.join(args.out, f"checkpoint_{ep}.pkl"))
-            if p["actor_settle"] > 0:  # times the consolidation factor (consolidate), kept on the agent
+            anchor = learner.agent.__dict__.get("anchor")
+            if anchor is not None:
+                learner.agent.actor.rate = p["anchor_rate"]
+            elif p["actor_settle"] > 0:  # times the consolidation factor (consolidate), kept on the agent
                 learner.agent.actor.rate = p["actor_rate"] / (1.0 + learner.games / p["actor_settle"]) * \
                     learner.agent.__dict__.get("consolidation", 1.0)
+            act = learner.agent.actor
+            if anchor is None and p["anchor_at"] > 0 and p["consolidate"] < 1.0 and \
+                    learner.agent.__dict__.get("consolidation", 1.0) < p["anchor_at"]:
+                anchor = learner.agent.anchor = (act.W.copy(), act.b.copy())
+                act.rate = p["anchor_rate"]
             trace = ep % p["trace_every"] == 0 or ep == args.episodes - 1
             s = episode(game, learner, scale, True, trace, shaper)
             s["episode"] = ep
-            if p["consolidate"] < 1.0 and s.get("exits", 0) > 0:
-                learner.agent.actor.rate *= p["consolidate"]
+            act = learner.agent.actor
+            if anchor is not None:
+                if s.get("exits", 0) > 0:
+                    learner.agent.anchor = (act.W.copy(), act.b.copy())
+                else:
+                    act.W += p["anchor_pull"] * (anchor[0] - act.W)
+                    act.b += p["anchor_pull"] * (anchor[1] - act.b)
+            elif p["consolidate"] < 1.0 and s.get("exits", 0) > 0:
+                act.rate *= p["consolidate"]
                 learner.agent.consolidation = learner.agent.__dict__.get("consolidation", 1.0) * p["consolidate"]
+            s["anchored"] = int(learner.agent.__dict__.get("anchor") is not None)
             s["actor_rate"] = float(learner.agent.actor.rate)
             s["clamped"] = learner.agent.actor.clamped()
             s["critic_w_max"] = float(np.abs(learner.agent.critic.w).max())
