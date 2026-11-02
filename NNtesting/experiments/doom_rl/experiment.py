@@ -469,20 +469,22 @@ def make_shaper(p):
     names = ("hurt", "death", "kill", "ammo", "fire", "armor", "item", "key", "door", "exit", "idle", "explore",
              "approach")
     return rewards.Shaper({k: p.get("w_" + k, 0.0) for k in names}, p["idle_steps"], p["idle_distance"],
-                          p.get("explore_cell", 64.0), lambda state: exit_field(p["scenario"], state))
+                          p.get("explore_cell", 64.0),
+                          lambda state: exit_field(p["scenario"], state, bool(p.get("approach_heights", False))))
 
 
 _exit_fields = {}
 
 
-def exit_field(scenario, state):
-    """The walking-distance field to the level's exit (built once per map), or None without an exit."""
-    if scenario not in _exit_fields:
+def exit_field(scenario, state, heights=False):
+    """The walking-distance field to the level's exit (built once per map), or None without an exit;
+    heights=True: ledges higher than a step block the way up (exitmap.py)."""
+    if (scenario, heights) not in _exit_fields:
         import exitmap
         wad, name = exitmap.wad_for(scenario)
         exits = exitmap.exit_points(wad, name) if wad else []
-        _exit_fields[scenario] = exitmap.DistanceField(state.sectors, exits) if exits else None
-    return _exit_fields[scenario]
+        _exit_fields[scenario, heights] = exitmap.DistanceField(state.sectors, exits, heights=heights) if exits else None
+    return _exit_fields[scenario, heights]
 
 
 def play(game, player, p, episodes, lr, explore, rng, meter=False):
@@ -598,6 +600,8 @@ PARAMS = {
                        "(1050 = 2 minutes); for games until death on levels where standing still is safe"),
     "w_approach": (0.0, "reward per 64 map units of new closest walking distance to the level's exit "
                         "(MAP01; exitmap.py)"),
+    "approach_heights": (False, "approach: the walking distance respects ledges (a step up of more than 24 "
+                                "units blocks; exitmap.py heights=True)"),
     "explore_cell": (64.0, "explore: side of a map square in map units (a Doom corridor is about 64-128)"),
 }
 

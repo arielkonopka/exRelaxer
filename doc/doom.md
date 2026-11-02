@@ -1219,6 +1219,192 @@ colour games: alone AUC 0.78, added to colour + vision 0.945 against
 **Data.** `results/td-actor-critic/doom/map01_practice/`; the motion probe
 in `map01_colour/probe/motion.txt`.
 
+### D31. Where the agents go (2026-11-01)
+
+**Question.** (Phase 17.) Where do the trained MAP01 agents go, and why
+does the exit-approach reward not lead them out (D25)?
+
+**Setup.** `where_agents_go.py --runs DIR ...` replays each run's last
+checkpoint in fresh test games and draws the paths over the walking
+distance to the exit (green near, blue far). D25's approach agents, D23's
+"orient" instinct agents and D30's "freeze" colour-detector agents, 4
+games each. `--record DIR` also records every game (gray, as the agent
+sees it) and keeps only the games with the most kills, the longest play
+and the most doors (three different games where possible).
+
+**Result.**
+- Exit: 700 units from the spawn in a straight line, 3,600 on foot.
+- Approach agents: spawn room and big hall only; closest 2,016-2,784,
+  pacing the hall's south wall, which the distance map (heights ignored)
+  treats as passable.
+- Instinct agents: hall, north door, east wing; one seed into the rooms
+  south of the hall (closest 1,456-1,888); nobody enters the south-east
+  room that leads to the exit corridor.
+- Colour-detector agents: closest 2,016-3,600.
+- Recordings (24 games of the instinct and colour agents): most kills 7
+  (alive at the 5-minute cap, 2 doors, 208 squares); longest: 9 games
+  reach the cap; most doors 2. All three kept games are from instinct
+  agents.
+
+**Conclusion.** The approach reward has a false minimum at the hall's
+south wall. A pull toward the exit needs a distance map with heights
+and doors; the agents that get furthest are the explorers.
+
+**Data.** `results/td-actor-critic/doom/map01_paths/` (pictures, per-game
+JSON); the three videos in the project's `reports/doom-td/videos/`.
+
+### D32. A ledge-aware exit map (2026-11-01)
+
+**Question.** (Phase 18.) Does the exit-approach reward guide the agent
+when its distance map knows about ledges (D31's false minimum)?
+
+**Setup.** `exitmap.py` `heights=True` (step up > 24 units is a wall; a
+door sector takes its neighbour's floor); spawn to exit 4,944 units on
+foot. doom_td with the D23 instincts and `approach_heights=1`, approach
+0.1 / 0.3, 3 seeds, 600 games of up to 5 minutes, 10 test games.
+
+**Result.**
+- Reward excluding approach: 0.1 +7.6 (3.3 / 10.3 / 9.3), 3.1 kills;
+  0.3 +8.1 (5.1 / 13.3 / 5.9), 4.8 kills (D25 flat map: +6.9).
+- Closest to the exit 1,325-2,149 for four seeds; two 0.1 seeds still
+  roam the hall (2,760 and 3,627); nobody paces the hall's south wall.
+- 0.1 seed 3 reaches the exit room and stands at the switch in replays
+  without pressing it; one exit in training (game 541).
+- Videos (24 games): most kills 7, alive at the cap, 4 doors.
+
+**Conclusion.** The ledge-aware pull leads to the exit room; leaving
+needs a USE press at the switch, which nothing asks for.
+
+**Data.** `results/td-actor-critic/doom/map01_heights/`; videos in the
+project's `reports/doom-td/videos_h/`.
+
+### D33. A poke reflex: first exits (2026-11-01)
+
+**Question.** (Phase 19.) Does a random USE (`poke=0.1`) find the exit
+switch, and does the learner keep the route?
+
+**Setup.** D32 plus `poke=0.1`, approach 0.1 / 0.3, 3 seeds, 600 games.
+Seed 2 at 0.3 rerun to game 361 for testing and recording.
+
+**Result.**
+- Training exits: 0.3 seed 2: 27 (first at game 265, 18 in games
+  350-399, then 1-3 per 50 games); 0.3 seed 3: 4; 0.1 seed 2: 1.
+- Test after 600 games: no exits; reward excluding approach +6.0 (0.1)
+  and +4.3 (0.3).
+- Stopped at game 361: 3 of 10 test games exit, 7 kills, 0 deaths,
+  reward +38.9. Recorded 10 more: 3 exits; quickest 2:12 with 8 kills;
+  the most-doors game (4 doors, 9 kills) also exits.
+
+**Conclusion.** The first TD agent to leave MAP01. The route is learned
+for about 40 games and then forgotten.
+
+**Data.** `results/td-actor-critic/doom/map01_poke/`; videos in the
+project's `reports/doom-td/videos_exit/`.
+
+### D34. Keeping the route (2026-11-02)
+
+**Question.** (Phase 20.) D33's route was forgotten after about 40
+games. Larger exit reward, consolidation after exits, or a settling
+actor rate?
+
+**Setup.** D33 (approach 0.3, poke 0.1) with `exit_weight=50`,
+`consolidate=0.8` (actor rate ×0.8 per exit) or `actor_settle=200` (actor
+rate 0.1 / (1 + games / 200)); 3 seeds, 600 games, 10 tests;
+`--keep_every 50`. Resumed once from checkpoints (a resumed run continues
+on a new game random stream).
+
+**Result.**
+- Exit 50: training exits 0 / 23 / 1, none in tests; +10.7 excluding
+  approach.
+- Consolidate: 0 / 87 / 2; seed 2 exits 3 of 10 tests (+19.4); mean +12.0.
+- Settle: 33 / 34 / 55 (21, 12, 39 in the last 100 games); test exits
+  1 / 2 / 5 of 10; +15.1 (D33: +4.3).
+- Videos (20 games of the settle seeds and consolidated seed 2): 3 exits,
+  quickest 1:45 with 7 kills; most kills 9.
+
+**Conclusion.** A falling actor rate keeps the route on every seed;
+consolidation only where exits come early; a larger exit reward does not.
+
+**Data.** `results/td-actor-critic/doom/map01_keep/`; videos in the
+project's `reports/doom-td/videos_keep/`.
+
+### D35. How fast to settle (2026-11-02)
+
+**Question.** (Phase 21.) Settle the actor rate over 100 or 400 games
+instead of 200; does a kept route become a habit by game 800?
+
+**Setup.** D34 with `actor_settle` 100 / 400, and settle 200 run to 800
+games (meant as settle 200 + consolidate 0.8, but the settling rate
+overwrote the consolidation each game; fixed afterwards). 3 seeds, 800
+games, 10 tests; resumed once.
+
+**Result.**
+- Settle 100: training exits 0 / 187 / 0; seed 2 65 in the last 100,
+  test 8 of 10 (+22.5); mean +15.4 excluding approach.
+- Settle 200 to 800: 22 / 39 / 146; test 0 / 0 / 4; +9.9.
+- Settle 400: 0 / 0 / 15; test 0 / 0 / 3; +15.7.
+- Videos (15 games of settle 100 seed 2, settle 200 seed 3, settle 400
+  seed 3): 3 exits, all settle 100 seed 2, quickest 1:35; most kills 8;
+  most doors 5 (also an exit).
+
+**Conclusion.** The first agent that leaves MAP01 most of the time. Which
+seeds keep the route depends on finding the switch before the rate
+falls; time alone is the wrong signal for when to settle.
+
+**Data.** `results/td-actor-critic/doom/map01_settle/`; videos in the
+project's `reports/doom-td/videos_settle/`.
+
+### D36. Search, then lock in (2026-11-02)
+
+**Question.** (Phase 22.) Settling plus consolidation (fixed): keep
+searching, then hold the route once exits come?
+
+**Setup.** `actor_settle` 200 + `consolidate` 0.8, 400 + 0.8, 400 + 0.9;
+3 seeds, 800 games, 10 greedy tests; settle-200 agents also replayed 10
+games each with sampled actions (`where_agents_go.py --sample`).
+
+**Result.**
+- Settle 200 + 0.8: training exits 42 / 100 / 101, 10-26 per 100 games
+  to the end on every seed (rate ~0 from game ~500); greedy tests
+  0 / 2 / 1; sampled 0 / 0 / 3; +11.0 excluding approach.
+- Settle 400 + 0.8: 0 / 0 / 11, no test exits. 400 + 0.9: 0 / 0 / 15,
+  test 0 / 0 / 2.
+- Videos (30 sampled games): 3 exits (seed 3), quickest 2:36, 7 kills;
+  most kills 8; most doors 4 (also an exit).
+
+**Conclusion.** The route is held on every seed, but in a fifth of the
+games; a frozen policy cannot get better at it.
+
+**Data.** `results/td-actor-critic/doom/map01_search/`; videos in the
+project's `reports/doom-td/videos_search/`.
+
+### D37. An anchored route, learning on (2026-11-02)
+
+**Question.** (Phase 23.) Can the consolidated agents of D36 learn again
+without losing the route?
+
+**Setup.** From D36's settle-200 + consolidation checkpoints at game 500
+to game 800: `anchor_at=0.1` (anchor the actor's weights once the
+consolidation factor < 0.1), learning at `anchor_rate` 0.02, a pull back
+to the anchor of `anchor_pull` 0.05 or 0.2 after each game without an exit,
+the anchor moves to the current weights on each exit; control frozen from
+the same checkpoints.
+
+**Result.**
+- Frozen: training exits 39 / 50 / 67 (last 100: 9 / 13 / 25), tests
+  0 / 1 / 1, +10.6 excluding approach.
+- Pull 0.05: 110 / 139 / 71 (last 100: 62 / 54 / 31), tests 2 / 5 / 3,
+  +15.2.
+- Pull 0.2: 55 / 92 / 85 (last 100: 33 / 40 / 38), tests 5 / 3 / 4, +16.1.
+- Videos (24 games): 11 exits, quickest 53 s with 7 kills; most kills 8;
+  most doors 4.
+
+**Conclusion.** With an anchor that success moves forward, learning can
+stay on, and the agents get better at leaving MAP01 on every seed.
+
+**Data.** `results/td-actor-critic/doom/map01_anchor/`; videos in the
+project's `reports/doom-td/videos_anchor/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

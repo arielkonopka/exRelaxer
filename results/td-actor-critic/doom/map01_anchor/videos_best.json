@@ -1,0 +1,42 @@
+{
+ "kills": {
+  "run": "a20_s1",
+  "game": 0,
+  "kills": 8.0,
+  "seconds": 300.0,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 43.22099999999926,
+  "visited": 251
+ },
+ "longest": {
+  "run": "a20_s1",
+  "game": 2,
+  "kills": 6.0,
+  "seconds": 300.0,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 43.37099999999957,
+  "visited": 227
+ },
+ "doors": {
+  "run": "a20_s3",
+  "game": 2,
+  "kills": 8.0,
+  "seconds": 193.94285714285715,
+  "doors": 4.0,
+  "died": 0,
+  "game_reward": 51.02399999999905,
+  "visited": 176
+ },
+ "exit": {
+  "run": "a20_s3",
+  "game": 0,
+  "kills": 7.0,
+  "seconds": 53.142857142857146,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 47.605999999999945,
+  "visited": 104
+ }
+}

@@ -5,7 +5,11 @@ the WAD. The distance is the walking distance around walls: a breadth-first
 search on a grid (`res` map units a cell) in which every blocking line
 (ViZDoom's `is_blocking`: one-sided walls and impassable lines) is a wall.
 Doors count as open, and heights (ledges, steps) are ignored, so it is an
-approximation of the real path.
+approximation of the real path. With heights=True a step between two
+sectors is passable only upward by at most 24 units (Doom's step height;
+drops of any height are allowed), so ledges the player cannot climb are
+walls in one direction; doors (sectors whose ceiling is down) still count
+as open.
 """
 import os
 import struct
@@ -49,7 +53,7 @@ def exit_points(wad, map_name):
 class DistanceField:
     """Walking distance (map units) to the nearest exit from any point."""
 
-    def __init__(self, sectors, exits, res=16.0):
+    def __init__(self, sectors, exits, res=16.0, heights=False):
         lines = [l for s in sectors for l in s.lines if l.is_blocking]
         xs = [v for l in lines for v in (l.x1, l.x2)] + [x for x, _ in exits]
         ys = [v for l in lines for v in (l.y1, l.y2)] + [y for _, y in exits]
@@ -72,14 +76,60 @@ class DistanceField:
                         dist[i, j] = 0.0
                         queue.append((i, j))
         steps = [(1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0)]
+        floor = self._floors(sectors, w, h) if heights else None
         while queue:
             i, j = queue.popleft()
             for di, dj, c in steps:
                 a, b = i + di, j + dj
+                # The search runs backward from the exit: the player would step from (a, b) to (i, j).
+                if floor is not None and 0 <= a < w and 0 <= b < h and floor[i, j] - floor[a, b] > 24.0:
+                    continue
                 if 0 <= a < w and 0 <= b < h and not wall[a, b] and dist[a, b] == np.inf:
                     dist[a, b] = dist[i, j] + c
                     queue.append((a, b))
         self.dist = dist * res
+
+    def _floors(self, sectors, w, h):
+        """Floor height at each grid cell's centre (the sector containing it, by ray casting over its
+        lines; -inf outside every sector). A door sector (ceiling down) takes its highest neighbour's
+        floor, so a closed door is not a step."""
+        xs = self.x0 + (np.arange(w) + 0.5) * self.res
+        ys = self.y0 + (np.arange(h) + 0.5) * self.res
+        X, Y = np.meshgrid(xs, ys, indexing="ij")
+        floor = np.full((w, h), -np.inf)
+        for s in sectors:
+            if not s.lines:
+                continue
+            x1 = np.array([l.x1 for l in s.lines])
+            y1 = np.array([l.y1 for l in s.lines])
+            x2 = np.array([l.x2 for l in s.lines])
+            y2 = np.array([l.y2 for l in s.lines])
+            lo_x, hi_x = min(x1.min(), x2.min()), max(x1.max(), x2.max())
+            lo_y, hi_y = min(y1.min(), y2.min()), max(y1.max(), y2.max())
+            box = (X >= lo_x) & (X <= hi_x) & (Y >= lo_y) & (Y <= hi_y)
+            if not box.any():
+                continue
+            px, py = X[box][:, None], Y[box][:, None]
+            crosses = ((y1 > py) != (y2 > py)) & (px < x1 + (py - y1) * (x2 - x1) / np.where(y2 == y1, 1e-9, y2 - y1))
+            inside = crosses.sum(axis=1) % 2 == 1
+            fz = s.floor_height
+            if s.ceiling_height <= s.floor_height:  # a closed door: walk through at the higher side's level
+                fz = -np.inf
+            idx = np.argwhere(box)[inside]
+            floor[idx[:, 0], idx[:, 1]] = np.where(np.isfinite(fz), fz, floor[idx[:, 0], idx[:, 1]])
+            if not np.isfinite(fz):
+                floor[idx[:, 0], idx[:, 1]] = np.nan  # filled below
+        # door cells: the highest finite neighbour floor nearby, so stepping in or out is free
+        nan = np.isnan(floor)
+        if nan.any():
+            fin = np.where(np.isfinite(floor), floor, -np.inf)
+            for _ in range(6):
+                pad = np.pad(fin, 1, constant_values=-np.inf)
+                near = np.maximum.reduce([pad[1:-1, :-2], pad[1:-1, 2:], pad[:-2, 1:-1], pad[2:, 1:-1]])
+                fin = np.where(nan & ~np.isfinite(fin), near, fin)
+            floor = np.where(nan, fin, floor)
+        floor[~np.isfinite(floor)] = -1e9  # outside: never blocks (walls do that)
+        return floor
 
     def _cell(self, x, y):
         return int((x - self.x0) / self.res), int((y - self.y0) / self.res)

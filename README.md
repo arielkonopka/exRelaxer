@@ -490,6 +490,54 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-02: an anchored route, learning on (phase 23)
+
+- `doom_td.py`: `anchor_at`, `anchor_rate`, `anchor_pull`: once
+  consolidated, the actor's weights are anchored, learning resumes, and
+  every game pulls the weights back to the anchor, which moves on each
+  exit. Exits rise on every seed (tests 2-5 of 10 against 0-1 frozen).
+  Research §61, Doom log D37.
+
+### 2026-11-02: search, then lock in (phase 22)
+
+- `where_agents_go.py --sample`: replays with actions sampled from the
+  policy, as in training. Settling plus consolidation keeps every seed
+  exiting MAP01, in 10-26% of games. Research §60, Doom log D36.
+
+### 2026-11-02: how fast to settle (phase 21)
+
+- `doom_td.py`: `consolidate` now multiplies the settling rate of
+  `actor_settle` instead of being overwritten by it. Settling over 100
+  games gives the first agent that leaves MAP01 in 8 of 10 tests.
+  Research §59, Doom log D35.
+
+### 2026-11-02: keeping the exit route (phase 20)
+
+- `doom_td.py`: `exit_weight` (doom_rl's w_exit), `consolidate` (actor
+  rate ×c after each game that leaves the level), `actor_settle` (actor
+  rate falls as 1 / (1 + games / S)), `--keep_every N` (keeps a
+  checkpoint every N games). A settling rate keeps MAP01's exit route on
+  every seed. Research §58, Doom log D34.
+
+### 2026-11-02: a ledge-aware exit map and a poke reflex (phases 18-19)
+
+- `doom_rl/exitmap.py`: `DistanceField(..., heights=True)` treats a step
+  up of more than 24 units as a wall; doom_rl's `approach_heights` and
+  doom_td's `--set approach_heights=1` use it for the exit-approach
+  reward.
+- `doom_td.py --set poke=p`: a random USE press with probability p per
+  step. With it a TD agent left MAP01 for the first time (27 training
+  games on one seed); it forgets the route after about game 390.
+- `where_agents_go.py --heights`, and `best_exit.mp4` when a recorded
+  game left the level. Research §56-§57, Doom log D32-D33.
+
+### 2026-11-01: where the agents go (phase 17)
+
+- `td_actor_critic/where_agents_go.py`: replays doom_td checkpoints on
+  MAP01, draws their paths over the walking distance to the exit, and
+  with `--record` keeps videos of the games with the most kills, the
+  longest play and the most doors. Research §55, Doom log D31.
+
 ### 2026-11-01: practice under guidance, frozen statistics (phases 14-15)
 
 - `td_actor_critic/doom_td.py`: `detector_steer`, `detector_freeze_stats`,

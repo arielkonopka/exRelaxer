@@ -27,6 +27,7 @@ import argparse
 import json
 import os
 import pickle
+import shutil
 import sys
 import time
 
@@ -71,6 +72,9 @@ DEFAULTS = {
     # A door reflex: door_reflex=1 presses USE (with the chosen action) whenever the last step
     # moved the player less than 1 map unit although it tried to move: pushing against a wall.
     "door_reflex": 0,
+    # poke=p: press USE with probability p every step, whatever the actor chose (exit switches,
+    # doors the blocked test misses).
+    "poke": 0.0,
     # Path integration: path=1 gives the place cells a position integrated from self-motion
     # (each step's forward and sideways movement and turn, each with path_noise relative noise),
     # starting from (0, 0, 0) at every spawn, instead of the game's coordinates.
@@ -92,6 +96,19 @@ DEFAULTS = {
     # closest walking distance to the exit); boredom = c: a drive that grows while no new square
     # is entered, r -= c * min(1, steps since a new square / boredom_steps), also felt (a raw feature).
     "approach": 0.0, "boredom": 0.0, "boredom_steps": 100,
+    # approach_heights=1: the exit-approach distance respects ledges (doom_rl approach_heights).
+    "approach_heights": 0,
+    # Keeping a route once found (phase 20): exit_weight = doom_rl's w_exit (reward for leaving
+    # the level, 10 when unset); consolidate = c < 1: every training game that leaves the level
+    # multiplies the actor's learning rate by c (success makes the policy less plastic);
+    # actor_settle = S > 0: the actor's rate falls as actor_rate / (1 + games / S) whatever happens.
+    "exit_weight": 0.0, "consolidate": 1.0, "actor_settle": 0.0,
+    # An anchored route (phase 23): once consolidation has brought its factor (the product of
+    # consolidate over the exits so far) below anchor_at, the actor's weights are copied as an anchor and learning goes on at
+    # anchor_rate (no more settling or consolidation); after every training game the weights move
+    # back toward the anchor by the fraction anchor_pull, and a game that leaves the level moves
+    # the anchor to the current weights (success updates what is kept).
+    "anchor_at": 0.0, "anchor_rate": 0.02, "anchor_pull": 0.05,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -137,12 +154,15 @@ SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 
 MAPS = ("map01",)  # whole levels: doom_rl's 8 buttons and shaped reward (doom_rl/rewards.py)
 
 
-def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kill=None, color=False):
+def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kill=None, color=False,
+                   heights=False, exit_reward=None):
     """doom_rl's parameters for a whole map, without sound."""
     q = {k: v[0] for k, v in drl.PARAMS.items()}
-    q.update(scenario=scenario, sound=False, color=bool(color), w_approach=float(approach), labels=bool(labels))
+    q.update(scenario=scenario, sound=False, color=bool(color), approach_heights=bool(heights), w_approach=float(approach), labels=bool(labels))
     if kill is not None:
         q["w_kill"] = float(kill)
+    if exit_reward:
+        q["w_exit"] = float(exit_reward)
     if skill is not None:
         q["skill"] = int(skill)
     if until_death > 0:
@@ -697,6 +717,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     if learn:
         learner.games += 1
     blocked, reflexes = False, 0
+    pokes = 0
     state = game.get_state()
     if shaper is not None:
         shaper.reset(state)
@@ -720,6 +741,10 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             buttons = list(buttons)
             buttons[use] = 1
             reflexes += 1
+        elif use is not None and learner.p["poke"] > 0 and learner.rng.random() < learner.p["poke"]:
+            buttons = list(buttons)  # the poke reflex: press USE now and then, at whatever is ahead
+            buttons[use] = 1
+            pokes += 1
         where = monster_ahead(state, learner.p["attack_cone"]) if instinct and state is not None else None
         det = learner.detector
         if det is not None and instinct and state is not None and learner.view is not None:
@@ -834,7 +859,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
     s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
-             novelty=novelty, reflexes=reflexes, strikes=strikes,
+             novelty=novelty, reflexes=reflexes, strikes=strikes, pokes=pokes,
              det_recall=det_hits / max(1, det_true), det_false=det_false / max(1, steps), fb_shots=fb_shots,
              fb_hit_rate=fb_hits / max(1, fb_shots), turn_checks=turn_checks,
              turn_hit_rate=turn_hits / max(1, turn_checks),
@@ -863,6 +888,8 @@ def main():
     ap.add_argument("--set", action="append", default=[])
     ap.add_argument("--checkpoint", type=int, default=0,
                     help="save the learner every N episodes and resume from DIR/checkpoint.pkl when restarted")
+    ap.add_argument("--keep_every", type=int, default=0,
+                    help="also keep a copy of the checkpoint every N episodes (DIR/checkpoint_EP.pkl, a multiple of --checkpoint)")
     args = ap.parse_args()
     exr.set_threads(1)
     p = dict(DEFAULTS)
@@ -906,7 +933,8 @@ def main():
     else:
         open(log_path, "w").close()
     shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"], p["approach"],
-                                                   kill=p["kill_weight"])) if args.scenario in MAPS else None
+                                            kill=p["kill_weight"], heights=bool(p["approach_heights"]),
+                                            exit_reward=p["exit_weight"])) if args.scenario in MAPS else None
     t0 = time.time()
     with open(log_path, "a") as log:
         for ep in range(start, args.episodes):
@@ -917,9 +945,34 @@ def main():
                                  "landmarks": (learner.landmarks, learner.lives, learner.origin),
                                  "detector": learner.detector, "games": learner.games}, f)
                 os.replace(ckpt_path + ".tmp", ckpt_path)
+                if args.keep_every > 0 and ep % args.keep_every == 0:
+                    shutil.copy(ckpt_path, os.path.join(args.out, f"checkpoint_{ep}.pkl"))
+            anchor = learner.agent.__dict__.get("anchor")
+            if anchor is not None:
+                learner.agent.actor.rate = p["anchor_rate"]
+            elif p["actor_settle"] > 0:  # times the consolidation factor (consolidate), kept on the agent
+                learner.agent.actor.rate = p["actor_rate"] / (1.0 + learner.games / p["actor_settle"]) * \
+                    learner.agent.__dict__.get("consolidation", 1.0)
+            act = learner.agent.actor
+            if anchor is None and p["anchor_at"] > 0 and p["consolidate"] < 1.0 and \
+                    learner.agent.__dict__.get("consolidation", 1.0) < p["anchor_at"]:
+                anchor = learner.agent.anchor = (act.W.copy(), act.b.copy())
+                act.rate = p["anchor_rate"]
             trace = ep % p["trace_every"] == 0 or ep == args.episodes - 1
             s = episode(game, learner, scale, True, trace, shaper)
             s["episode"] = ep
+            act = learner.agent.actor
+            if anchor is not None:
+                if s.get("exits", 0) > 0:
+                    learner.agent.anchor = (act.W.copy(), act.b.copy())
+                else:
+                    act.W += p["anchor_pull"] * (anchor[0] - act.W)
+                    act.b += p["anchor_pull"] * (anchor[1] - act.b)
+            elif p["consolidate"] < 1.0 and s.get("exits", 0) > 0:
+                act.rate *= p["consolidate"]
+                learner.agent.consolidation = learner.agent.__dict__.get("consolidation", 1.0) * p["consolidate"]
+            s["anchored"] = int(learner.agent.__dict__.get("anchor") is not None)
+            s["actor_rate"] = float(learner.agent.actor.rate)
             s["clamped"] = learner.agent.actor.clamped()
             s["critic_w_max"] = float(np.abs(learner.agent.critic.w).max())
             if trace:

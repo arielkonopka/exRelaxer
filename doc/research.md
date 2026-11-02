@@ -3097,6 +3097,269 @@ detector's own gaze adds roughly as much again. Practice under guidance
 and frozen statistics do not change the score; the colour detector stays
 near +6.
 
+## 55. Where the agents go
+
+**Question.** (Phase 17; Doom log D31.) Where on MAP01 do the trained
+agents go, and where does the exit-approach reward lead them?
+
+**Setup.** `where_agents_go.py` replays the last checkpoint of a run in
+fresh test games (no learning) and draws the paths over the walking
+distance to the exit (`exitmap.py`). The exit is about 700 units from the
+spawn in a straight line and 3,600 on foot. Runs: §49's approach agents,
+§47's instinct agents (labels), §54's colour detector with frozen
+statistics; 4 games each.
+
+**Results.**
+- Approach agents never leave the spawn room and the big hall; their
+  closest points (2,016-2,784) lie along the hall's south wall, which the
+  distance map treats as passable (heights are ignored) but the agents
+  cannot cross.
+- Instinct agents cover the hall, the north door and the east wing; one
+  seed reaches the rooms south of the hall (closest 1,456-1,888). No agent
+  enters the large room in the south-east that leads along the corridor
+  to the exit.
+- Colour-detector agents stay closer to the spawn (closest 2,016-3,600).
+
+**What it means.** The approach reward's gradient has a false minimum at
+the hall's south wall, so it holds the agent there instead of guiding it
+round; a reward on the true route would need heights and doors in the
+distance map. The instinct agents' exploration, not a pull toward the
+exit, is what gets furthest.
+
+## 56. A ledge-aware exit map
+
+**Question.** (Phase 18; Doom log D32.) §55's approach agents paced a wall
+that the distance map treated as open because it ignored heights. Does
+the exit-approach reward guide the agent once the map knows about ledges?
+
+**Setup.** `exitmap.py` with `heights=True`: each 16-unit cell takes its
+sector's floor height (a door sector takes its neighbour's highest floor,
+since a closed door's floor and ceiling meet), and the breadth-first
+search refuses a step up of more than 24 units (the player's step
+height). The spawn is now 4,944 units from the exit on foot (3,600
+without heights). doom_td as in §49 with the instincts of §47 (labels for
+strike and orient, door reflex, boredom 0.01, place cells, γ .99) and
+`approach_heights=1`; approach weight 0.1 and 0.3, 3 seeds, 600 games of
+up to 5 minutes, 10 test games.
+
+**Results.** Test game reward excluding the approach reward (mean of 3
+seeds; §49's flat-map approach agents: +6.9):
+
+| approach | seeds | mean | kills | closest to exit |
+|---|---|---|---|---|
+| 0.1 | 3.3 / 10.3 / 9.3 | +7.6 | 3.1 | 1,325-3,627 |
+| 0.3 | 5.1 / 13.3 / 5.9 | +8.1 | 4.8 | 1,419-2,149 |
+
+- No agent paces the hall's south wall any more. Two seeds at 0.1 still
+  roam the hall and the north room; the other four go through the east
+  wing into the rooms south of the hall.
+- Seed 3 at 0.1 reaches the exit room, and in replays stands at the exit
+  switch (distance 0) without pressing it; it left the level once in
+  training (game 541).
+- Recorded games: most kills 7 (alive at the cap, 4 doors), and the
+  agents keep fighting while they travel.
+
+**What it means.** With ledges in the map, the approach reward's gradient
+points along a walkable route and gets the agent to the exit room. The
+last step is missing: the exit is a switch, and no action the agent is
+rewarded for presses USE at a wall that does not block it.
+
+## 57. A poke reflex
+
+**Question.** (Phase 19; Doom log D33.) The door reflex presses USE only
+when a move is blocked. Does a random poke (USE at any time, with
+probability 0.1 per step) let the agent find the exit switch, and does
+the TD learner then keep the route?
+
+**Setup.** §56 with `poke=0.1`, approach 0.1 and 0.3, 3 seeds, 600 games.
+Leaving the level pays doom_rl's +10 and ends the game. Seed 2 at 0.3 was
+rerun to game 361 (bit-exact with the 600-game run up to there) and
+tested and recorded with `where_agents_go.py --heights --record`.
+
+**Results.**
+- Training exits (first ever for a TD agent on MAP01): 0.3 seed 2: 27
+  (first at game 265; 18 between games 350 and 399, then 1-3 per 50
+  games); 0.3 seed 3: 4; 0.1 seed 2: 1.
+- Test after 600 games: no exits; reward excluding approach +6.0 (0.1:
+  4.1 / 9.5 / 4.4) and +4.3 (0.3: 7.0 / 2.1 / 3.9), below §56.
+- The same seed stopped at game 361: 3 exits in 10 test games, 7 kills,
+  no deaths, reward +38.9 (+19.7 excluding approach), closest 856. A
+  second set of 10 recorded games: 3 exits again; the quickest leaves
+  after 2:12 with 8 kills.
+
+**What it means.** The poke supplies the missing action, and the δ
+learner does pick up the route to the exit for a while (games 350-391).
+It then loses it: an exit ends the game early, so the agent stops
+collecting kill and exploration reward after it, and later games (and the
+large share of games that do not reach the switch) pull the policy away.
+The learned route is not protected; keeping it is the next problem.
+
+## 58. Keeping the route
+
+**Question.** (Phase 20; Doom log D34.) §57's agent found the exit and
+then lost the route about 40 games later. Which keeps it: a larger exit
+reward, consolidation (success makes the policy less plastic) or a
+learning rate that settles with age?
+
+**Setup.** §57's agent (approach 0.3, ledge-aware, poke 0.1) with one of
+- `exit_weight=50`: leaving the level pays 50 instead of 10;
+- `consolidate=0.8`: every training game that leaves the level multiplies
+  the actor's learning rate by 0.8;
+- `actor_settle=200`: the actor's rate is 0.1 / (1 + games / 200), so 0.025
+  at game 600, whatever happens.
+
+3 seeds, 600 games, 10 test games; `--keep_every 50` keeps a checkpoint
+every 50 games. The runs were resumed once from their checkpoints
+(games 470-550); a resumed run continues on a new game random stream,
+because the game is seeded once per process, so runs that are identical up
+to the resume point (`cons_s1` and `exit50_s1`, which never exit, equal
+§57's seed 1 until game 530) part there.
+
+**Results.** Exits in training games (per 100 games), test exits out of
+10, test reward excluding approach (§57 after 600 games: no test exits,
++4.3):
+
+| arm | seed 1 | seed 2 | seed 3 | test exits | excl. approach |
+|---|---|---|---|---|---|
+| exit 50 | 0 | 23 (13 in 300-399, then 2, 6) | 1 | 0 / 0 / 0 | +10.7 |
+| consolidate 0.8 | 0 | 87 (30, 27, 24 per 100 from game 300) | 2 | 0 / 3 / 0 | +12.0 |
+| settle 200 | 33 (21 in the last 100) | 34 | 55 (39 in the last 100) | 1 / 2 / 5 | +15.1 |
+
+- Consolidation works where exits happen: seed 2's rate fell to almost
+  zero after its first exits and the route stayed (3 test exits, +19.4).
+  On the other seeds it never starts.
+- Settling gives exits on every seed, still rising at game 600.
+- Recorded 20 more test games (settle seeds and consolidated seed 2, game
+  seed 3): 3 exits (settle seed 3 twice, consolidated seed 2 once, after
+  1:45); settle seeds 1 and 2 stayed in the hall and the east wing in
+  these games, and settle seed 3 reached the switch without pressing it
+  in another.
+
+**What it means.** Forgetting here is drift under a constant, high actor
+rate. A falling rate lets the critic and actor keep what the first exits
+taught while the agent still finds more of them; tying plasticity to
+success holds the route only where success came early. A bigger reward
+for the exit does not protect it. The learner stays always on, only
+slower: this is the trade the critical period of §39 made for grown
+neurons.
+
+## 59. How fast to settle
+
+**Question.** (Phase 21; Doom log D35.) §58's settling actor rate kept
+the route. How fast should it settle, and do the agents that keep it make
+leaving the level a habit given more games?
+
+**Setup.** §58 with `actor_settle` 100 or 400 (rate 0.1 / (1 + games / S):
+at game 800, 0.011 and 0.033), and a third arm meant as settle 200 plus
+consolidation 0.8. In that arm the settling rate was recomputed every game
+and overwrote the consolidation (fixed afterwards), so it is settle 200
+run to 800 games. 3 seeds, 800 games, 10 test games; resumed once from
+checkpoints (new game random stream).
+
+**Results.** Training exits (per 100 games from game 400), test exits out
+of 10, test reward excluding approach:
+
+| settle | seed 1 | seed 2 | seed 3 | test exits | excl. approach |
+|---|---|---|---|---|---|
+| 100 | 0 | 187 (24, 32, 43, 65) | 0 | 0 / 8 / 0 | +15.4 (10.1 / 22.5 / 13.6) |
+| 200 (to 800) | 22 (8, 5, 1, 3) | 39 (17, 2, 14, 1) | 146 (12, 29, 40, 61) | 0 / 0 / 4 | +9.9 (4.0 / 7.3 / 18.4) |
+| 400 | 0 | 0 | 15 (2, 4, 3, 3) | 0 / 0 / 3 | +15.7 (16.9 / 11.9 / 18.3) |
+
+- One agent makes it a habit: settle 100, seed 2 leaves the level in 65 of
+  its last 100 games and 8 of 10 tests. Recorded (5 more games): 3 exits,
+  the quickest after 1:35 with 6 kills; it dies in the other two.
+- Settle 200's seed 3 keeps rising (61 in the last 100); its seeds 1 and
+  2, which exited in §58's tests, fade between games 600 and 800 (this
+  part is after a resume, so the game stream differs from §58's).
+- The two seeds that never exit at settle 100 froze (rate 0.03 by game
+  300) before finding the switch; at settle 400 the rate is still high
+  enough that only seed 3 finds it, rarely.
+
+**What it means.** Whether an agent keeps the exit depends mostly on
+whether it finds the switch while it is still plastic. A fast settle
+locks in whatever was found by game ~300 (the route on one seed,
+wandering on the others); a slow settle keeps the agent searching and
+forgetting. A plasticity that falls with time alone cannot tell the two
+apart; it needs to know when something worth keeping happened, which is
+what consolidation was meant to add.
+
+## 60. Search, then lock in
+
+**Question.** (Phase 22; Doom log D36.) §59 suggested plasticity should
+fall when something worth keeping happens, not with time alone. Settling
+combined with consolidation (now multiplied into the settled rate) should
+keep searching until exits come and then hold them.
+
+**Setup.** §59 with `actor_settle=200, consolidate=0.8`, `actor_settle=400,
+consolidate=0.8` and `actor_settle=400, consolidate=0.9`; 3 seeds, 800
+games, 10 greedy test games; resumed once. The three settle-200 agents
+were also replayed in 10 games each with actions sampled from the policy
+as in training (`where_agents_go.py --sample`, no learning).
+
+**Results.**
+
+| arm | training exits (per 100 from game 400) | greedy test exits | excl. approach |
+|---|---|---|---|
+| settle 200 + cons 0.8 | 42 (10, 9, 9, 10) / 100 (19, 25, 16, 20) / 101 (13, 19, 24, 26) | 0 / 2 / 1 | +11.0 (10.7 / 8.4 / 13.7) |
+| settle 400 + cons 0.8 | 0 / 0 / 11 | 0 / 0 / 0 | +12.3 |
+| settle 400 + cons 0.9 | 0 / 0 / 15 | 0 / 0 / 2 | +10.4 |
+
+- Settle 200 + consolidation is the first setting where every seed keeps
+  exiting to the end of training (learning frozen by game ~500); the
+  exit rate stays at 10-26% of games.
+- Sampled replays: 0 / 0 / 3 exits of 10, so greedy tests are not the
+  cause; the frozen policies exit in about the share of games they did in
+  training. 11 of the 30 sampled games end in death.
+- Settling over 400 games leaves the rate high while the agents still
+  have not found the switch; only seed 3 exits, rarely, as in §59.
+
+**What it means.** Consolidation on success holds a route, but what it
+holds is a policy that reaches the exit in one game out of five; the
+rest of the games are spent fighting and dying on the way. Freezing early
+also freezes the agent's skill elsewhere. Making the exit reliable needs
+learning to go on after the route is fixed (for example in a part of the
+network that does not carry the route), not a lower rate everywhere.
+
+## 61. An anchored route, learning on
+
+**Question.** (Phase 23; Doom log D37.) §60's consolidated agents keep
+the exit route but cannot improve, because their learning is off. Can
+learning go back on without losing the route, if the weights are pulled
+back toward a kept copy?
+
+**Setup.** `anchor_at=0.1`: once the consolidation factor (0.8 per exit)
+is below 0.1, the actor's weights are copied as an anchor and the actor
+learns again at `anchor_rate` 0.02; after every training game that does
+not leave the level the weights move back toward the anchor by
+`anchor_pull` (0.05 or 0.2); a game that leaves the level moves the anchor
+to the current weights. Every run starts from §60's settle-200 +
+consolidation agents at game 500 (all three already frozen around the
+route) and plays to game 800; the control continues frozen from the same
+checkpoints, so all arms share the resume.
+
+**Results.** Training exits in games 500-800 (per 100 games), test exits
+out of 10, test reward excluding approach:
+
+| arm | seed 1 | seed 2 | seed 3 | test exits | excl. approach |
+|---|---|---|---|---|---|
+| frozen | 39 (12, 18, 9) | 50 (18, 19, 13) | 67 (22, 20, 25) | 0 / 1 / 1 | +10.6 |
+| anchor, pull 0.05 | 110 (13, 35, 62) | 139 (32, 53, 54) | 71 (18, 22, 31) | 2 / 5 / 3 | +15.2 |
+| anchor, pull 0.2 | 55 (13, 9, 33) | 92 (18, 34, 40) | 85 (22, 25, 38) | 5 / 3 / 4 | +16.1 |
+
+- Every anchored seed exits more often than its frozen copy, and the
+  rate is still rising at game 800 (to 62% of games for pull 0.05, seed
+  1).
+- Recorded (4 games per anchored run, 24 games): 11 exits; the quickest
+  leaves after 53 s with 7 kills; most kills 8 (alive at the cap); most
+  doors 4 (also an exit). Deaths in training stay at 20-60% of games.
+
+**What it means.** Learning can stay on once a route is found if what was
+learned is anchored: the pull keeps the policy near what last worked,
+and success moves that point forward, so improvements that lead to the
+exit are kept and others decay. It is a ratchet on the actor's weights,
+in the spirit of the growth idea (old parts kept, new learning on top),
+without a second network. The pull strength matters less than having one.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3380,6 +3643,34 @@ near +6.
     frame; held-out games show its real false-alarm rate (0.13 per tick
     against 0.02). Steering practice and frozen input statistics leave the
     colour agent at +5.5 to +6.1.
+49. **A walking-distance pull can trap** (§55): the exit-approach
+    reward's map ignores heights, and the agents it trains pace a wall it
+    treats as open; exploring agents get further but never reach the
+    room that leads to the exit.
+50. **A map with ledges makes the pull work** (§56): measured on a
+    ledge-aware walking distance, the approach reward leads to the exit
+    room; the agent then stands at the switch without pressing it.
+51. **A random poke finds the exit, the learner loses it** (§57): USE
+    pressed at random lets a TD agent leave MAP01 (27 training games, 3
+    of 10 test games at its best point), but it forgets the route about
+    40 games later.
+52. **A settling learning rate keeps the route** (§58): actor rate
+    0.1 / (1 + games / 200) gives exits on every seed, rising to the end,
+    and reward excluding approach +15.1 (constant rate +4.3);
+    consolidating after each exit works only on the seed that exits
+    early; a bigger exit reward does not help.
+53. **Plasticity has to fall at the right time** (§59): settling over
+    100 games makes the exit a habit on the one seed that found it early
+    (8 of 10 tests) and freezes the others before they find it; settling
+    over 400 keeps them searching and forgetting.
+54. **Locking in holds a route, not a skill** (§60): settling plus
+    consolidation keeps every seed exiting to the end, but in only
+    10-26% of games, greedy or sampled; the frozen policy cannot improve.
+55. **An anchor lets learning stay on** (§61): learning again at a modest
+    rate while being pulled back to a kept copy, which moves on each
+    exit, raises exits on every seed (tests 2-5 of 10 against 0-1
+    frozen, up to 62% of training games) and reward excluding approach
+    from +10.6 to +15-16.
 
 ## Open questions and next steps
 
