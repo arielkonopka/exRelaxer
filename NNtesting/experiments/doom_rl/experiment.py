@@ -49,11 +49,16 @@ FRAME_SKIP = 4                              # game tics per action (35 tics a se
 STEP_SAMPLES = SAMPLE_RATE * FRAME_SKIP // 35  # 1260 per ear per step
 
 
+def is_map(scenario):
+    """True for a whole Freedoom 2 level named mapNN."""
+    return len(scenario) == 5 and scenario.startswith("map") and scenario[3:].isdigit()
+
+
 def make_game(p, seed, visible=False):
     game = vzd.DoomGame()
-    if p["scenario"] == "map01":
+    if is_map(p["scenario"]):  # a whole Freedoom 2 level: map01 .. map32
         game.load_config(os.path.join(vzd.scenarios_path, "freedoom2.cfg"))
-        game.set_doom_map("map01")
+        game.set_doom_map(p["scenario"])
     else:
         game.load_config(os.path.join(vzd.scenarios_path, p["scenario"] + ".cfg"))
     game.set_window_visible(visible)  # watch.py --live: the game's own window
@@ -525,7 +530,7 @@ def play(game, player, p, episodes, lr, explore, rng, meter=False):
 
 
 PARAMS = {
-    "scenario": ("map01", "map01 (Freedoom 2, MAP01: a whole level) or a ViZDoom scenario: defend_the_center, "
+    "scenario": ("map01", "map01 .. map32 (a whole Freedoom 2 level) or a ViZDoom scenario: defend_the_center, "
                           "health_gathering, deadly_corridor, my_way_home, ..."),
     "skill": (2, "Doom skill 1 (easiest) .. 5"),
     "episode_tics": (2100, "episode timeout in game tics (35 a second)"),

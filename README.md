@@ -490,6 +490,13 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-03: other levels; the recipe on MAP02 (phase 27)
+
+- doom_rl and doom_td load any Freedoom 2 level (`--scenario map02` ..
+  `map32`); `where_agents_go.py` takes the level from the run's config.
+  On MAP02 the agents die in 96% of games and never exit. Research §65,
+  Doom log D41.
+
 ### 2026-11-03: restless only after a first exit (phase 26)
 
 - `doom_td.py --set restless_after_exit=1`: the drought of `restless`

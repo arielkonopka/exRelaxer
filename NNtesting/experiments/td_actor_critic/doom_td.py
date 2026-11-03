@@ -156,7 +156,7 @@ SCALES = {"my_way_home": 1.0, "basic": 0.01, "defend_the_center": 1.0, "map01": 
           "health_gathering_supreme": 0.01}
 
 
-MAPS = ("map01",)  # whole levels: doom_rl's 8 buttons and shaped reward (doom_rl/rewards.py)
+MAPS = tuple(f"map{i:02d}" for i in range(1, 33))  # whole levels: doom_rl's 8 buttons and shaped reward (doom_rl/rewards.py)
 
 
 def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kill=None, color=False,

@@ -3484,6 +3484,35 @@ gives the late finder a second chance. With settling, consolidation, the
 anchor and this restlessness, every one of six agents learns to leave
 MAP01 with its learning still on.
 
+## 65. The recipe on MAP02
+
+**Question.** (Phase 27; Doom log D41.) Does §64's recipe (instincts,
+ledge-aware approach, poke, settle, consolidate, anchor, restless after a
+first exit) carry over to another level?
+
+**Setup.** Freedoom 2 MAP02 (any `mapNN` now loads: doom_rl
+`experiment.is_map`, `exitmap.wad_for`, doom_td `MAPS`). The spawn is 1,552
+walking units from the exit (MAP01: 4,944), but the level holds many more
+monsters near the start. Same parameters as §64, seeds 1-6, 1200 games
+(no resume), 10 test games.
+
+**Results.**
+- No exits in 7,200 training games or 60 test games; no seed reached the
+  anchor or a restart (both need an exit first).
+- The agents die in 96% of training games, after 67-121 s on average,
+  and in 93% of test games (88 s). They kill more over time (5.6-6.8
+  per game in the first 100 games, 7.0-8.4 in the last 100). Test reward
+  excluding approach +5.2, 7.2 kills.
+- Closest test approach 800-1,256 units: the agents reach the rooms
+  around the exit enclosure but never get in. Recorded (18 games): most
+  kills 12 (dead at 1:31), one seed survives a full game in a side room,
+  at most 2 doors.
+
+**What it means.** The recipe keeps a route once one is found; it does
+not find one when the agent rarely lives long enough to search. On MAP02
+survival comes first: the reflexes kill, but the learner does not learn
+to avoid damage within 1200 games, so the poke never gets to the switch.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3807,6 +3836,9 @@ MAP01 with its learning still on.
     after a first exit leaves the early learners as they were and
     rescues the late finder; all six seeds exit in 49-80% of their last
     100 games, tests 4.7 of 10.
+59. **The recipe keeps a route; it does not find one** (§65): on MAP02
+    the agents die in 96% of games before reaching the exit, so nothing
+    is ever consolidated; survival has to come first.
 
 ## Open questions and next steps
 

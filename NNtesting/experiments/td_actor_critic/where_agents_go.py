@@ -48,7 +48,8 @@ def replay(run, games, seed, record=None):
     p.update({k: v for k, v in cfg.items() if k in p})
     scale = cfg["reward_scale"]
     labels = p["features"] == "oracle" or bool(p["attack_reflex"])
-    game = dt.make_game("map01", 30_000 + seed, p["skill"], labels, p["until_death"],
+    level = cfg.get("scenario", "map01")
+    game = dt.make_game(level, 30_000 + seed, p["skill"], labels, p["until_death"],
                         color=bool(p.get("detector_colour", 0)))
     learner = dt.Learner(p, game.get_available_buttons_size(), cfg["arm"], cfg["seed"])
     saved = Unpickler(open(os.path.join(run, "checkpoint.pkl"), "rb")).load()
@@ -58,7 +59,7 @@ def replay(run, games, seed, record=None):
         learner.landmarks, learner.lives, learner.origin = saved["landmarks"]
     learner.detector = saved.get("detector", learner.detector)
     learner.games = saved.get("games", learner.games)
-    shaper = dt.drl.make_shaper(dt.doom_rl_params("map01", p["skill"], p["until_death"], p["approach"],
+    shaper = dt.drl.make_shaper(dt.doom_rl_params(level, p["skill"], p["until_death"], p["approach"],
                                                   kill=p["kill_weight"],
                                                   heights=bool(p.get("approach_heights", 0))))
     paths = []
@@ -89,10 +90,10 @@ def replay(run, games, seed, record=None):
                 video.stdin.close()
                 video.wait()
         paths.append((path, s))
-    return game, paths
+    return game, paths, level
 
 
-def draw(state, field, runs, out):
+def draw(state, field, runs, out, level="map01"):
     from PIL import Image, ImageDraw
     d = field.dist
     w, h = d.shape
@@ -117,11 +118,17 @@ def draw(state, field, runs, out):
             if len(path) > 1:
                 dr.line([at(x, y) for x, y in path], fill=c, width=2)
         dr.text((8, 22 + 14 * n), name, fill=c)
-    for (x, y), c, t in (((216, -632), (255, 0, 0), "EXIT"), ((-192, -192), (255, 255, 255), "SPAWN")):
+    import exitmap
+    wad, name = exitmap.wad_for(level)
+    marks = [((x, y), (255, 0, 0), "EXIT") for x, y in (exitmap.exit_points(wad, name) if wad else [])[:1]]
+    starts = [paths[0][0][0] for _, paths in runs if paths and paths[0][0]]
+    if starts:
+        marks.append((starts[0], (255, 255, 255), "SPAWN"))
+    for (x, y), c, t in marks:
         a, b = at(x, y)
         dr.ellipse([a - 7, b - 7, a + 7, b + 7], fill=c)
         dr.text((a + 9, b - 6), t, fill=c)
-    dr.text((8, 6), "MAP01 test games of trained agents (background: walking distance to exit, green near)",
+    dr.text((8, 6), f"{level.upper()} test games of trained agents (background: walking distance to exit, green near)",
             fill=(255, 255, 255))
     im.save(out)
 
@@ -177,13 +184,13 @@ def main():
     runs, report = [], {}
     game = None
     for run in args.runs:
-        game, paths = replay(run, args.games, args.seed, args.record)
+        game, paths, level = replay(run, args.games, args.seed, args.record)
         name = os.path.basename(os.path.normpath(run))
         runs.append((name, paths))
     state = None
     game.new_episode()
     state = game.get_state()
-    field = drl_ex.exit_field("map01", state, args.heights)
+    field = drl_ex.exit_field(level, state, args.heights)
     for name, paths in runs:
         rows = []
         for path, s in paths:
@@ -193,7 +200,7 @@ def main():
                              seconds=s["seconds"], died=s["died"], kills=s["kills"], game_reward=s["game_reward"]))
         report[name] = rows
         print(name, [round(r["closest"]) for r in rows], flush=True)
-    draw(state, field, runs, args.out)
+    draw(state, field, runs, args.out, level)
     if args.record:
         keep_best(runs, args.record)
     with open(os.path.splitext(args.out)[0] + ".json", "w") as f:

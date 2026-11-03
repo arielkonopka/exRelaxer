@@ -1473,6 +1473,28 @@ up to their resume).
 **Data.** `results/td-actor-critic/doom/map01_restless2/`; videos in the
 project's `reports/doom-td/videos_restless2/`.
 
+### D41. The recipe on MAP02 (2026-11-03)
+
+**Question.** (Phase 27.) Does D40's recipe work on another level?
+
+**Setup.** Freedoom 2 MAP02 (doom_rl and doom_td now take any `mapNN`),
+D40's parameters, seeds 1-6, 1200 games, 10 tests. Spawn 1,552 walking
+units from the exit.
+
+**Result.**
+- No exits (training or tests); no anchor, no restart.
+- Deaths 96% of training games (mean 67-121 s per game), 93% of tests;
+  kills rise from about 6 to 7-8 per game; +5.2 excluding approach.
+- Closest 800-1,256 units: around the exit enclosure, never in it.
+- Videos (18 games): most kills 12 (dies at 1:31), one full 5-minute
+  survival, at most 2 doors.
+
+**Conclusion.** On a level that kills the agent within two minutes, the
+recipe has no exit to keep. Survival first.
+
+**Data.** `results/td-actor-critic/doom/map02_recipe/`; videos in the
+project's `reports/doom-td/videos_map02/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
