@@ -1495,6 +1495,28 @@ recipe has no exit to keep. Survival first.
 **Data.** `results/td-actor-critic/doom/map02_recipe/`; videos in the
 project's `reports/doom-td/videos_map02/`.
 
+### D42. Surviving MAP02 (2026-11-03)
+
+**Question.** (Phase 28.) Health input, a sharper damage penalty or a
+retreat reflex: do the MAP02 agents live longer?
+
+**Setup.** D41's agent with `drives=1` + `hurt_weight=0.05`, or
+`retreat=4` (walk backward 4 steps after each hit), or both; seeds 1-3,
+600 games, 10 tests; control D41's first 600 games.
+
+**Result.**
+- Last 100 games, deaths / mean length: control 97% / 67 s; health + hurt
+  91% / 101 s; retreat 98% / 61 s; both 85% / 111 s.
+- Best seed (both): 6 of 10 tests alive, mean 4:19, 10.2 kills.
+- No exits. Videos (12 games): most kills 11 (retreat agent, alive at the
+  cap); closest to the exit 896.
+
+**Conclusion.** Feeling hurt buys some time; backing off blindly does
+not. Not enough to search MAP02.
+
+**Data.** `results/td-actor-critic/doom/map02_survive/`; videos in the
+project's `reports/doom-td/videos_survive/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

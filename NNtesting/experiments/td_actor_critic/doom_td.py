@@ -114,6 +114,10 @@ DEFAULTS = {
     # actor_rate times the consolidation factor and settles again).
     # restless_after_exit=1: the drought counts only once the agent has left the level at least once.
     "restless": 0, "restless_after_exit": 0,
+    # Survival (phase 28): hurt_weight = doom_rl's w_hurt (penalty per health point lost, 0.01 when
+    # unset); retreat = k > 0: a retreat reflex, after every step that cost health the next k steps
+    # walk backward (MOVE_BACKWARD on, MOVE_FORWARD off; the strike and orient reflexes still act).
+    "hurt_weight": 0.0, "retreat": 0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -160,7 +164,7 @@ MAPS = tuple(f"map{i:02d}" for i in range(1, 33))  # whole levels: doom_rl's 8 b
 
 
 def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kill=None, color=False,
-                   heights=False, exit_reward=None):
+                   heights=False, exit_reward=None, hurt=None):
     """doom_rl's parameters for a whole map, without sound."""
     q = {k: v[0] for k, v in drl.PARAMS.items()}
     q.update(scenario=scenario, sound=False, color=bool(color), approach_heights=bool(heights), w_approach=float(approach), labels=bool(labels))
@@ -168,6 +172,8 @@ def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kil
         q["w_kill"] = float(kill)
     if exit_reward:
         q["w_exit"] = float(exit_reward)
+    if hurt:
+        q["w_hurt"] = float(hurt)
     if skill is not None:
         q["skill"] = int(skill)
     if until_death > 0:
@@ -723,6 +729,9 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         learner.games += 1
     blocked, reflexes = False, 0
     pokes = 0
+    retreat_left = retreats = 0
+    back = names.index("MOVE_BACKWARD") if "MOVE_BACKWARD" in names else None
+    fwd = names.index("MOVE_FORWARD") if "MOVE_FORWARD" in names else None
     state = game.get_state()
     if shaper is not None:
         shaper.reset(state)
@@ -793,6 +802,13 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         elif where is not None and learner.p["orient_reflex"]:
             buttons = list(buttons)
             buttons[names.index("TURN_LEFT" if where < 0 else "TURN_RIGHT")] = 1
+        if retreat_left > 0 and back is not None:
+            buttons = list(buttons)
+            buttons[back] = 1
+            if fwd is not None:
+                buttons[fwd] = 0
+            retreat_left -= 1
+            retreats += 1
         before_pos = PlaceCells.read(game)
         r = game.make_action(buttons, FRAME_SKIP) * scale
         if turn_check is not None and not game.is_episode_finished():
@@ -821,6 +837,8 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         done = game.is_episode_finished()
         before, health = health, game.get_game_variable(vzd.GameVariable.HEALTH)
         medkits += int(health > before)
+        if learner.p["retreat"] > 0 and health < before and not done:
+            retreat_left = learner.p["retreat"]
         if kind == "drive":
             r = learner.drive(before) - learner.drive(health)
         elif kind == "drive_level":
@@ -864,7 +882,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
     s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
-             novelty=novelty, reflexes=reflexes, strikes=strikes, pokes=pokes,
+             novelty=novelty, reflexes=reflexes, strikes=strikes, pokes=pokes, retreats=retreats,
              det_recall=det_hits / max(1, det_true), det_false=det_false / max(1, steps), fb_shots=fb_shots,
              fb_hit_rate=fb_hits / max(1, fb_shots), turn_checks=turn_checks,
              turn_hit_rate=turn_hits / max(1, turn_checks),
@@ -939,7 +957,8 @@ def main():
         open(log_path, "w").close()
     shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"], p["approach"],
                                             kill=p["kill_weight"], heights=bool(p["approach_heights"]),
-                                            exit_reward=p["exit_weight"])) if args.scenario in MAPS else None
+                                            exit_reward=p["exit_weight"], hurt=p["hurt_weight"])) \
+        if args.scenario in MAPS else None
     t0 = time.time()
     with open(log_path, "a") as log:
         for ep in range(start, args.episodes):

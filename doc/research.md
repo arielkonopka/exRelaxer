@@ -3513,6 +3513,44 @@ not find one when the agent rarely lives long enough to search. On MAP02
 survival comes first: the reflexes kill, but the learner does not learn
 to avoid damage within 1200 games, so the poke never gets to the switch.
 
+## 66. Surviving MAP02
+
+**Question.** (Phase 28; Doom log D42.) §65's agents die on MAP02 before
+they can search for the exit. Does feeling health, a sharper pain signal
+or a retreat reflex keep them alive?
+
+**Setup.** §65's agent with `drives=1` (health into the reservoir and as a
+raw feature) and `hurt_weight=0.05` (doom_rl's penalty per health point
+lost, 5x the default), or `retreat=4` (after a step that cost health, walk
+backward for 4 steps; the strike and orient reflexes still act), or both.
+Seeds 1-3, 600 games, 10 test games; control: §65's runs over their
+first 600 games. The runs restarted once near their start after a
+container restart.
+
+**Results.** Last 100 training games (games 500-600):
+
+| arm | deaths | mean game length | kills | test deaths (seeds) |
+|---|---|---|---|---|
+| control (§65) | 97% | 67 s | 7.5 | - |
+| health + hurt 0.05 | 91% | 101 s | 7.2 | 10 / 8 / 8 |
+| retreat 4 | 98% | 61 s | 6.9 | 7 / 9 / 10 |
+| both | 85% | 111 s | 6.7 | 4 / 10 / 6 |
+
+- No exits in any arm.
+- Health and pain lengthen the games by half; retreat alone does not
+  (walking backward blind meets other monsters); together the best seed
+  survives 6 of 10 test games (mean 4:19, 10.2 kills), another dies in
+  every test within 23 s.
+- Recorded (12 games): most kills 11 with the retreat agent, alive at the
+  cap in a side room; the both-agents die after 1:21-3:26; closest to
+  the exit 896.
+
+**What it means.** A felt body state and a pain signal teach some care,
+but in 600 games not enough to live through MAP02's opening fights; the
+reflexes that kill do not also teach where to stand. Surviving a hard
+level probably needs a learned sense of danger (which places hurt) more
+than another reflex.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3839,6 +3877,10 @@ to avoid damage within 1200 games, so the poke never gets to the switch.
 59. **The recipe keeps a route; it does not find one** (§65): on MAP02
     the agents die in 96% of games before reaching the exit, so nothing
     is ever consolidated; survival has to come first.
+60. **Feeling hurt helps a little, backing off does not** (§66): health
+    as input and a 5x damage penalty cut MAP02 deaths from 97% to 91%
+    and lengthen games by half; a retreat reflex alone does nothing;
+    together 85%. No exits.
 
 ## Open questions and next steps
 

@@ -490,6 +490,13 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-03: surviving MAP02 (phase 28)
+
+- `doom_td.py`: `hurt_weight` (doom_rl's w_hurt) and `retreat=k` (walk
+  backward k steps after each hit). Health input and a 5x damage penalty
+  cut MAP02 deaths from 97% to 91%; with the retreat reflex 85%; no
+  exits. Research §66, Doom log D42.
+
 ### 2026-11-03: other levels; the recipe on MAP02 (phase 27)
 
 - doom_rl and doom_td load any Freedoom 2 level (`--scenario map02` ..
