@@ -490,6 +490,33 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-03: surviving MAP02 (phase 28)
+
+- `doom_td.py`: `hurt_weight` (doom_rl's w_hurt) and `retreat=k` (walk
+  backward k steps after each hit). Health input and a 5x damage penalty
+  cut MAP02 deaths from 97% to 91%; with the retreat reflex 85%; no
+  exits. Research §66, Doom log D42.
+
+### 2026-11-03: other levels; the recipe on MAP02 (phase 27)
+
+- doom_rl and doom_td load any Freedoom 2 level (`--scenario map02` ..
+  `map32`); `where_agents_go.py` takes the level from the run's config.
+  On MAP02 the agents die in 96% of games and never exit. Research §65,
+  Doom log D41.
+
+### 2026-11-03: restless only after a first exit (phase 26)
+
+- `doom_td.py --set restless_after_exit=1`: the drought of `restless`
+  counts only after the first exit. All six MAP01 seeds become regular
+  exiters (49-80% of their last 100 games). Research §64, Doom log D40.
+
+### 2026-11-03: restless learning (phase 25)
+
+- `doom_td.py --set restless=N`: before the anchor is set, N games in a
+  row without leaving the level restart the actor's settling. Every seed
+  reaches the anchor; tests 4.5 of 10 (recipe 4.3). Research §63, Doom
+  log D39.
+
 ### 2026-11-02: the whole recipe from scratch (phase 24)
 
 - Settling, consolidation and an anchor together, from the first game:

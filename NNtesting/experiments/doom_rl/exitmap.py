@@ -22,8 +22,8 @@ EXIT_SPECIALS = {11, 52, 197}  # normal exits: switch, walk-over, gun (secret ex
 
 def wad_for(scenario):
     import vizdoom as vzd
-    if scenario == "map01":
-        return os.path.join(os.path.dirname(vzd.__file__), "freedoom2.wad"), "MAP01"
+    if len(scenario) == 5 and scenario.startswith("map") and scenario[3:].isdigit():
+        return os.path.join(os.path.dirname(vzd.__file__), "freedoom2.wad"), scenario.upper()
     return None, None
 
 

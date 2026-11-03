@@ -1428,6 +1428,95 @@ plastic stays a wanderer.
 **Data.** `results/td-actor-critic/doom/map01_recipe/`; videos in the
 project's `reports/doom-td/videos_recipe/`.
 
+### D39. Restless learning (2026-11-03)
+
+**Question.** (Phase 25.) Does restarting the settling after a long run
+of games without an exit rescue agents that never find the switch?
+
+**Setup.** D38's recipe plus `restless=150` (before the anchor, 150 games
+without an exit restart the `actor_settle` clock); seeds 1-6, 1200 games,
+10 tests; resumed once.
+
+**Result.**
+- Exits 151 / 407 / 135 / 208 / 76 / 14 (D38: 176 / 464 / 383 / 531 / 196
+  / 9); last 100 games 44 / 68 / 35 / 76 / 34 / 3, all rising.
+- All six anchored (games 447-1086; D38: five, 348-701), 1-5 restarts.
+- Tests 6 / 9 / 3 / 6 / 3 / 0 (mean 4.5, D38 4.3); +19.8 excluding
+  approach (D38 +16.4).
+- Videos (18 games): 6 exits, quickest 57 s with 7 kills; most kills 9.
+
+**Conclusion.** Restless learning gets every seed to the anchor and ends
+slightly ahead, but costs early progress; it should start only after a
+first exit or a longer drought.
+
+**Data.** `results/td-actor-critic/doom/map01_restless/`; videos in the
+project's `reports/doom-td/videos_restless/`.
+
+### D40. Restless only after a first exit (2026-11-03)
+
+**Question.** (Phase 26.) Restlessness that starts only after the first
+exit: early learners untouched, late finder rescued?
+
+**Setup.** D38's recipe plus `restless=150`, `restless_after_exit=1`;
+seeds 1-6, 1200 games, 10 tests. Seeds 1-5 never restart (same as D38
+up to their resume).
+
+**Result.**
+- Seed 6: 2 restarts, anchored at game 840, 109 exits, 49 in the last 100
+  (D38: 9 / 2), test 3 of 10.
+- Last 100 games: 60 / 62 / 78 / 80 / 65 / 49; tests 0 / 7 / 5 / 8 / 5 / 3
+  (mean 4.7); seed 1's 0 is test noise (it exits 2 of 3 recorded games).
+- Videos (18 games): 11 exits, every seed at least once; quickest 42 s.
+
+**Conclusion.** All six agents learn to leave MAP01 with learning on.
+
+**Data.** `results/td-actor-critic/doom/map01_restless2/`; videos in the
+project's `reports/doom-td/videos_restless2/`.
+
+### D41. The recipe on MAP02 (2026-11-03)
+
+**Question.** (Phase 27.) Does D40's recipe work on another level?
+
+**Setup.** Freedoom 2 MAP02 (doom_rl and doom_td now take any `mapNN`),
+D40's parameters, seeds 1-6, 1200 games, 10 tests. Spawn 1,552 walking
+units from the exit.
+
+**Result.**
+- No exits (training or tests); no anchor, no restart.
+- Deaths 96% of training games (mean 67-121 s per game), 93% of tests;
+  kills rise from about 6 to 7-8 per game; +5.2 excluding approach.
+- Closest 800-1,256 units: around the exit enclosure, never in it.
+- Videos (18 games): most kills 12 (dies at 1:31), one full 5-minute
+  survival, at most 2 doors.
+
+**Conclusion.** On a level that kills the agent within two minutes, the
+recipe has no exit to keep. Survival first.
+
+**Data.** `results/td-actor-critic/doom/map02_recipe/`; videos in the
+project's `reports/doom-td/videos_map02/`.
+
+### D42. Surviving MAP02 (2026-11-03)
+
+**Question.** (Phase 28.) Health input, a sharper damage penalty or a
+retreat reflex: do the MAP02 agents live longer?
+
+**Setup.** D41's agent with `drives=1` + `hurt_weight=0.05`, or
+`retreat=4` (walk backward 4 steps after each hit), or both; seeds 1-3,
+600 games, 10 tests; control D41's first 600 games.
+
+**Result.**
+- Last 100 games, deaths / mean length: control 97% / 67 s; health + hurt
+  91% / 101 s; retreat 98% / 61 s; both 85% / 111 s.
+- Best seed (both): 6 of 10 tests alive, mean 4:19, 10.2 kills.
+- No exits. Videos (12 games): most kills 11 (retreat agent, alive at the
+  cap); closest to the exit 896.
+
+**Conclusion.** Feeling hurt buys some time; backing off blindly does
+not. Not enough to search MAP02.
+
+**Data.** `results/td-actor-critic/doom/map02_survive/`; videos in the
+project's `reports/doom-td/videos_survive/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
