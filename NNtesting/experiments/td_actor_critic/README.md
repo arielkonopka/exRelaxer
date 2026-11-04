@@ -125,7 +125,11 @@ projection (`curiosity_dims`) of the next reservoir state from the state
 and the action (`curiosity_rate`); `curiosity_mode=surprise` pays
 c * clip(error / mean error - 1, 0, 3), `progress` pays the drop in error
 against a copy of the model taken every `curiosity_lag` steps. Danger and
-curiosity are kept in the checkpoint.
+curiosity are kept in the checkpoint. Phase 32: `view_novelty=c` keeps
+an episodic memory of views (the pooled screen projected to `view_dims`
+random directions, empty at the start of each game, up to `view_memory`
+views) and pays c * clip(d / mean d - 1, 0, 2) for a view at distance d
+from the nearest remembered one.
 
 `where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
 replays trained MAP01 runs and draws where they go (phase 17); `--record`

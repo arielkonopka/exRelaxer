@@ -3725,6 +3725,49 @@ small. Cascade-Correlation's candidate training does not carry over to an online
 big and mute what the readers do not use, which halves the active neurons for free. Muted neurons
 still run, so this saves activity, not memory or compute.
 
+## 70. Curiosity about views
+
+**Question.** (Phase 32; Doom log D45.) §68's curiosity rewarded
+prediction errors, which come from turning and fighting. Does a reward for
+seeing something new, judged against a memory of this game's views, get the
+agent into unknown parts of a level?
+
+**Setup.** §68's danger agent plus `view_novelty=c`: the pooled screen is
+projected to 32 random directions, centred and normalised, and compared with
+an episodic memory of the views seen in this game (empty at the start of
+every game, so it works on any level). The reward is c * clip(d / mean d - 1,
+0, 2), where d is the distance to the nearest remembered view and mean d is a
+lifetime running mean. A view at least half the mean distance from every
+other is remembered. c = 0.01 and 0.03, seeds 1-3, 1500 games, levels and
+tests as in §67.
+
+**Results.** Tests averaged over 3 seeds and 3 levels:
+
+| arm | deaths, trained | deaths, unseen | doors, unseen | squares, unseen | kills, unseen |
+|---|---|---|---|---|---|
+| base (§67) | 17% | 42% | 0.5 | 51 | 3.7 |
+| danger (§67) | 22% | 53% | 0.7 | 46 | 3.3 |
+| danger + surprise (§68) | 24% | 47% | 0.6 | 53 | 3.3 |
+| views 0.01 | 27% | 44% | 0.8 | 42 | 2.6 |
+| views 0.03 | 47% | 63% | 1.1 | 51 | 3.8 |
+
+- No exits anywhere.
+- At 0.03 every seed opens more doors on unseen levels (0.93-1.20 per
+  game, other arms' seeds 0.0-1.0) and every seed dies more (60-67% on unseen
+  levels, 47% even on trained ones). MAP02 kills 100%.
+- Squares visited do not rise: the extra doors lead into fights, not into
+  long explorations.
+- The memory keeps about 92% of all views, so most steps count as new.
+  Over the last 300 games the reward per step correlates only weakly with
+  new squares per step (r = 0.27-0.38).
+
+**What it means.** Novelty of views does what novelty of prediction errors
+did not: it pulls the agent through doors. But with the memory this
+permissive, it mostly rewards small changes from step to step, and behind
+the doors the agent meets monsters it cannot yet handle. Curiosity now
+outweighs caution, so a better balance needs a stricter memory (views
+remembered only when clearly new) or a sense of danger that steers.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4071,6 +4114,11 @@ still run, so this saves activity, not memory or compute.
     falls, so it acts as a clock; a plain clock with score-based undo matches ER(16). Candidates
     trained on δ hurt; 64 neurons pruned by significance to 29-37 lose nothing; weight saturation
     never happens at the library's clamp.
+64. **New views pull the agent through doors, not to exits** (§70): an
+    episodic memory of views rewarding the unfamiliar raises doors opened
+    on unseen levels from 0.5-0.7 to 1.1 per game, but deaths rise from
+    42-53% to 63% and no exit is found; the memory keeps 92% of views, so
+    the reward tracks new ground only weakly.
 
 ## Open questions and next steps
 

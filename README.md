@@ -490,6 +490,13 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-04: curiosity about views (phase 32)
+
+- `doom_td.py`: `view_novelty=c` (an episodic memory of views; reward for a
+  view unlike any seen this game). At 0.03 the agent opens twice the doors
+  on unseen levels but dies more (63% vs 42-53%); no exits. Research §70,
+  Doom log D45.
+
 ### 2026-11-04: revised growth rules (error-driven growth, muting, significance, scaling)
 
 - Core: `net.muteNeurons` / Python `mute_neurons`, `muted_neurons`: a muted neuron runs but
