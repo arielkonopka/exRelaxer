@@ -133,6 +133,12 @@ DEFAULTS = {
     # of the model taken curiosity_lag steps ago (learning progress: noise that cannot be learned pays nothing).
     "curiosity": 0.0, "curiosity_mode": "surprise", "curiosity_dims": 32, "curiosity_rate": 0.05,
     "curiosity_lag": 2000,
+    # Novelty of views (phase 32): view_novelty = c > 0: the pooled screen, projected to view_dims
+    # random directions and normalised, is compared with an episodic memory of the views seen in this
+    # game; r += c * clip(d / mean d - 1, 0, 2), d = distance to the nearest remembered view (mean d:
+    # a lifetime running mean). A view at least half the mean distance from all others is remembered
+    # (up to view_memory views). New ground pays; turning on the spot pays only until the turn is known.
+    "view_novelty": 0.0, "view_dims": 32, "view_memory": 3000,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -459,6 +465,36 @@ class Curiosity:
         return float(np.clip(raw, 0.0, 3.0))
 
 
+class ViewNovelty:
+    """Episodic memory of views: a view far from every view seen in this game is novel."""
+
+    def __init__(self, n, dims=32, memory=3000, seed=0):
+        self.P = np.random.default_rng(seed).normal(0, 1, (dims, n))
+        self.cap = int(memory)
+        self.mean = None
+        self.reset()
+
+    def reset(self):
+        self.mem = np.zeros((self.cap, self.P.shape[0]))
+        self.size = 0
+        self.dists = []
+
+    def bonus(self, eye):
+        v = self.P @ (np.asarray(eye, dtype=np.float64) - np.mean(eye))
+        v /= np.linalg.norm(v) + 1e-9
+        if self.size == 0:
+            self.mem[0] = v
+            self.size = 1
+            return 0.0
+        d = float(np.sqrt(np.min(((self.mem[:self.size] - v) ** 2).sum(axis=1))))
+        self.dists.append(d)
+        self.mean = d if self.mean is None else self.mean + 0.001 * (d - self.mean)
+        if d > 0.5 * self.mean and self.size < self.cap:
+            self.mem[self.size] = v
+            self.size += 1
+        return float(np.clip(d / max(self.mean, 1e-9) - 1.0, 0.0, 2.0))
+
+
 class ThreatDetector:
     """Monster-or-not for each screen column, from the frozen vision features of that column and
     `neighbours` columns on each side (weights shared across columns, like a convolution): a
@@ -628,6 +664,9 @@ class Learner:
                                    p["curiosity_rate"], p["curiosity_mode"], p["curiosity_lag"], seed=seed + 31) \
             if p["curiosity"] > 0 else None
         self.cur_z = None
+        self.view_novelty = ViewNovelty(self.eye_size, p["view_dims"], p["view_memory"], seed=seed + 32) \
+            if p["view_novelty"] > 0 else None
+        self.eye_now = None
         self.games = 0
         self.colour = None  # colour features per screen column (detector_colour)
         self.lives = 0
@@ -660,6 +699,7 @@ class Learner:
             raw.append(oracle_features(state))
         else:
             inputs["eye"] = pool_screen(state.screen_buffer, self.p["pool"])
+            self.eye_now = inputs["eye"]
             if self.p["detector_colour"]:
                 self.colour = colour_columns(state.screen_buffer)
             if self.p["features"] in ("both_eye", "eye"):
@@ -859,6 +899,9 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         learner.danger.reset()
         learner.danger_z = None
     learner.cur_z = None
+    if learner.view_novelty is not None:
+        learner.view_novelty.reset()
+    viewed = 0.0
     if learner.curiosity is not None:
         learner.curiosity.errors = []
     fields = []  # test games: (winning learned place cell, x, y)
@@ -999,6 +1042,12 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             if learn:
                 r += bonus
                 novelty += bonus  # intrinsic, not the game's
+        if learner.view_novelty is not None and learner.eye_now is not None:
+            bonus = learner.p["view_novelty"] * learner.view_novelty.bonus(learner.eye_now)
+            viewed += bonus
+            if learn:
+                r += bonus
+                novelty += bonus  # intrinsic, not the game's
         if not learn and learner.vplace is not None and learner.vplace.winner is not None:
             fields.append((learner.vplace.winner, pos[0], pos[1]))
         a = learner.act(x, r, False, learn)
@@ -1007,7 +1056,8 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
     s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
-             novelty=novelty, curious=curious,
+             novelty=novelty, curious=curious, viewed=viewed,
+             views=learner.view_novelty.size if learner.view_novelty is not None else 0,
              curiosity_error=float(np.mean(learner.curiosity.errors)) if learner.curiosity is not None and learner.curiosity.errors else -1.0,
              reflexes=reflexes, strikes=strikes, pokes=pokes, retreats=retreats,
              danger_hurt=float(np.mean(learner.danger.hurt_p)) if learner.danger is not None and learner.danger.hurt_p else -1.0,
@@ -1079,6 +1129,7 @@ def main():
         learner.games = saved.get("games", learner.games)
         learner.danger = saved.get("danger", learner.danger)  # (checkpoints before phase 31 lack these)
         learner.curiosity = saved.get("curiosity", learner.curiosity)
+        learner.view_novelty = saved.get("view_novelty", learner.view_novelty)
         with open(log_path) as f:
             kept = f.readlines()[:start]
         with open(log_path, "w") as f:
@@ -1107,7 +1158,8 @@ def main():
                     pickle.dump({"episode": ep, "agent": learner.agent, "rng": learner.rng, "vplace": learner.vplace,
                                  "landmarks": (learner.landmarks, learner.lives, learner.origin),
                                  "detector": learner.detector, "games": learner.games,
-                                 "danger": learner.danger, "curiosity": learner.curiosity}, f)
+                                 "danger": learner.danger, "curiosity": learner.curiosity,
+                                 "view_novelty": learner.view_novelty}, f)
                 os.replace(ckpt_path + ".tmp", ckpt_path)
                 if args.keep_every > 0 and ep % args.keep_every == 0:
                     shutil.copy(ckpt_path, os.path.join(args.out, f"checkpoint_{ep}.pkl"))
@@ -1195,7 +1247,7 @@ def main():
     np.save(os.path.join(args.out, "actor_W.npy"), learner.agent.actor.W)
     np.save(os.path.join(args.out, "critic_w.npy"), learner.agent.critic.w)
     keys = ("game_reward", "kills", "seconds", "died", "items", "doors", "exits", "cells", "closest", "approach_reward",
-            "danger_hurt", "danger_safe", "curious")
+            "danger_hurt", "danger_safe", "curious", "viewed", "views")
     summary["by_map"] = {level: {k: float(np.mean([r[k] for r in rs])) for k in keys if k in rs[0]}
                          for level, rs in by_map.items()}
     with open(os.path.join(args.out, "test.json"), "w") as f:

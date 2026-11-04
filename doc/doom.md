@@ -1569,6 +1569,30 @@ fighting, not new places. Next: curiosity tied to places or movement.
 `unseen_paths/` (path pictures); videos in the project's
 `reports/doom-td/videos_anymap/`.
 
+### D45. Curiosity about views (2026-11-04)
+
+**Question.** (Phase 32.) Does a reward for views unlike any seen in this
+game get the agent into unknown parts of a level?
+
+**Setup.** D44's danger agent plus `view_novelty=c` (episodic memory of
+pooled-screen views, reward for the distance to the nearest remembered
+view above the usual), c = 0.01 / 0.03, 3 seeds, 1500 games, levels as D43.
+
+**Result.**
+- No exits. On unseen levels at 0.03: 1.1 doors per game (others
+  0.5-0.7), 63% deaths (others 42-53%), squares unchanged (51).
+- 0.01 is within noise of no curiosity.
+- The memory keeps 92% of views; the reward tracks new squares weakly
+  (r = 0.27-0.38).
+
+**Conclusion.** Curiosity about views makes the agent bolder, opening more
+doors, but not better: it dies behind them.
+
+- Videos: on MAP06 none takes the corridor north toward the exit.
+
+**Data.** `results/td-actor-critic/doom/view_novelty/` (paths per unseen
+level); videos in the project's `reports/doom-td/videos_views/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
