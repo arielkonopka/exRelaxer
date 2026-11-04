@@ -1557,12 +1557,17 @@ next reservoir state; `surprise` (error above the usual) or `progress`
   (16-49 squares vs 122-144) and die 2x as often.
 - c = 0.005: test deaths on unseen levels 47% (surprise), 51%
   (progress) vs 42-53% without; no exits; within noise.
-- Videos of the 12 agents on the unseen levels: see below.
+- Recorded 2 games of each of the 12 agents (D43-D44) on each unseen
+  level: on MAP06 they fight in the start rooms and side rooms and none
+  takes the corridor north toward the exit; most kills 10 (MAP02),
+  closest to an exit about 450 (MAP02).
 
 **Conclusion.** Prediction error in the reservoir rewards spinning and
 fighting, not new places. Next: curiosity tied to places or movement.
 
-**Data.** `results/td-actor-critic/doom/curiosity_strong/`, `curiosity/`.
+**Data.** `results/td-actor-critic/doom/curiosity_strong/`, `curiosity/`,
+`unseen_paths/` (path pictures); videos in the project's
+`reports/doom-td/videos_anymap/`.
 
 ## Open questions
 

@@ -3641,6 +3641,10 @@ Phase 31b (c = 0.005), tests averaged over 3 seeds and 3 levels:
 - With the danger unit kept across restarts it still separates the
   steps before a hit (0.53-0.58) from the rest (0.13-0.17), and still
   does not lower deaths.
+- Recorded games of all 12 agents (§67-§68) on the unseen levels
+  (`results/td-actor-critic/doom/unseen_paths/`): they fight around the
+  start and nearby side rooms; on MAP06 none takes the corridor north
+  toward the exit. Most kills 10 (MAP02).
 
 **What it means.** Surprise in the reservoir is not novelty of place.
 The biggest prediction errors come from turning on the spot, shooting
