@@ -139,6 +139,9 @@ DEFAULTS = {
     # a lifetime running mean). A view at least half the mean distance from all others is remembered
     # (up to view_memory views). New ground pays; turning on the spot pays only until the turn is known.
     "view_novelty": 0.0, "view_dims": 32, "view_memory": 3000,
+    # Phase 33: view_keep = k: a view is remembered only when d > k * mean d (0.5 kept ~92% of views);
+    # fear = w > 0: r -= w * the danger unit's output each step (being afraid costs before the hit does).
+    "view_keep": 0.5, "fear": 0.0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -468,8 +471,9 @@ class Curiosity:
 class ViewNovelty:
     """Episodic memory of views: a view far from every view seen in this game is novel."""
 
-    def __init__(self, n, dims=32, memory=3000, seed=0):
+    def __init__(self, n, dims=32, memory=3000, seed=0, keep=0.5):
         self.P = np.random.default_rng(seed).normal(0, 1, (dims, n))
+        self.keep = float(keep)
         self.cap = int(memory)
         self.mean = None
         self.reset()
@@ -489,7 +493,7 @@ class ViewNovelty:
         d = float(np.sqrt(np.min(((self.mem[:self.size] - v) ** 2).sum(axis=1))))
         self.dists.append(d)
         self.mean = d if self.mean is None else self.mean + 0.001 * (d - self.mean)
-        if d > 0.5 * self.mean and self.size < self.cap:
+        if d > getattr(self, "keep", 0.5) * self.mean and self.size < self.cap:
             self.mem[self.size] = v
             self.size += 1
         return float(np.clip(d / max(self.mean, 1e-9) - 1.0, 0.0, 2.0))
@@ -664,7 +668,8 @@ class Learner:
                                    p["curiosity_rate"], p["curiosity_mode"], p["curiosity_lag"], seed=seed + 31) \
             if p["curiosity"] > 0 else None
         self.cur_z = None
-        self.view_novelty = ViewNovelty(self.eye_size, p["view_dims"], p["view_memory"], seed=seed + 32) \
+        self.view_novelty = ViewNovelty(self.eye_size, p["view_dims"], p["view_memory"], seed=seed + 32,
+                                        keep=p["view_keep"]) \
             if p["view_novelty"] > 0 else None
         self.eye_now = None
         self.games = 0
@@ -711,7 +716,8 @@ class Learner:
         if self.p["boredom"] > 0:
             raw.append([self.boredom_level])
         if self.danger is not None:
-            raw.append([self.danger.prob(self.danger_z)])
+            self.danger_p = self.danger.prob(self.danger_z)
+            raw.append([self.danger_p])
         x = self.res.step(inputs, raw=np.concatenate(raw) if raw else None)
         if self.danger is not None:
             self.danger_z = x[:len(x) - self.res.extra].copy()
@@ -1042,6 +1048,9 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             if learn:
                 r += bonus
                 novelty += bonus  # intrinsic, not the game's
+        if learn and learner.danger is not None and learner.p["fear"] > 0:
+            r -= learner.p["fear"] * learner.danger_p
+            novelty -= learner.p["fear"] * learner.danger_p  # intrinsic, not the game's
         if learner.view_novelty is not None and learner.eye_now is not None:
             bonus = learner.p["view_novelty"] * learner.view_novelty.bonus(learner.eye_now)
             viewed += bonus
