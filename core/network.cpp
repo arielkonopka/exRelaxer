@@ -408,6 +408,11 @@ void network::freezeNeurons(LayerId id, size_t first, size_t count, bool frozen)
     neuronLayer(id).setNeuronsFrozen(first, count, frozen);
 }
 
+void network::muteNeurons(LayerId id, size_t first, size_t count, bool muted)
+{
+    neuronLayer(id).setNeuronsMuted(first, count, muted);
+}
+
 void network::freezeInputs(LayerId id, LayerId source, bool frozen)
 {
     dense& target = denseLayer(id, "freezeInputs");

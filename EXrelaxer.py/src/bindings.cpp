@@ -834,6 +834,21 @@ NB_MODULE(_core, m)
              "Removes neurons from a Dense layer; Dense readers drop the matching inputs.")
         .def("freeze_neurons", &network::freezeNeurons, "layer"_a, "first"_a, "count"_a, "frozen"_a = true,
              "Single neurons stop (or resume) learning.")
+        .def("mute_neurons", &network::muteNeurons, "layer"_a, "first"_a, "count"_a, "muted"_a = true,
+             "Single neurons are muted (or unmuted): they run, and learn unless frozen, but the layer outputs 0\n"
+             "for them, so nothing downstream sees them (state_probe's `output` still shows what they would emit).\n"
+             "Saved with the network.")
+        .def(
+            "muted_neurons",
+            [](network& net, LayerId id) {
+                const neuron_layer& l = neuronLayer(net, id);
+                std::vector<size_t> out;
+                for (size_t i = 0; i < l.size(); ++i)
+                    if (l.neuronMuted(i))
+                        out.push_back(i);
+                return out;
+            },
+            "layer"_a, "Indices of the layer's muted neurons.")
         .def("freeze_inputs", nb::overload_cast<LayerId, LayerId, bool>(&network::freezeInputs), "layer"_a,
              "source"_a, "frozen"_a = true, "The weights with which a Dense layer reads `source` stop (or resume) learning.")
         .def("freeze_inputs", nb::overload_cast<LayerId, const std::string&, bool>(&network::freezeInputs),

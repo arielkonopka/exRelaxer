@@ -3655,6 +3655,76 @@ needs curiosity tied to places or to movement: novelty of a view against
 a memory of seen views, or a bonus paid only when the agent reaches
 ground it has not stood on.
 
+## 69. Error-driven growth, shadow candidates, significance pruning, synaptic scaling
+
+**Question.** (Design: `/mnt/project-files/notes/growth-rules-revision.md`, agreed with the user
+2026-11-03.) Four revisions of the growth rules: grow when a TD critic's error stops falling
+although the critic is still learning (Dynamic Node Creation / Cascade-Correlation on δ); let
+growth pick from muted "shadow" candidates that learned to follow δ; prune by significance
+(mute, restore if the error rises, delete only over a memory budget); and on weight saturation
+scale a neuron's synapses down the first time and split it the second time. Do they beat
+§37-§39's growth and reach a fixed, right-sized net?
+
+**Setup.** `snake_growth/td_growth.py`: §37's Snake network and learning (feedback alignment,
+recovery 0.5, width only, max 64 active neurons) plus a linear TD(λ) critic that reads only the
+E-R layer (it does not drive the actor). The error is the share of the TD target the critic does
+not explain, per 2,000-tick window; growth after 3 windows without a 2% fall while the critic's
+weights still move; 4 neurons per growth; undone (LIFO) if the score did not rise 3 evaluations
+later. Controls: fixed sizes, §37's tiredness trigger, and a clock (growth every 8,000 ticks).
+3,000 games, seeds 1-20; last 300 training games and 100 greedy test games
+(`results/td-growth/`).
+
+**Step 0.** No weight reaches the ±10 clamp on Snake (largest hidden |w| 4.2-6.3 after 1,500
+games, readouts below 0.8; E-R Dense layers normalise their sums). Saturation was therefore tested
+at lower limits (3 and 1.5), as a synapse maximum.
+
+**Results** (apples per game, ± s.e. over 20 seeds):
+
+| arm | last 300 | test | active neurons |
+|---|---|---|---|
+| fixed ER(1) / ER(4) / ER(16) / ER(64) | 0.38 / 7.25 / **9.81** / 9.77 | 0.2 / 10.5 / 13.2 / 13.6 | 1 / 4 / 16 / 64 |
+| tiredness trigger from ER(1) (§37) | 7.83 ± 0.22 | 10.4 | 5 |
+| **TD-error trigger** from ER(1) | 9.41 ± 0.09 | 12.9 | 44 |
+| clock, every 8,000 ticks, from ER(1) | **9.89 ± 0.06** | 13.8 | 64 |
+| TD + shadow pool, candidates trained on δ | 9.16 ± 0.10 | 12.5 | 47 |
+| TD + shadow pool, untrained (random pick) | 9.51 ± 0.11 | 13.0 | 42 |
+| ER(64), significance pruning (strict / stricter) | 9.76 / 9.82 | 13.4 / 13.0 | 37 / 29 |
+| ER(4), scaling + split at limit 1.5 | 7.82 ± 0.17 | 10.0 | 4.7 |
+
+- **The TD trigger is the first growth rule that starts from one neuron and comes close to the
+  fixed right-sized net**: 9.41 against 9.81 (−0.40 ± 0.12), and +1.58 ± 0.24 over the tiredness
+  trigger.
+- **But the error plateau is not what does it.** The critic's error never falls (0.73-0.78
+  unexplained while the layer grows from 1 to 44 neurons; window-to-window s.d. 0.10), so the
+  plateau test passes at nearly every chance and the trigger works like a clock with back-off. A
+  plain clock does better (+0.48 ± 0.11) and matches fixed ER(16). What helps is growing steadily
+  and undoing growth the score does not justify.
+- Judging growth by the critic's error instead of the score fails outright: the error rises
+  when the agent gets better (it meets new states and larger values), so the probation undid a
+  growth that had lifted the score from 0.5 to 3.8 (seed 1). The score judges; the error cannot.
+- **Shadow candidates trained on δ are worse than untrained ones** (−0.35 ± 0.15): their
+  correlation with δ stays tiny (mean |r| 0.076 against 0.042 for untrained), and the δ-gated
+  rule moves their weights away from what feedback alignment would have learned. An untrained pool
+  is the same as random growth (+0.10 ± 0.14).
+- **Overproduce, then prune by significance, works**: 64 neurons muted down to 29-37 active play as
+  well as the full 64 or fixed ER(16) (+0.05 ± 0.15 / −0.01 ± 0.15). Restores were common at the
+  strict setting (16 of 43 mutes, the noisy error), rare with a 20% tolerance (1 of 36). Pruning
+  added to growth costs a little (clock + pruning −0.38 ± 0.12).
+- **Saturation**: at limit 3 it hardly fires (0.7 scalings per run at ER(16), never a split). At
+  1.5 it scales ~16 times per run and splits 0.7 times; ER(4) gains +0.57 ± 0.40 (noise) and ER(1)
+  gets to ~2 neurons and 1.9 apples (from 0.4). Scaling-then-splitting is a weak growth rule here
+  because the weights it watches are not what limits the network.
+- Side result: in `td_actor_critic/snake_td.py` (critic and actor on state + a frozen mix) the mix
+  size does not matter (0 to 64 mix neurons: 18-20.5 test apples), so that set-up cannot test
+  growth at all; the critic on raw sensors already solves it.
+
+**What it means.** On Snake, *when* to grow matters less than growing at a steady pace with an
+undo, and the critic's error is too noisy and too non-stationary to say when the layer is too
+small. Cascade-Correlation's candidate training does not carry over to an online E-R layer with a
+δ-modulated rule. The clearest positive is the biological route the other way round: start too
+big and mute what the readers do not use, which halves the active neurons for free. Muted neurons
+still run, so this saves activity, not memory or compute.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3995,6 +4065,12 @@ ground it has not stood on.
     a strong forward-model surprise or learning-progress reward is farmed
     by fighting in place (3x fewer squares, 2x the deaths); a weak one
     changes nothing on unseen levels.
+
+63. **Growth on a clock beats growth on a plateau** (§69): a TD-error trigger takes Snake from one
+    neuron to 9.4 apples (fixed ER(16) 9.8, tiredness trigger 7.8), but the critic's error never
+    falls, so it acts as a clock; a plain clock with score-based undo matches ER(16). Candidates
+    trained on δ hurt; 64 neurons pruned by significance to 29-37 lose nothing; weight saturation
+    never happens at the library's clamp.
 
 ## Open questions and next steps
 

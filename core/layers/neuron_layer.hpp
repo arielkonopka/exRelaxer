@@ -153,6 +153,18 @@ public:
     bool neuronFrozen(size_t index) const { return frozen_.at(index) != 0; }
     size_t frozenNeuronCount() const;
 
+    // --- Muting single neurons ----------------------------------------------
+    // A muted neuron still runs (its sum, E-R threshold, fatigue and traces
+    // move as usual, and neuron::output() still holds what it would have
+    // emitted) but the layer outputs 0 for it, so nothing downstream sees it.
+    // Muting does not stop learning (freeze it too for that). Used to prune
+    // without deleting (a muted neuron can return) and for shadow candidates
+    // that learn before they are switched on. Neurons added later are not
+    // muted. Saved with the layer.
+    void setNeuronsMuted(size_t first, size_t count, bool muted = true);
+    bool neuronMuted(size_t index) const { return muted_.at(index) != 0; }
+    size_t mutedNeuronCount() const { return muted_count_; }
+
     // --- Grown neurons ------------------------------------------------------
     // Which neurons were added by growth (dense::growNeurons) rather than
     // built with the layer (construction, feedback): 0 for those, else the
@@ -242,9 +254,8 @@ protected:
     // layer's loop, the plain case costs nothing over activate().
     float fire(size_t i, float sum, bool plain)
     {
-        if (plain)
-            return neurons_[i].activate(sum);
-        return fireWithRule(i, sum);
+        const float y = plain ? neurons_[i].activate(sum) : fireWithRule(i, sum);
+        return muted_count_ != 0 && muted_[i] ? 0.0f : y;
     }
     bool plainForward() const { return plain_; }
     // Whether the rule keeps input traces (then forward() calls
@@ -369,6 +380,8 @@ private:
     ValueRange range_;                                           // likewise
     bool positive_weights_ = false;                              // every weight this layer creates or learns
     std::vector<std::uint8_t> frozen_;                           // per neuron: 1 = does not learn
+    std::vector<std::uint8_t> muted_;                            // per neuron: 1 = runs, but outputs 0
+    size_t muted_count_ = 0;                                     // neurons muted (0: fire() skips the check)
     std::vector<std::uint32_t> growth_order_;                    // per neuron: 0 = built with the layer, else see growthOrder
     std::uint32_t grown_so_far_ = 0;                             // neurons growth has added, ever
 
