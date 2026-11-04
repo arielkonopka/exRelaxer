@@ -1588,7 +1588,10 @@ view above the usual), c = 0.01 / 0.03, 3 seeds, 1500 games, levels as D43.
 **Conclusion.** Curiosity about views makes the agent bolder, opening more
 doors, but not better: it dies behind them.
 
-**Data.** `results/td-actor-critic/doom/view_novelty/`.
+- Videos: on MAP06 none takes the corridor north toward the exit.
+
+**Data.** `results/td-actor-critic/doom/view_novelty/` (paths per unseen
+level); videos in the project's `reports/doom-td/videos_views/`.
 
 ## Open questions
 

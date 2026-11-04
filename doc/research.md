@@ -3760,6 +3760,10 @@ tests as in §67.
 - The memory keeps about 92% of all views, so most steps count as new.
   Over the last 300 games the reward per step correlates only weakly with
   new squares per step (r = 0.27-0.38).
+- Recorded games (2 per agent per unseen level, `view_novelty/*_paths.png`):
+  on MAP06 the agents again stay in the start, east and west rooms, and
+  none takes the corridor north toward the exit; most kills 11 (MAP02, dead
+  after 65 s).
 
 **What it means.** Novelty of views does what novelty of prediction errors
 did not: it pulls the agent through doors. But with the memory this
