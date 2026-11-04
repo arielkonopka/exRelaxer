@@ -205,6 +205,10 @@ public:
     // Freezes (or unfreezes) single neurons of a layer: they run but do not
     // learn (see neuron_layer::setNeuronsFrozen).
     void freezeNeurons(LayerId id, size_t first, size_t count, bool frozen = true);
+    // Mutes (or unmutes) single neurons of a layer: they run, and learn unless
+    // frozen, but the layer outputs 0 for them (see
+    // neuron_layer::setNeuronsMuted). Saved with the network.
+    void muteNeurons(LayerId id, size_t first, size_t count, bool muted = true);
     // Freezes (or unfreezes) the weights with which Dense layer `id` reads
     // `source` (a layer, or a named input source): e.g. a readout keeps what
     // it learned from old layers while it learns to read a new one.

@@ -490,6 +490,17 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-04: revised growth rules (error-driven growth, muting, significance, scaling)
+
+- Core: `net.muteNeurons` / Python `mute_neurons`, `muted_neurons`: a muted neuron runs but
+  outputs 0; saved with the network (no format change). `Pruning` skips muted neurons.
+- `exrelaxer.development`: `ErrorPlateau` (TD-critic error trigger), `ShadowPool` (muted
+  candidates that learn to follow δ), `SynapticScaling` (scale, then split, saturated neurons),
+  `Significance` (mute the least used neuron, restore on a rising error).
+- `snake_growth/td_growth.py`: TD-error growth from ER(1) reaches 9.4 apples (fixed ER(16) 9.8,
+  tiredness trigger 7.8), but a plain clock does as well (9.9); trained candidates hurt; 64
+  neurons pruned to ~30 active lose nothing. Research §69, `results/td-growth/`.
+
 ### 2026-11-04: any level: many levels, danger, curiosity (phases 29-31)
 
 - `doom_td.py`: `maps` / `test_maps` (train on levels drawn at random,

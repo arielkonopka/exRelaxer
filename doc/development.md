@@ -105,6 +105,44 @@ maturing gives them back; not freezing older neurons at growth helps more.
 entropy, redundancy and activity. `WidthGrowth.grow(net, layer, monitor)` grows on any trigger
 (e.g. falling entropy, `snake_growth` `trigger="entropy"`, which does not work on its own, §39).
 
+### Error-driven growth, shadow candidates, scaling and significance
+
+Four policies (research log §69) that came out of a design discussion on revising the growth rules
+(`/mnt/project-files/notes/growth-rules-revision.md` in the project):
+
+- `ErrorPlateau(window=2000, patience=3, min_progress=0.02, min_effort=0.25)`: a width-growth
+  trigger from a TD critic. Fed every tick with `update(delta, target, effort)` (target = the TD
+  target r + gamma V(s'), effort = how much the critic's weights moved), it returns `"grow"` when the
+  critic's unexplained share of the target (mean delta^2 / var target, per window) has not fallen by
+  `min_progress` for `patience` windows while the critic is still moving (effort at least
+  `min_effort` x its first window's). With `judge=True` it also returns `"keep"` / `"undo"`
+  `probation` windows after a growth; with `judge=False` the caller judges (e.g. by the score) and
+  calls `backoff(kept)`. On Snake the critic's error is a moving target (a better policy meets new
+  states), so judging by the error undoes growth that helped; `td_growth.py` judges by the score.
+- `ShadowPool(size=8, rate=0.02)`: Cascade-Correlation run online. `fill(net, layer, source)` adds
+  `size` muted, frozen neurons (random incoming, zero outgoing); `observe(net, layer, target)` trains
+  each to follow the target (the TD error) with a gated, correlation-signed delta rule and tracks its
+  running correlation; `promote(net, layer, n)` unmutes the `n` best (or random ones with
+  `train=False`); `revive(net, layer, indices)` puts muted neurons back in the pool.
+- `SynapticScaling(limit=10, share=0.1, target=0.5, repeat_window=20000)`: a neuron with at least
+  `share` of its weights at `limit` is scaled down so its largest weight is `target` x `limit`; if
+  the same neuron saturates again within `repeat_window` ticks it is split (`copy_neuron` plus
+  opposite noise, both halves at `target`).
+- `Significance(after=20000, every=2000, fraction=0.2)`: a running mean of how much each neuron
+  moves its readers (sum of |w y| / ||w|| over Dense readers, plus any `extra` such as a Python
+  critic's |w y|); `prune(...)` mutes the least significant active neuron if it is below `fraction`
+  x the mean, and `judge(net, layer, error)` restores it when the error rises by more than
+  `tolerance` within `probation` windows.
+
+`net.mute_neurons(layer, first, count, muted=True)` / `net.muted_neurons(layer)` (C++
+`network::muteNeurons`, `neuron_layer::setNeuronsMuted`): a muted neuron runs, keeps its E-R state
+and learns unless frozen, but the layer outputs 0 for it; `state_probe(layer)["output"]` still shows
+what it would emit. Saved with the network (bit 1 of the frozen flags, so files stay format 20).
+`Pruning` never removes muted neurons (`skip_muted=True`).
+
+`NNtesting/experiments/snake_growth/td_growth.py` runs all of them on Snake; see research log §69
+for what they do there.
+
 ## 2. Depth growth
 
 Depth growth answers a different question: has the current representation learned something useful
@@ -338,6 +376,7 @@ net.growLayer(id, count, WeightInit::Zero, /*freezeExisting=*/true);
 net.copyNeuron(id, from, to, /*noise=*/0.05f, /*split=*/0.5f);  // copy-init a grown neuron
 layer.setNeuronRestingThreshold(i, 0.1f);  layer.setNeuronThreshold(i, 0.0f);  // one neuron, not saved
 layer.setNeuronLearningGain(i, 6.0f);  // one neuron, saved
+net.muteNeurons(id, first, count);  layer.neuronMuted(i);  // runs, outputs 0; saved
 net.grownNeurons(id);       layer.growthOrder(i);  layer.neuronGrown(i);
 net.pruneNewest(id, count);
 net.pruneCandidates(id, &monitor, inactiveAfter);  // PruneCandidate{index, reasons}
@@ -361,6 +400,11 @@ d = PatternDiversity(); d.observe(net, h); d.summary(); WidthGrowth().grow(net, 
 Pruning(reasons=("invalid", "inactive")).update(net, h, monitor)
 net.read_strength(h); Pruning(reasons=("weak",), weak_fraction=0.2, weak_after=20000).update(net, h, tick=t)
 Plateau(baseline=b, patience=4).update(score); grow_depth(net, h, readers=[out])
+net.mute_neurons(h, i, 1); net.muted_neurons(h)
+ErrorPlateau(window=2000, patience=3).update(delta, target, effort)   # "grow" / "keep" / "undo"
+pool = ShadowPool(size=8); pool.fill(net, h, source=eye); pool.observe(net, h, delta); pool.promote(net, h, 4)
+SynapticScaling(limit=3.0).check(net, h, tick)
+sig = Significance(); sig.observe(net, h, readers); sig.prune(net, h, tick, active); sig.judge(net, h, error)
 ```
 
 Network format 19 added the minimum size and the grown tag per layer; older files load as before (current format: [network](network.md#file-format)).
