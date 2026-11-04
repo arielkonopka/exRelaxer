@@ -113,10 +113,24 @@ without an exit restart the `actor_settle` clock. Phase 26:
 `restless_after_exit=1` counts that drought only after a first exit.
 Phase 28: `hurt_weight` sets doom_rl's damage penalty; `retreat=k` walks
 backward for k steps after every step that cost health.
+Phase 30: `maps=map01,map03,map04` plays each training game on a level
+drawn at random from the list; `test_maps=map02,...` adds levels seen only
+in the test, and `test.json` gets a `by_map` summary. `danger=K` adds a
+learned sense of danger: an online logistic unit on the reservoir state
+that predicts a hit within K steps and is felt as a raw feature
+(`danger_rate`; logged as `danger_hurt` / `danger_safe`, its mean output
+just before hits and otherwise). Phase 31: `curiosity=c` adds an
+intrinsic reward from a forward model that predicts a fixed random
+projection (`curiosity_dims`) of the next reservoir state from the state
+and the action (`curiosity_rate`); `curiosity_mode=surprise` pays
+c * clip(error / mean error - 1, 0, 3), `progress` pays the drop in error
+against a copy of the model taken every `curiosity_lag` steps. Danger and
+curiosity are kept in the checkpoint.
 
 `where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
 replays trained MAP01 runs and draws where they go (phase 17); `--record`
-keeps three videos (most kills, longest play, most doors); `--sample` chooses actions by sampling the policy as in training and, when a game
+keeps three videos (most kills, longest play, most doors); `--level mapNN` plays the runs on another level (one they never trained on);
+`--sample` chooses actions by sampling the policy as in training and, when a game
 left the level, the quickest exit (`best_exit.mp4`).
 `detector_probe.py` records random games and compares detectors offline
 and online.

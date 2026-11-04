@@ -1517,6 +1517,58 @@ not. Not enough to search MAP02.
 **Data.** `results/td-actor-critic/doom/map02_survive/`; videos in the
 project's `reports/doom-td/videos_survive/`.
 
+### D43. Other levels, many levels, a sense of danger (2026-11-04)
+
+**Question.** (Phases 29-30.) Does the MAP01 recipe exit other levels?
+Can one agent learn to play levels it has never seen?
+
+**Setup.** Phase 29: D40's recipe on MAP03 or MAP04 alone, 3 seeds,
+1200 games. Phase 30: training games drawn at random from MAP01, MAP03
+and MAP04; tests also on unseen MAP02, MAP05, MAP06; no place cells or
+exit-approach reward; health input + `hurt_weight=0.05`; base vs
+`danger=8` (a learned predictor of being hit, felt as an input); 3
+seeds, 1500 games.
+
+**Result.**
+- Phase 29: no exits; test deaths 0-80% by seed.
+- Phase 30: no exits. Deaths on trained / unseen levels: base 17% / 42%,
+  danger 22% / 53%; squares visited on unseen levels 51 / 46 (109-133 on
+  trained ones). MAP02 kills 80-100%; on MAP05 many agents stand still.
+- The danger unit predicts hits (0.5 before a hit, 0.16 otherwise) but
+  was reset at every 2-h restart (fixed in D44).
+
+**Conclusion.** The MAP01 skill was a route. On new levels the agent
+survives by hiding.
+
+**Data.** `results/td-actor-critic/doom/other_maps/`, `multimap/`.
+
+### D44. Curiosity (2026-11-04)
+
+**Question.** (Phase 31.) Does a reward for the unexpected make the agent
+explore unknown levels?
+
+**Setup.** D43's danger agent plus `curiosity=c`: a forward model of the
+next reservoir state; `surprise` (error above the usual) or `progress`
+(error drop against a 2000-step-old copy). c = 0.05 (stopped at game
+~700), then c = 0.005; 3 seeds, 1500 games, same levels.
+
+**Result.**
+- c = 0.05: curiosity pays 18-38 per game; the agents fight in place
+  (16-49 squares vs 122-144) and die 2x as often.
+- c = 0.005: test deaths on unseen levels 47% (surprise), 51%
+  (progress) vs 42-53% without; no exits; within noise.
+- Recorded 2 games of each of the 12 agents (D43-D44) on each unseen
+  level: on MAP06 they fight in the start rooms and side rooms and none
+  takes the corridor north toward the exit; most kills 10 (MAP02),
+  closest to an exit about 450 (MAP02).
+
+**Conclusion.** Prediction error in the reservoir rewards spinning and
+fighting, not new places. Next: curiosity tied to places or movement.
+
+**Data.** `results/td-actor-critic/doom/curiosity_strong/`, `curiosity/`,
+`unseen_paths/` (path pictures); videos in the project's
+`reports/doom-td/videos_anymap/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

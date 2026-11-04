@@ -3551,6 +3551,110 @@ reflexes that kill do not also teach where to stand. Surviving a hard
 level probably needs a learned sense of danger (which places hurt) more
 than another reflex.
 
+## 67. Other levels, many levels, and a sense of danger
+
+**Question.** (Phases 29-30; Doom log D43.) Does the MAP01 recipe find
+exits on other levels, and can one agent learn to play levels in general
+rather than one route? Does a learned sense of danger keep it alive on
+levels it has never seen?
+
+**Setup.** Phase 29: §64's recipe (place cells, ledge-aware exit
+approach, poke, settle, consolidate, anchor, restless after a first exit)
+trained on MAP03 or MAP04 alone, seeds 1-3, 1200 games. Phase 30:
+`maps=map01,map03,map04` (each training game on one of them at random),
+tests (10 games per level) also on MAP02, MAP05 and MAP06, which the
+agent never sees in training. Everything tied to one level is removed:
+no place cells, no exit-approach reward. Kept: strike, orient, door and
+poke reflexes, boredom, health as input with `hurt_weight=0.05`, settle,
+consolidate, anchor and restlessness. Arms: base, and base + `danger=8`
+(a logistic unit on the reservoir state, learned online, predicting a
+hit within 8 steps; its output is felt as a raw feature). Seeds 1-3,
+1500 games. All runs were relaunched from checkpoints every 2 h; in
+phase 30 the danger unit was not in the checkpoint, so it restarted from
+zero at each resume (about every 250-550 games; fixed in phase 31).
+
+**Results.** Phase 29, tests (deaths / mean length / kills):
+
+| level | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|
+| MAP03 | 60% / 151 s / 8.4 | 0% / 300 s / 11.4 | 60% / 168 s / 8.7 |
+| MAP04 | 80% / 111 s / 8.1 | 70% / 184 s / 11.2 | 10% / 272 s / 7.8 |
+
+No exits on either level; about one door opened per game.
+
+Phase 30, tests averaged over 3 seeds and 3 levels:
+
+| arm | levels | deaths | length | kills | squares | doors |
+|---|---|---|---|---|---|---|
+| base | trained on | 17% | 263 s | 4.3 | 109 | 0.3 |
+| base | unseen | 42% | 218 s | 3.7 | 51 | 0.5 |
+| danger | trained on | 22% | 260 s | 4.8 | 133 | 0.5 |
+| danger | unseen | 53% | 190 s | 3.3 | 46 | 0.7 |
+
+- No exits on any level.
+- MAP02 kills 80-100% of every agent. On MAP05 many agents kill nothing
+  and stay within about 11 squares until the time limit: the low death
+  counts on unseen levels are mostly hiding.
+- The danger unit learns: late in training its output is about 0.5 in
+  the steps before a hit and 0.16-0.18 otherwise, on all three training
+  levels. It does not make the agent safer (with the resets above).
+
+**What it means.** The MAP01 skill was mostly a route. The parts that
+carry over are the instincts and the plasticity schedule; what does not
+is any reason to go into an unknown place. On a new level, staying put
+is the cheapest way to avoid harm, and nothing pays for looking around.
+
+## 68. Curiosity
+
+**Question.** (Phase 31; Doom log D44.) Does an intrinsic reward for
+the unexpected make the agent explore unseen levels?
+
+**Setup.** §67's danger agent (danger now kept in checkpoints) plus
+`curiosity=c`: a forward model (normalised LMS) predicts a fixed random
+32-dimensional projection of the next reservoir state from the current
+state and the action. `surprise` pays c * clip(error / running mean
+error - 1, 0, 3); `progress` pays c times the drop in error against a
+copy of the model taken every 2000 steps (noise that cannot be learned
+pays nothing). Same levels, seeds and length as §67. First c = 0.05
+(phase 31a, stopped at game 640-720), then c = 0.005 (phase 31b).
+
+**Results.** Phase 31a, last 50 games before the stop (games 590-720;
+phase-30 danger and base runs at games 670-720 for comparison):
+
+| arm | squares | deaths | curiosity reward per game |
+|---|---|---|---|
+| phase 30 (no curiosity) | 122-144 | 8-30% | - |
+| surprise 0.05 | 48-49 | 50-56% | 18-24 (2 seeds) |
+| progress 0.05 | 16 | 62% | 38 (1 seed) |
+
+Phase 31b (c = 0.005), tests averaged over 3 seeds and 3 levels:
+
+| arm | deaths, trained | deaths, unseen | squares, unseen | kills, unseen |
+|---|---|---|---|---|
+| base (§67) | 17% | 42% | 51 | 3.7 |
+| danger (§67) | 22% | 53% | 46 | 3.3 |
+| danger + surprise | 24% | 47% | 53 | 3.3 |
+| danger + progress | 18% | 51% | 43 | 3.4 |
+
+- No exits anywhere. Per-seed deaths on unseen levels range from 27% to
+  70% within each arm, so all four arms are within noise of each other.
+- With the danger unit kept across restarts it still separates the
+  steps before a hit (0.53-0.58) from the rest (0.13-0.17), and still
+  does not lower deaths.
+- Recorded games of all 12 agents (§67-§68) on the unseen levels
+  (`results/td-actor-critic/doom/unseen_paths/`): they fight around the
+  start and nearby side rooms; on MAP06 none takes the corridor north
+  toward the exit. Most kills 10 (MAP02).
+
+**What it means.** Surprise in the reservoir is not novelty of place.
+The biggest prediction errors come from turning on the spot, shooting
+and monsters, so a strong curiosity reward is farmed by fighting in
+place (the "noisy TV" problem), and learning progress does not escape it
+here. A weak one changes nothing. Exploration of unknown levels probably
+needs curiosity tied to places or to movement: novelty of a view against
+a memory of seen views, or a bonus paid only when the agent reaches
+ground it has not stood on.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -3881,6 +3985,16 @@ than another reflex.
     as input and a 5x damage penalty cut MAP02 deaths from 97% to 91%
     and lengthen games by half; a retreat reflex alone does nothing;
     together 85%. No exits.
+61. **The route does not travel** (§67): the MAP01 recipe finds no exit
+    on MAP03 or MAP04; trained on three levels and tested on three
+    unseen ones, the agent dies in 42-53% of games there (17-22% on the
+    levels it knows), explores half as much and mostly survives by
+    hiding. A learned danger unit predicts hits (0.5 vs 0.16) but does
+    not make the agent safer.
+62. **Curiosity in the reservoir is not curiosity about places** (§68):
+    a strong forward-model surprise or learning-progress reward is farmed
+    by fighting in place (3x fewer squares, 2x the deaths); a weak one
+    changes nothing on unseen levels.
 
 ## Open questions and next steps
 

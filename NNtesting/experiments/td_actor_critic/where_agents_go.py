@@ -42,13 +42,13 @@ def start_video(path):
          "-movflags", "+faststart", path], stdin=subprocess.PIPE)
 
 
-def replay(run, games, seed, record=None):
+def replay(run, games, seed, record=None, level=None):
     cfg = json.load(open(os.path.join(run, "config.json")))
     p = dict(dt.DEFAULTS)
     p.update({k: v for k, v in cfg.items() if k in p})
     scale = cfg["reward_scale"]
     labels = p["features"] == "oracle" or bool(p["attack_reflex"])
-    level = cfg.get("scenario", "map01")
+    level = level or cfg.get("scenario", "map01")
     game = dt.make_game(level, 30_000 + seed, p["skill"], labels, p["until_death"],
                         color=bool(p.get("detector_colour", 0)))
     learner = dt.Learner(p, game.get_available_buttons_size(), cfg["arm"], cfg["seed"])
@@ -59,6 +59,8 @@ def replay(run, games, seed, record=None):
         learner.landmarks, learner.lives, learner.origin = saved["landmarks"]
     learner.detector = saved.get("detector", learner.detector)
     learner.games = saved.get("games", learner.games)
+    learner.danger = saved.get("danger", learner.danger)
+    learner.curiosity = saved.get("curiosity", learner.curiosity)
     shaper = dt.drl.make_shaper(dt.doom_rl_params(level, p["skill"], p["until_death"], p["approach"],
                                                   kill=p["kill_weight"],
                                                   heights=bool(p.get("approach_heights", 0))))
@@ -171,6 +173,8 @@ def main():
                     help="measure and draw the ledge-aware walking distance (exitmap heights=True)")
     ap.add_argument("--sample", action="store_true",
                     help="choose actions by sampling the policy, as in training, instead of greedily (still no learning)")
+    ap.add_argument("--level", default=None,
+                    help="play this level (map01 .. map32) instead of the run's own scenario, e.g. a map it never trained on")
     ap.add_argument("--record", default=None,
                     help="folder: record every game as video, then keep only the games with the most kills, "
                          "the longest play and the most doors opened, three different games where possible "
@@ -184,7 +188,7 @@ def main():
     runs, report = [], {}
     game = None
     for run in args.runs:
-        game, paths, level = replay(run, args.games, args.seed, args.record)
+        game, paths, level = replay(run, args.games, args.seed, args.record, args.level)
         name = os.path.basename(os.path.normpath(run))
         runs.append((name, paths))
     state = None
