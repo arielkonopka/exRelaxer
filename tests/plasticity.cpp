@@ -340,3 +340,47 @@ TEST(PerSynapseRuleTest, OnlyDenseLayersAndValidParameters)
     EXPECT_EQ(describeLearningRule(LearningRule::eprop(0.9f)), "eprop tr0.9");
     EXPECT_EQ(describeLearningRule(LearningRule::surrogate(4)), "surrogate(4)");
 }
+
+// --- Muting ------------------------------------------------------------------------
+
+TEST(MutedNeuronTest, RunsButOutputsZeroAndIsSaved)
+{
+    network net;
+    const auto h = net.addLayer("h", plainDense(3, false));
+    net.addInputs(h, 1, "x");
+    net.addOutput(h);
+    auto& layer = net.layerAs<dense>(h);
+    for (size_t i = 0; i < 3; ++i)
+        layer.setWeights(i, {1.0f});
+    net.setInputs({0.5f});
+    net.step();
+    const std::vector<float> before(layer.output().begin(), layer.output().end());
+    EXPECT_GT(before[1], 0.0f);
+
+    net.muteNeurons(h, 1, 1);
+    EXPECT_EQ(layer.output()[1], 0.0f);  // silent at once
+    net.step();
+    EXPECT_EQ(layer.output()[0], before[0]);
+    EXPECT_EQ(layer.output()[1], 0.0f);
+    EXPECT_EQ(layer.neurons()[1].output(), before[1]);  // it still runs
+    EXPECT_EQ(layer.mutedNeuronCount(), 1u);
+
+    // Saved and loaded, with a frozen neuron next to it: both flags survive.
+    net.freezeNeurons(h, 2, 1);
+    std::stringstream data;
+    net.save(data);
+    auto loaded = network::load(data);
+    const auto& copy = loaded->layerAs<dense>(h);
+    EXPECT_TRUE(copy.neuronMuted(1));
+    EXPECT_FALSE(copy.neuronFrozen(1));
+    EXPECT_TRUE(copy.neuronFrozen(2));
+    EXPECT_FALSE(copy.neuronMuted(2));
+
+    // Pruning keeps the flags with their neurons; unmuting brings it back.
+    net.pruneNeurons(h, {0});
+    EXPECT_TRUE(layer.neuronMuted(0));
+    net.muteNeurons(h, 0, 1, false);
+    net.step();
+    EXPECT_GT(layer.output()[0], 0.0f);
+    EXPECT_EQ(layer.mutedNeuronCount(), 0u);
+}

@@ -41,6 +41,7 @@ neuron& neuron_layer::newNeuron()
     n.setValueRange(range_);
     output_.push_back(n.output());
     frozen_.push_back(0);
+    muted_.push_back(0);
     growth_order_.push_back(0);
     resizeLearningState();
     return n;
@@ -255,6 +256,19 @@ void neuron_layer::setNeuronsFrozen(size_t first, size_t count, bool frozen)
     std::fill_n(frozen_.begin() + static_cast<std::ptrdiff_t>(first), count, frozen ? 1 : 0);
 }
 
+void neuron_layer::setNeuronsMuted(size_t first, size_t count, bool muted)
+{
+    if (first > neurons_.size() || count > neurons_.size() - first)
+        throw std::out_of_range("setNeuronsMuted: neurons [" + std::to_string(first) + ", " +
+                                std::to_string(first + count) + ") past the layer's " +
+                                std::to_string(neurons_.size()));
+    std::fill_n(muted_.begin() + static_cast<std::ptrdiff_t>(first), count, muted ? 1 : 0);
+    muted_count_ = static_cast<size_t>(std::count(muted_.begin(), muted_.end(), std::uint8_t{1}));
+    for (size_t i = first; i < first + count; ++i)
+        if (muted)
+            output_[i] = 0.0f;  // silent from now on, not only after the next forward()
+}
+
 size_t neuron_layer::frozenNeuronCount() const
 {
     return static_cast<size_t>(std::count(frozen_.begin(), frozen_.end(), std::uint8_t{1}));
@@ -369,6 +383,8 @@ void neuron_layer::deserialize(std::istream& is, DeserializeMode mode, std::uint
     }
     if (!in_place) {
         frozen_.assign(count, 0);
+        muted_.assign(count, 0);
+        muted_count_ = 0;
         growth_order_.assign(count, 0);
     }
     output_.resize(count);
@@ -754,6 +770,8 @@ void neuron_layer::eraseNeuronState(std::span<const size_t> indices)
     erase(neurons_);
     erase(output_);
     erase(frozen_);
+    erase(muted_);
+    muted_count_ = static_cast<size_t>(std::count(muted_.begin(), muted_.end(), std::uint8_t{1}));
     erase(growth_order_);
     for (std::vector<float>* v : {&bias_, &post_, &noise_, &noise_trace_, &baseline_, &theta_, &dyds_, &dydthr_,
                                   &dthrdthr_, &dthrds_, &bias_elig_, &bias_adapt_, &bias_grad_, &inverse_norm_})
@@ -897,7 +915,10 @@ void neuron_layer::writeLearningState(std::ostream& os) const
     binary_io::write(os, rule_.window);
     writeFloats(os, bias_elig_);
     writeFloats(os, bias_adapt_);
-    std::vector<float> frozen(frozen_.begin(), frozen_.end());
+    // Bit 0: frozen, bit 1: muted (older files only ever hold 0 or 1).
+    std::vector<float> frozen(frozen_.size());
+    for (size_t i = 0; i < frozen.size(); ++i)
+        frozen[i] = static_cast<float>(frozen_[i] | (muted_[i] << 1));
     writeFloats(os, frozen);
     // Only with 8-bit weights (a layer setting, like the gate): their
     // rounding generator.
@@ -965,9 +986,14 @@ void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std
             to = std::move(from);
     };
     restore(bias_, state[0]);
-    if (frozen.size() == n)
-        for (size_t i = 0; i < n; ++i)
-            frozen_[i] = frozen[i] != 0.0f ? 1 : 0;
+    if (frozen.size() == n) {
+        for (size_t i = 0; i < n; ++i) {
+            const auto bits = static_cast<unsigned>(frozen[i]);
+            frozen_[i] = (bits & 1u) != 0 ? 1 : 0;
+            muted_[i] = (bits & 2u) != 0 ? 1 : 0;
+        }
+        muted_count_ = static_cast<size_t>(std::count(muted_.begin(), muted_.end(), std::uint8_t{1}));
+    }
     if (feedback_cols > 0)
         feedback_ = kernels::weight_matrix(state[6].size() / feedback_cols, static_cast<size_t>(feedback_cols), state[6]);
     if (mode == DeserializeMode::FullState) {

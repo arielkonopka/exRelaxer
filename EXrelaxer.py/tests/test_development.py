@@ -330,3 +330,113 @@ def test_development_with_buses_survives_save_and_load():
             n.set_inputs("x", np.array([np.sin(t), 1.0], np.float32))
             n.step()
         np.testing.assert_array_equal(net.outputs(), copy.outputs())
+
+
+# --- Muting, error-driven growth, shadow candidates, synaptic scaling, significance (§69) ---
+
+def test_muted_neurons_run_but_are_silent_and_saved(tmp_path):
+    net, h, out = watched(3)
+    net.set_inputs("x", np.array([1.0], np.float32))
+    net.step()
+    assert np.all(np.asarray(net.layer_output(h)) > 0)
+    net.mute_neurons(h, 1, 1)
+    net.step()
+    assert net.layer_output(h)[1] == 0.0
+    assert net.state_probe(h)["output"][1] > 0.0    # still runs
+    assert list(net.muted_neurons(h)) == [1]
+    path = tmp_path / "m.exr"
+    net.save(str(path))
+    assert list(exr.Network.load(str(path)).muted_neurons(h)) == [1]
+    net.mute_neurons(h, 1, 1, False)
+    assert list(net.muted_neurons(h)) == []
+
+
+def test_pruning_never_removes_muted_neurons():
+    from exrelaxer.development import Pruning
+    net, h, _ = watched(4)
+    net.grow_layer(h, 2)
+    net.mute_neurons(h, 4, 2)
+    monitor = exr.ActivityMonitor(exr.ActivitySpec(window=10))
+    for _ in range(30):
+        tick(net, h, monitor, 0.0)
+    pruning = Pruning(reasons=("inactive",), inactive_after=5, only_grown=True)
+    assert 4 not in pruning.candidates(net, h, monitor) and 5 not in pruning.candidates(net, h, monitor)
+
+
+def test_error_plateau_needs_effort_and_a_flat_error():
+    from exrelaxer.development import ErrorPlateau
+    rng = np.random.default_rng(0)
+    target = lambda: rng.normal(0, 1)
+    flat = ErrorPlateau(window=100, patience=2, probation=1)
+    verdicts = [flat.update(0.5 * rng.normal(), target(), effort=1.0) for _ in range(500)]
+    assert "grow" in verdicts                       # error flat, critic busy
+    after = verdicts[verdicts.index("grow") + 1:]
+    assert "undo" in after                          # probation: the error did not fall
+    idle = ErrorPlateau(window=100, patience=2)
+    verdicts = [idle.update(0.5 * rng.normal(), target(), effort=1.0 if t < 100 else 0.0) for t in range(500)]
+    assert "grow" not in verdicts                   # flat, but the critic stopped moving
+    falling = ErrorPlateau(window=100, patience=2)
+    verdicts = [falling.update(np.exp(-t / 100) * rng.normal(), target(), effort=1.0) for t in range(500)]
+    assert "grow" not in verdicts                   # still improving
+
+
+def test_shadow_pool_learns_to_follow_the_target_and_promotes_the_best():
+    from exrelaxer.development import ShadowPool
+    exr.reseed(3)
+    net = exr.Network()
+    eye = net.add_layer("eye", exr.LayerSpec.retina(exr.RetinaSpec(exr.Shape(1, 1, 4)), False, False))
+    net.add_inputs(eye, exr.Shape(1, 1, 4), "x")
+    h = net.add_layer("h", exr.LayerSpec.dense(2, False, True))
+    net.connect(eye, h)
+    net.add_output(h)
+    pool = ShadowPool(size=4, rate=0.05)
+    assert pool.fill(net, h, source=eye) == 4
+    assert net.layer_size(h) == 6 and list(net.muted_neurons(h)) == [2, 3, 4, 5]
+    rng = np.random.default_rng(1)
+    x_prev = None
+    for _ in range(3000):
+        x = rng.uniform(0, 1, 4).astype(np.float32)
+        net.set_inputs("x", x)
+        net.step()
+        target = 0.0 if x_prev is None else float(x_prev[0] > 0.5) - 0.5   # depends on the last input
+        pool.observe(net, h, target)
+        x_prev = x
+    corr = pool.correlations(net, h)
+    assert max(abs(c) for c in corr.values()) > 0.2
+    best = max(corr, key=lambda i: abs(corr[i]))
+    chosen = pool.promote(net, h, 1)
+    assert chosen == [best] and best not in net.muted_neurons(h)
+    assert pool.fill(net, h) == 1 and net.layer_size(h) == 7
+
+
+def test_synaptic_scaling_then_split():
+    from exrelaxer.development import SynapticScaling
+    net, h, _ = watched(2)
+    net.set_weights(h, 0, [2.0])
+    sat = SynapticScaling(limit=2.0, share=0.5, target=0.5, repeat_window=1000, every=1)
+    assert sat.check(net, h, 1) == []
+    assert np.isclose(net.weights(h, 0)[0], 1.0)       # scaled to half the limit
+    net.set_weights(h, 0, [2.0])
+    new = sat.check(net, h, 5)
+    assert new == [2] and net.layer_size(h) == 3        # saturated again soon: split
+    assert [e[2] for e in sat.events] == ["scale", "split"]
+    assert net.weights(h, 0)[0] != net.weights(h, 2)[0]  # not twins
+
+
+def test_significance_mutes_the_unused_and_restores_when_the_error_rises():
+    from exrelaxer.development import Significance
+    net, h, out = watched(3)
+    for k in range(2):
+        net.set_weights(out, k, [1.0, 1.0, 0.0])           # neuron 2 is never read
+    sig = Significance(decay=0.9, after=0, every=1, fraction=0.5, minimum=1, probation=2)
+    for _ in range(50):
+        net.set_inputs("x", np.array([1.0], np.float32))
+        net.step()
+        sig.observe(net, h, [out])
+    assert sig.prune(net, h, 10, [0, 1, 2], error=1.0) == 2
+    assert list(net.muted_neurons(h)) == [2]
+    assert sig.judge(net, h, 2.0) == ("restore", 2)        # the error rose: back
+    assert list(net.muted_neurons(h)) == []
+    assert sig.prune(net, h, 11, [0, 1, 2], error=1.0) == 2
+    assert sig.judge(net, h, 1.0) is None
+    assert sig.judge(net, h, 1.0) == ("pruned", 2)
