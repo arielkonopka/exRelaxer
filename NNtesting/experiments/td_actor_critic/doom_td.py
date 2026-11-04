@@ -142,6 +142,10 @@ DEFAULTS = {
     # Phase 33: view_keep = k: a view is remembered only when d > k * mean d (0.5 kept ~92% of views);
     # fear = w > 0: r -= w * the danger unit's output each step (being afraid costs before the hit does).
     "view_keep": 0.5, "fear": 0.0,
+    # view_block = b > 0: a view is the pooled screen averaged over b x b blocks (a coarse picture,
+    # e.g. 6 x 8 for b = 5), centred and normalised, instead of a random projection; view_radius = r > 0:
+    # a fixed radius replaces the running mean: remembered when d > r, reward c * clip(d / r - 1, 0, 2).
+    "view_block": 0, "view_radius": 0.0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -471,7 +475,10 @@ class Curiosity:
 class ViewNovelty:
     """Episodic memory of views: a view far from every view seen in this game is novel."""
 
-    def __init__(self, n, dims=32, memory=3000, seed=0, keep=0.5):
+    def __init__(self, n, dims=32, memory=3000, seed=0, keep=0.5, block=0, shape=None, radius=0.0):
+        self.block, self.shape, self.radius = int(block), shape, float(radius)
+        if self.block:
+            dims = (shape[0] // self.block) * (shape[1] // self.block)
         self.P = np.random.default_rng(seed).normal(0, 1, (dims, n))
         self.keep = float(keep)
         self.cap = int(memory)
@@ -484,7 +491,12 @@ class ViewNovelty:
         self.dists = []
 
     def bonus(self, eye):
-        v = self.P @ (np.asarray(eye, dtype=np.float64) - np.mean(eye))
+        if getattr(self, "block", 0):
+            b, (h, w) = self.block, self.shape
+            v = np.asarray(eye, dtype=np.float64).reshape(h // b, b, w // b, b).mean(axis=(1, 3)).ravel()
+            v -= v.mean()
+        else:
+            v = self.P @ (np.asarray(eye, dtype=np.float64) - np.mean(eye))
         v /= np.linalg.norm(v) + 1e-9
         if self.size == 0:
             self.mem[0] = v
@@ -493,10 +505,12 @@ class ViewNovelty:
         d = float(np.sqrt(np.min(((self.mem[:self.size] - v) ** 2).sum(axis=1))))
         self.dists.append(d)
         self.mean = d if self.mean is None else self.mean + 0.001 * (d - self.mean)
-        if d > getattr(self, "keep", 0.5) * self.mean and self.size < self.cap:
+        scale = self.radius if getattr(self, "radius", 0.0) > 0 else self.mean
+        keep = 1.0 if getattr(self, "radius", 0.0) > 0 else getattr(self, "keep", 0.5)
+        if d > keep * scale and self.size < self.cap:
             self.mem[self.size] = v
             self.size += 1
-        return float(np.clip(d / max(self.mean, 1e-9) - 1.0, 0.0, 2.0))
+        return float(np.clip(d / max(scale, 1e-9) - 1.0, 0.0, 2.0))
 
 
 class ThreatDetector:
@@ -669,7 +683,8 @@ class Learner:
             if p["curiosity"] > 0 else None
         self.cur_z = None
         self.view_novelty = ViewNovelty(self.eye_size, p["view_dims"], p["view_memory"], seed=seed + 32,
-                                        keep=p["view_keep"]) \
+                                        keep=p["view_keep"], block=p["view_block"],
+                                        shape=(120 // p["pool"], 160 // p["pool"]), radius=p["view_radius"]) \
             if p["view_novelty"] > 0 else None
         self.eye_now = None
         self.games = 0
