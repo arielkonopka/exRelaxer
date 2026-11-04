@@ -118,6 +118,21 @@ DEFAULTS = {
     # unset); retreat = k > 0: a retreat reflex, after every step that cost health the next k steps
     # walk backward (MOVE_BACKWARD on, MOVE_FORWARD off; the strike and orient reflexes still act).
     "hurt_weight": 0.0, "retreat": 0,
+    # Many levels (phase 30): maps = "map01,map03,..." trains each game on a level drawn at random
+    # from the list (the scenario is only the first level); test_maps = "map05,..." adds levels to the
+    # test (each tested with `test` games; test.json gets a per-level summary under "by_map").
+    "maps": "", "test_maps": "",
+    # A learned sense of danger (phase 30): danger = K > 0: a logistic unit on the reservoir state
+    # (not the raw place or map features) learns online whether the agent is hurt within the next
+    # K steps; its output is a raw feature of the learner (danger_rate: its learning rate).
+    "danger": 0, "danger_rate": 0.05,
+    # Curiosity (phase 31): curiosity = c > 0: a forward model learns online to predict a fixed random
+    # projection (curiosity_dims) of the next reservoir state from the state and the action taken.
+    # curiosity_mode surprise: r += c * clip(error / running mean error - 1, 0, 3) (more surprising than
+    # usual); progress: r += c * clip((old - now) / running mean error, 0, 3), old = the error of a copy
+    # of the model taken curiosity_lag steps ago (learning progress: noise that cannot be learned pays nothing).
+    "curiosity": 0.0, "curiosity_mode": "surprise", "curiosity_dims": 32, "curiosity_rate": 0.05,
+    "curiosity_lag": 2000,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -362,6 +377,88 @@ def monster_ahead(state, cone):
     return -1 if big.x + big.width / 2 < lo else 1
 
 
+class Danger:
+    """Online logistic prediction of 'hurt within the next `horizon` steps' from the reservoir
+    state (a felt sense of danger that does not depend on where on which map the agent is)."""
+
+    def __init__(self, n, horizon, rate=0.05):
+        self.w = np.zeros(n + 1)
+        self.horizon, self.rate = int(horizon), float(rate)
+        self.base = 0.05  # running share of positive labels, for balancing
+        self.reset()
+
+    def reset(self):
+        self.buf = []
+        self.z = None
+        self.hurt_p, self.safe_p = [], []
+
+    def prob(self, z):
+        if z is None:
+            return 0.0
+        self.z = np.append(z, 1.0)
+        return float(1.0 / (1.0 + np.exp(-np.clip(self.w @ self.z, -30, 30))))
+
+    def _learn(self, z, y):
+        self.base += 0.001 * (y - self.base)
+        weight = min(20.0, (1.0 - self.base) / max(self.base, 1e-3)) if y else 1.0
+        p = 1.0 / (1.0 + np.exp(-np.clip(self.w @ z, -30, 30)))
+        self.w += self.rate * weight * (y - p) * z / (1.0 + z @ z)
+
+    def observe(self, hurt, learn):
+        """After a step: was the agent hurt? The states of the last `horizon` steps get the label."""
+        if self.z is None:
+            return
+        p = float(1.0 / (1.0 + np.exp(-np.clip(self.w @ self.z, -30, 30))))
+        (self.hurt_p if hurt else self.safe_p).append(p)
+        self.buf.append(self.z)
+        self.z = None
+        if not learn:
+            if hurt or len(self.buf) > self.horizon:
+                self.buf = self.buf[-self.horizon:] if not hurt else []
+            return
+        if hurt:
+            for z in self.buf:
+                self._learn(z, 1.0)
+            self.buf = []
+        elif len(self.buf) > self.horizon:
+            self._learn(self.buf.pop(0), 0.0)
+
+
+class Curiosity:
+    """A forward model of the agent's own experience: predicts a fixed random projection of the
+    next reservoir state from the current state and action (normalised LMS). The bonus is the
+    surprise (error above the usual) or the learning progress (error drop against a lagged copy)."""
+
+    def __init__(self, n, actions, dims=32, rate=0.05, mode="surprise", lag=2000, seed=0):
+        rng = np.random.default_rng(seed)
+        self.P = rng.normal(0, 1 / np.sqrt(n), (dims, n))
+        self.W = np.zeros((dims, n + actions + 1))
+        self.old = self.W.copy()
+        self.actions, self.rate, self.mode, self.lag = actions, float(rate), mode, int(lag)
+        self.mean = None
+        self.steps = 0
+        self.errors = []
+
+    def bonus(self, z, a, z_next, learn):
+        u = np.concatenate([z, np.eye(self.actions)[a], [1.0]])
+        target = self.P @ z_next
+        e = target - self.W @ u
+        err = float(e @ e) / len(e)
+        self.mean = err if self.mean is None else self.mean + 0.001 * (err - self.mean)
+        self.errors.append(err)
+        if self.mode == "progress":
+            eo = target - self.old @ u
+            raw = (float(eo @ eo) / len(e) - err) / max(self.mean, 1e-9)
+        else:
+            raw = err / max(self.mean, 1e-9) - 1.0
+        if learn:
+            self.W += self.rate * np.outer(e, u) / (1.0 + u @ u)
+            self.steps += 1
+            if self.steps % self.lag == 0:
+                self.old = self.W.copy()
+        return float(np.clip(raw, 0.0, 3.0))
+
+
 class ThreatDetector:
     """Monster-or-not for each screen column, from the frozen vision features of that column and
     `neighbours` columns on each side (weights shared across columns, like a convolution): a
@@ -512,7 +609,8 @@ class Learner:
                              recovery=p["recovery"], spread=p["spread"], model=p["model"], features=kind, ticks=p["ticks"],
                              vision=dict(height=120 // p["pool"], width=160 // p["pool"]) if p["vision"] == "gabor" else None,
                              with_pool=p["features"] in ("both_pool", "pool"),
-                             extra=extra + int(self.drives) + int(p["boredom"] > 0), direct=direct or None,
+                             extra=extra + int(self.drives) + int(p["boredom"] > 0) + int(p["danger"] > 0),
+                             direct=direct or None,
                              direct_gain=p["motion_gain"] if p["motion"] else p["drive_gain"])
         self.last_pos = None
         self.boredom_level = 0.0
@@ -524,6 +622,12 @@ class Learner:
                                        neighbours=p["detector_neighbours"], pos_weight=p["detector_pos"],
                                        replay=p["detector_replay"], seed=seed,
                                        extra=30 if p["detector_colour"] else 0) if p["detector"] else None
+        self.danger = Danger(self.res.size - self.res.extra, p["danger"], p["danger_rate"]) if p["danger"] else None
+        self.danger_z = None
+        self.curiosity = Curiosity(self.res.size - self.res.extra, buttons, p["curiosity_dims"],
+                                   p["curiosity_rate"], p["curiosity_mode"], p["curiosity_lag"], seed=seed + 31) \
+            if p["curiosity"] > 0 else None
+        self.cur_z = None
         self.games = 0
         self.colour = None  # colour features per screen column (detector_colour)
         self.lives = 0
@@ -566,7 +670,13 @@ class Learner:
             raw.append(cells)
         if self.p["boredom"] > 0:
             raw.append([self.boredom_level])
+        if self.danger is not None:
+            raw.append([self.danger.prob(self.danger_z)])
         x = self.res.step(inputs, raw=np.concatenate(raw) if raw else None)
+        if self.danger is not None:
+            self.danger_z = x[:len(x) - self.res.extra].copy()
+        if self.curiosity is not None:
+            self.cur_z = x[:len(x) - self.res.extra].copy()
         if self.landmarks is not None or self.detector is not None:
             self.view = np.asarray(self.res.net.layer_output(self.res.pool), dtype=np.float64).ravel()
         if self.vplace is not None:
@@ -737,7 +847,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         shaper.reset(state)
     kind = learner.p["reward"]
     health = game.get_game_variable(vzd.GameVariable.HEALTH)
-    medkits, game_total, novelty = 0, 0.0, 0.0
+    medkits, game_total, novelty, curious = 0, 0.0, 0.0, 0.0
     pos = PlaceCells.read(game)
     cells = set()
     learner.last_pos = None
@@ -745,6 +855,12 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     learner.boredom_level = 0.0
     learner.view = None
     learner.anchor_err = []
+    if learner.danger is not None:
+        learner.danger.reset()
+        learner.danger_z = None
+    learner.cur_z = None
+    if learner.curiosity is not None:
+        learner.curiosity.errors = []
     fields = []  # test games: (winning learned place cell, x, y)
     x = learner.features(state, health, pos, learn)
     a = learner.act(x, 0.0, False, learn)
@@ -839,6 +955,8 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         medkits += int(health > before)
         if learner.p["retreat"] > 0 and health < before and not done:
             retreat_left = learner.p["retreat"]
+        if learner.danger is not None:
+            learner.danger.observe(health < before, learn)
         if kind == "drive":
             r = learner.drive(before) - learner.drive(health)
         elif kind == "drive_level":
@@ -873,7 +991,14 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             bonus = learner.novelty_bonus(pos)
             r += bonus
             novelty += bonus
+        prev_z = learner.cur_z
         x = learner.features(state, health, pos, learn)
+        if learner.curiosity is not None and prev_z is not None:
+            bonus = learner.p["curiosity"] * learner.curiosity.bonus(prev_z, a, learner.cur_z, learn)
+            curious += bonus
+            if learn:
+                r += bonus
+                novelty += bonus  # intrinsic, not the game's
         if not learn and learner.vplace is not None and learner.vplace.winner is not None:
             fields.append((learner.vplace.winner, pos[0], pos[1]))
         a = learner.act(x, r, False, learn)
@@ -882,7 +1007,11 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     died = int(game.is_player_dead())
     s = learner.agent.log.summary()
     s.update(game_reward=float(total), medkits=medkits, visited=len(cells), steps=steps,
-             novelty=novelty, reflexes=reflexes, strikes=strikes, pokes=pokes, retreats=retreats,
+             novelty=novelty, curious=curious,
+             curiosity_error=float(np.mean(learner.curiosity.errors)) if learner.curiosity is not None and learner.curiosity.errors else -1.0,
+             reflexes=reflexes, strikes=strikes, pokes=pokes, retreats=retreats,
+             danger_hurt=float(np.mean(learner.danger.hurt_p)) if learner.danger is not None and learner.danger.hurt_p else -1.0,
+             danger_safe=float(np.mean(learner.danger.safe_p)) if learner.danger is not None and learner.danger.safe_p else -1.0,
              det_recall=det_hits / max(1, det_true), det_false=det_false / max(1, steps), fb_shots=fb_shots,
              fb_hit_rate=fb_hits / max(1, fb_shots), turn_checks=turn_checks,
              turn_hit_rate=turn_hits / max(1, turn_checks),
@@ -948,6 +1077,8 @@ def main():
             learner.landmarks, learner.lives, learner.origin = saved["landmarks"]
         learner.detector = saved.get("detector", learner.detector)
         learner.games = saved.get("games", learner.games)
+        learner.danger = saved.get("danger", learner.danger)  # (checkpoints before phase 31 lack these)
+        learner.curiosity = saved.get("curiosity", learner.curiosity)
         with open(log_path) as f:
             kept = f.readlines()[:start]
         with open(log_path, "w") as f:
@@ -955,10 +1086,18 @@ def main():
         print(f"{args.out} resumed at episode {start}", flush=True)
     else:
         open(log_path, "w").close()
-    shaper = drl.make_shaper(doom_rl_params(args.scenario, p["skill"], p["until_death"], p["approach"],
-                                            kill=p["kill_weight"], heights=bool(p["approach_heights"]),
-                                            exit_reward=p["exit_weight"], hurt=p["hurt_weight"])) \
-        if args.scenario in MAPS else None
+    shapers = {}
+
+    def shaper_for(level):
+        if level not in MAPS:
+            return None
+        if level not in shapers:
+            shapers[level] = drl.make_shaper(doom_rl_params(level, p["skill"], p["until_death"], p["approach"],
+                                                            kill=p["kill_weight"], heights=bool(p["approach_heights"]),
+                                                            exit_reward=p["exit_weight"], hurt=p["hurt_weight"]))
+        return shapers[level]
+    shaper = shaper_for(args.scenario)
+    levels = [m.strip() for m in p["maps"].split(",") if m.strip()] or [args.scenario]
     t0 = time.time()
     with open(log_path, "a") as log:
         for ep in range(start, args.episodes):
@@ -967,7 +1106,8 @@ def main():
                 with open(ckpt_path + ".tmp", "wb") as f:
                     pickle.dump({"episode": ep, "agent": learner.agent, "rng": learner.rng, "vplace": learner.vplace,
                                  "landmarks": (learner.landmarks, learner.lives, learner.origin),
-                                 "detector": learner.detector, "games": learner.games}, f)
+                                 "detector": learner.detector, "games": learner.games,
+                                 "danger": learner.danger, "curiosity": learner.curiosity}, f)
                 os.replace(ckpt_path + ".tmp", ckpt_path)
                 if args.keep_every > 0 and ep % args.keep_every == 0:
                     shutil.copy(ckpt_path, os.path.join(args.out, f"checkpoint_{ep}.pkl"))
@@ -989,8 +1129,12 @@ def main():
                 anchor = learner.agent.anchor = (act.W.copy(), act.b.copy())
                 act.rate = p["anchor_rate"]
             trace = ep % p["trace_every"] == 0 or ep == args.episodes - 1
-            s = episode(game, learner, scale, True, trace, shaper)
+            level = levels[int(np.random.default_rng((args.seed, ep)).integers(len(levels)))]
+            if len(levels) > 1:
+                game.set_doom_map(level)
+            s = episode(game, learner, scale, True, trace, shaper_for(level))
             s["episode"] = ep
+            s["map"] = level
             act = learner.agent.actor
             if anchor is not None:
                 if s.get("exits", 0) > 0:
@@ -1020,7 +1164,15 @@ def main():
     # Greedy test on fresh episodes, no learning.
     test_game = make_game(args.scenario, 20_000 + args.seed, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]), p["until_death"],
                           color=bool(p["detector_colour"]))
-    rows = [episode(test_game, learner, scale, False, shaper=shaper) for _ in range(p["test"])]
+    test_levels = [args.scenario] + [m.strip() for m in (p["maps"] + "," + p["test_maps"]).split(",")
+                                     if m.strip() and m.strip() != args.scenario]
+    test_levels = list(dict.fromkeys(test_levels))
+    by_map = {}
+    for level in test_levels:
+        if len(test_levels) > 1:
+            test_game.set_doom_map(level)
+        by_map[level] = [episode(test_game, learner, scale, False, shaper=shaper_for(level)) for _ in range(p["test"])]
+    rows = by_map[args.scenario]
     test_game.close()
     summary = {k: float(np.mean([r[k] for r in rows]))
                for k in ("game_reward", "kills", "medkits", "visited", "steps", "seconds", "died", "spikes")}
@@ -1042,6 +1194,10 @@ def main():
     summary["seconds_max"] = float(np.max([r["seconds"] for r in rows]))
     np.save(os.path.join(args.out, "actor_W.npy"), learner.agent.actor.W)
     np.save(os.path.join(args.out, "critic_w.npy"), learner.agent.critic.w)
+    keys = ("game_reward", "kills", "seconds", "died", "items", "doors", "exits", "cells", "closest", "approach_reward",
+            "danger_hurt", "danger_safe", "curious")
+    summary["by_map"] = {level: {k: float(np.mean([r[k] for r in rs])) for k in keys if k in rs[0]}
+                         for level, rs in by_map.items()}
     with open(os.path.join(args.out, "test.json"), "w") as f:
         json.dump({"summary": summary, "episodes": rows}, f)
     print(args.out, "TEST", json.dumps(summary), flush=True)
