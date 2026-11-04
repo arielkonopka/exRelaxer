@@ -490,6 +490,19 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-04: any level: many levels, danger, curiosity (phases 29-31)
+
+- `doom_td.py`: `maps` / `test_maps` (train on levels drawn at random,
+  test on unseen ones, per-level test summary), `danger=K` (a learned
+  predictor of being hit, felt as an input), `curiosity=c` with
+  `curiosity_mode=surprise|progress` (forward-model intrinsic reward);
+  danger and curiosity kept in checkpoints. `where_agents_go.py --level`.
+- The MAP01 recipe finds no exit on MAP03/MAP04; trained on three levels,
+  the agent dies in 42-53% of games on unseen ones (17-22% on known ones)
+  and mostly hides there. Danger predicts hits but does not help;
+  strong curiosity is farmed by fighting in place, weak curiosity changes
+  nothing. Research §67-§68, Doom log D43-D44.
+
 ### 2026-11-03: surviving MAP02 (phase 28)
 
 - `doom_td.py`: `hurt_weight` (doom_rl's w_hurt) and `retreat=k` (walk
