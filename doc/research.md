@@ -3772,6 +3772,54 @@ the doors the agent meets monsters it cannot yet handle. Curiosity now
 outweighs caution, so a better balance needs a stricter memory (views
 remembered only when clearly new) or a sense of danger that steers.
 
+## 71. Stricter views, and fear
+
+**Question.** (Phase 33; Doom log D46.) §70's view memory kept 92% of
+views. Does a stricter memory reward truly new places, and does a cost for
+feeling in danger hold the bolder agent back from fights it cannot win?
+
+**Setup.** §70's agent with `view_novelty=0.03`, but a view is now the
+pooled screen averaged into a coarse 6 x 8 picture (`view_block=5`),
+centred and normalised, with a fixed radius (`view_radius=0.6`):
+remembered when its nearest remembered view is farther than 0.6, reward
+0.03 * clip(d / 0.6 - 1, 0, 2). Arms: that alone (strict), and strict +
+`fear=0.01` (each step costs 0.01 times the danger unit's output). Seeds
+1-3, 1500 games, levels and tests as in §67. A first try that kept the
+running mean and raised the bar (`view_keep=1.5`) collapsed: fewer views
+kept made the nearest distances larger, which raised the mean, until each
+agent remembered one view (stopped at game ~900, discarded).
+
+**Results.** Tests averaged over 3 seeds and 3 levels:
+
+| arm | deaths, trained | deaths, unseen | doors, unseen | squares MAP05 | squares MAP06 |
+|---|---|---|---|---|---|
+| base (§67) | 17% | 42% | 0.5 | 40 | 65 |
+| danger (§67) | 22% | 53% | 0.7 | 26 | 61 |
+| views 0.03 (§70) | 47% | 63% | 1.1 | 31 | 72 |
+| strict views | 33% | 49% | 0.9 | 47 | 67 |
+| strict views + fear | 36% | 57% | 0.9 | 56 | 60 |
+
+- No exits anywhere.
+- The strict memory keeps 22-35% of views. Its reward still follows new
+  squares only weakly (r = -0.04 to 0.33 over the last 300 games).
+- Strict views die less than §70's views (49% vs 63% on unseen levels)
+  and walk more of MAP05, where earlier agents stood still; deaths are
+  within the seed spread of the base agent (27-73% per seed).
+- Fear does not lower deaths: 57% on unseen levels, 36% on trained ones.
+  The danger unit still separates the steps before a hit (0.49-0.60)
+  from the rest (0.13-0.27).
+- Recorded games (2 per agent per unseen level, `view_fear/*_paths.png`):
+  on MAP02, which no agent trained on, several agents cross the hall west
+  of the spawn and roam the room beside the exit enclosure, but none finds
+  the way in; one survives the full 5 minutes there with 9 kills.
+
+**What it means.** A stricter, fixed memory removes the cost of §70's
+curiosity without losing its boldness, but neither curiosity nor fear
+gets the agent further toward an exit. A cost for predicted danger
+teaches nothing new when the agent cannot see what makes a place
+dangerous: the frozen features give the actor no handle for "avoid that
+monster" beyond what the reflexes already do.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4123,6 +4171,11 @@ remembered only when clearly new) or a sense of danger that steers.
     on unseen levels from 0.5-0.7 to 1.1 per game, but deaths rise from
     42-53% to 63% and no exit is found; the memory keeps 92% of views, so
     the reward tracks new ground only weakly.
+65. **Neither stricter curiosity nor fear finds the exit** (§71): a coarse,
+    fixed-radius view memory keeps §70's boldness at the base agent's death
+    rate (49% on unseen levels) and ends the standing still on MAP05; a cost
+    for predicted danger does not lower deaths. After many drives and reflexes,
+    the frozen features look like the limit.
 
 ## Open questions and next steps
 

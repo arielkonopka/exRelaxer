@@ -1593,6 +1593,31 @@ doors, but not better: it dies behind them.
 **Data.** `results/td-actor-critic/doom/view_novelty/` (paths per unseen
 level); videos in the project's `reports/doom-td/videos_views/`.
 
+### D46. Stricter views, and fear (2026-11-05)
+
+**Question.** (Phase 33.) Does a stricter view memory reward real new
+places, and does a cost for felt danger keep the bold agent alive?
+
+**Setup.** D45's agent with views as a coarse 6 x 8 picture and a fixed
+novelty radius (`view_block=5`, `view_radius=0.6`), alone or with
+`fear=0.01`; 3 seeds, 1500 games. A first try (`view_keep=1.5`)
+collapsed to one remembered view and was discarded.
+
+**Result.**
+- No exits. Deaths on unseen levels: strict 49%, strict + fear 57%
+  (base 42%, D45 views 63%); doors 0.9 per game.
+- MAP05: 47-56 squares walked (earlier agents 26-40).
+- The memory keeps 22-35% of views; reward vs new squares r <= 0.33.
+
+**Conclusion.** Curiosity without the extra deaths, but no closer to an
+exit; fear does nothing.
+
+- Videos: on MAP02 several agents reach the room beside the exit
+  enclosure but never get in.
+
+**Data.** `results/td-actor-critic/doom/view_fear/` (paths per unseen
+level); videos in the project's `reports/doom-td/videos_fear/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

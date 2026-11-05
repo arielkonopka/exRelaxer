@@ -490,6 +490,14 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-05: stricter views, and fear (phase 33)
+
+- `doom_td.py`: `view_block` (views as a coarse picture), `view_radius`
+  (fixed novelty radius), `view_keep`, and `fear=w` (a cost from the danger
+  unit's output). Strict views keep curiosity's boldness at the base
+  agent's death rate; fear does not lower deaths; no exits. Research §71,
+  Doom log D46.
+
 ### 2026-11-04: curiosity about views (phase 32)
 
 - `doom_td.py`: `view_novelty=c` (an episodic memory of views; reward for a

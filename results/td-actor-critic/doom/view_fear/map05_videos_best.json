@@ -1,0 +1,32 @@
+{
+ "kills": {
+  "run": "fear_s1",
+  "game": 0,
+  "kills": 6.0,
+  "seconds": 300.0,
+  "doors": 1.0,
+  "died": 0,
+  "game_reward": 4.368999999999489,
+  "visited": 102
+ },
+ "longest": {
+  "run": "strict_s2",
+  "game": 1,
+  "kills": 5.0,
+  "seconds": 300.0,
+  "doors": 1.0,
+  "died": 0,
+  "game_reward": 5.877000000000023,
+  "visited": 80
+ },
+ "doors": {
+  "run": "fear_s1",
+  "game": 1,
+  "kills": 2.0,
+  "seconds": 70.4,
+  "doors": 1.0,
+  "died": 1,
+  "game_reward": -1.2379999999999969,
+  "visited": 66
+ }
+}
