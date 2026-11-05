@@ -3808,6 +3808,10 @@ agent remembered one view (stopped at game ~900, discarded).
 - Fear does not lower deaths: 57% on unseen levels, 36% on trained ones.
   The danger unit still separates the steps before a hit (0.49-0.60)
   from the rest (0.13-0.27).
+- Recorded games (2 per agent per unseen level, `view_fear/*_paths.png`):
+  on MAP02, which no agent trained on, several agents cross the hall west
+  of the spawn and roam the room beside the exit enclosure, but none finds
+  the way in; one survives the full 5 minutes there with 9 kills.
 
 **What it means.** A stricter, fixed memory removes the cost of §70's
 curiosity without losing its boldness, but neither curiosity nor fear

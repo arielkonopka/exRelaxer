@@ -1612,7 +1612,11 @@ collapsed to one remembered view and was discarded.
 **Conclusion.** Curiosity without the extra deaths, but no closer to an
 exit; fear does nothing.
 
-**Data.** `results/td-actor-critic/doom/view_fear/`.
+- Videos: on MAP02 several agents reach the room beside the exit
+  enclosure but never get in.
+
+**Data.** `results/td-actor-critic/doom/view_fear/` (paths per unseen
+level); videos in the project's `reports/doom-td/videos_fear/`.
 
 ## Open questions
 
