@@ -129,7 +129,11 @@ curiosity are kept in the checkpoint. Phase 32: `view_novelty=c` keeps
 an episodic memory of views (the pooled screen projected to `view_dims`
 random directions, empty at the start of each game, up to `view_memory`
 views) and pays c * clip(d / mean d - 1, 0, 2) for a view at distance d
-from the nearest remembered one.
+from the nearest remembered one. Phase 33: `view_keep=k` remembers a view
+only when d > k * mean d; `view_block=b` makes a view the pooled screen
+averaged over b x b blocks instead of a random projection; `view_radius=r`
+replaces the running mean with a fixed radius; `fear=w` costs w times the
+danger unit's output each step.
 
 `where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
 replays trained MAP01 runs and draws where they go (phase 17); `--record`
