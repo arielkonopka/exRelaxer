@@ -687,6 +687,25 @@ std::string withoutNumberFormats(std::string bytes, size_t layers)
     return bytes;
 }
 
+// Removes the plasticity potential block (neuron format 5) of `layers`
+// layers with the option off, so the bytes read as an older format.
+std::string withoutPlasticity(std::string bytes, size_t layers)
+{
+    const Plasticity off{};
+    std::string block(1, '\0');
+    for (float v : {off.alpha, off.beta, off.epsilon, off.floor})
+        block.append(reinterpret_cast<const char*>(&v), sizeof v);
+    block.append(sizeof(std::uint64_t), '\0');  // no potentials
+    for (size_t i = 0; i < layers; ++i) {
+        const size_t at = bytes.find(block);
+        EXPECT_NE(at, std::string::npos);
+        if (at != std::string::npos)
+            bytes.erase(at, block.size());
+    }
+    EXPECT_EQ(bytes.find(block), std::string::npos);
+    return bytes;
+}
+
 TEST(NetworkSerializationTest, FilesBeforeFormat20KeepRecovery09)
 {
     // (The value range bytes of format 22 are removed for the older versions.)
@@ -708,7 +727,7 @@ TEST(NetworkSerializationTest, FilesBeforeFormat20KeepRecovery09)
 
     for (char version : {19, 20}) {
         SCOPED_TRACE("format version " + std::to_string(version));
-        std::string bytes = withoutValueRanges(withoutNumberFormats(ss.str(), 2), 2);
+        std::string bytes = withoutValueRanges(withoutNumberFormats(withoutPlasticity(ss.str(), 2), 2), 2);
         bytes[4] = version;
         std::stringstream s(bytes);
         const auto loaded = network::load(s);

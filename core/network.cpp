@@ -1241,8 +1241,11 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //  23  + a last section: the neuron model of each layer that has another
 //        model than ER (NeuronModel) and its neurons' model state. Older
 //        readers' layout is unchanged.
+//  24  neuron format 5: each layer's learning state ends with the
+//        plasticity potential option (LearningRule::plasticity) and its
+//        neurons' P
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 23;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 24;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -1642,7 +1645,7 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
     const bool legacy = version < FIRST_FULL_STATE_VERSION;
     if (legacy)
         mode = DeserializeMode::WeightsOnly;
-    const std::uint32_t neuron_format = version <= 2 ? 1 : version <= 8 ? 2 : version <= 17 ? 3 : 4;
+    const std::uint32_t neuron_format = version <= 2 ? 1 : version <= 8 ? 2 : version <= 17 ? 3 : version <= 23 ? 4 : 5;
 
     auto net = std::make_unique<network>(factory);
     // Minimum sizes are saved as they are now, which earlier pruning in the
@@ -1876,6 +1879,10 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
         node.impl->deserialize(is, mode, neuron_format);
         if (!is)
             throw std::runtime_error("network::load: unexpected end of data in layer '" + node.name + "'");
+        // The plasticity potential option is saved with the layer's learning
+        // state (neuron format 5), not with the topology.
+        if (node.impl->hasNeurons())
+            node.spec.learningRule.plasticity = dynamic_cast<const neuron_layer&>(*node.impl).learningRule().plasticity;
         if (node.impl->size() != expected_size)
             throw std::runtime_error("network::load: layer '" + node.name + "' does not match its saved state");
         if (legacy && node.impl->hasNeurons()) {

@@ -59,6 +59,18 @@
 // per neuron (its input is a constant 1), weight decay (keep *= 1 - rate *
 // decay for neurons that learn), and for Oja / BCM, competition (only the
 // `winners` most active neurons learn, per position in spatial layers).
+//
+// Plasticity potential (option for every rule but Surrogate, see Plasticity):
+// each neuron keeps a P in [0, 1] that follows its local error, the modulator
+// m it gets this update (its own error for FeedbackAlignment / EProp / output
+// layers, the shared reward or TD error for the reward rules):
+//
+//   |m| <  epsilon:  P = P * (1 - alpha)                    (settled: P fades)
+//   |m| >= epsilon:  P = P + min(1, beta * |m|) * (1 - P)   (frustrated: P rises)
+//
+// and the neuron's delta, and its weight decay, are multiplied by the new P:
+// a neuron whose error stays small stops changing its weights, one whose
+// error grows becomes plastic again. New and grown neurons start at P = 1.
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -79,6 +91,18 @@ enum class LearningRuleType : std::uint8_t {
     Surrogate = 8
 };
 
+// The plasticity potential option of a learning rule (see above).
+struct Plasticity
+{
+    bool enabled = false;
+    float alpha = 0.001f;    // fade per update while |m| < epsilon, [0, 1]
+    float beta = 1.0f;       // rise per unit |m| otherwise (>= 0); the step is capped at 1 - P
+    float epsilon = 0.01f;   // the error below which a neuron counts as settled (>= 0)
+    float floor = 0.0f;      // P never fades below this, [0, 1]
+
+    bool operator==(const Plasticity&) const = default;
+};
+
 struct LearningRule
 {
     LearningRuleType type = LearningRuleType::Sign;
@@ -91,6 +115,7 @@ struct LearningRule
     std::uint32_t winners = 0;  // Oja / BCM: only this many most active neurons learn; 0 = all
     float width = 0.5f;     // EProp, Surrogate: pseudo-derivative half-width, relative to the threshold (> 0)
     std::uint32_t window = 8;  // Surrogate: ticks backpropagated through, [1, 1024]
+    Plasticity plasticity = {};  // per-neuron plasticity potential (off by default; not for Surrogate)
 
     static LearningRule sign() { return {}; }
     static LearningRule traced(float trace = 0.0f, float baseline = 0.05f)
@@ -160,6 +185,14 @@ struct LearningRule
     }
     LearningRule withBias(bool on = true) const { LearningRule r = *this; r.bias = on; return r; }
     LearningRule withDecay(float value) const { LearningRule r = *this; r.decay = value; return r; }
+    // The same rule with a plasticity potential per neuron:
+    //   LearningRule::feedbackAlignment().withPlasticity(0.001f, 1.0f, 0.01f)
+    LearningRule withPlasticity(float alpha = 0.001f, float beta = 1.0f, float epsilon = 0.01f, float floor = 0.0f) const
+    {
+        LearningRule r = *this;
+        r.plasticity = {true, alpha, beta, epsilon, floor};
+        return r;
+    }
 
     // Whether the rule ignores the reward (Oja, BCM).
     bool unsupervised() const { return type == LearningRuleType::Oja || type == LearningRuleType::BCM; }
