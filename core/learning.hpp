@@ -68,7 +68,9 @@
 //   |m| <  epsilon:  P = P * (1 - alpha)                    (settled: P fades)
 //   |m| >= epsilon:  P = P + min(1, beta * |m|) * (1 - P)   (frustrated: P rises)
 //
-// and the neuron's delta, and its weight decay, are multiplied by the new P:
+// (with `participation`, |m| x min(1, |the neuron's output|) instead of |m|:
+// only a neuron that took part can be frustrated), and the neuron's delta,
+// and its weight decay, are multiplied by the new P:
 // a neuron whose error stays small stops changing its weights, one whose
 // error grows becomes plastic again. New and grown neurons start at P = 1.
 #pragma once
@@ -99,6 +101,7 @@ struct Plasticity
     float beta = 1.0f;       // rise per unit |m| otherwise (>= 0); the step is capped at 1 - P
     float epsilon = 0.01f;   // the error below which a neuron counts as settled (>= 0)
     float floor = 0.0f;      // P never fades below this, [0, 1]
+    bool participation = false;  // the local error is |m| x min(1, |output|): a silent neuron counts as settled
 
     bool operator==(const Plasticity&) const = default;
 };
@@ -187,10 +190,11 @@ struct LearningRule
     LearningRule withDecay(float value) const { LearningRule r = *this; r.decay = value; return r; }
     // The same rule with a plasticity potential per neuron:
     //   LearningRule::feedbackAlignment().withPlasticity(0.001f, 1.0f, 0.01f)
-    LearningRule withPlasticity(float alpha = 0.001f, float beta = 1.0f, float epsilon = 0.01f, float floor = 0.0f) const
+    LearningRule withPlasticity(float alpha = 0.001f, float beta = 1.0f, float epsilon = 0.01f, float floor = 0.0f,
+                                bool participation = false) const
     {
         LearningRule r = *this;
-        r.plasticity = {true, alpha, beta, epsilon, floor};
+        r.plasticity = {true, alpha, beta, epsilon, floor, participation};
         return r;
     }
 

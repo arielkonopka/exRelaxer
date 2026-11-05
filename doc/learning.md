@@ -264,6 +264,7 @@ depends on error instead of on age (compare `Maturation` in
 | `beta` | 1 | rise per unit error, ≥ 0; the step is capped at `1 − P`, so P never passes 1 |
 | `epsilon` | 0.01 | the error below which a neuron counts as settled, ≥ 0 |
 | `floor` | 0 | P never fades below this, in [0, 1] |
+| `participation` | false | the local error is `\|m\| · min(1, \|output\|)`: only a neuron that took part (fired) can be frustrated; a silent one counts as settled |
 
 - What `m` is depends on the rule and the call: a feedback-alignment or e-prop
   hidden neuron's own projection of the errors, an output neuron's own

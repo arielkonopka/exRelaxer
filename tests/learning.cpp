@@ -402,7 +402,7 @@ TEST(LearningRuleTest, EveryRuleContinuesExactlyAfterLoad)
               LearningRule::feedbackAlignment(0.3f), LearningRule::perturbation(0.1f, 0.2f),
               LearningRule::oja(1), LearningRule::bcm(0.05f, 1, 0.01f).withBias(),
               LearningRule::feedbackAlignment(0.3f).withPlasticity(0.1f, 2.0f, 0.05f),
-              LearningRule::traced(0.5f).withDecay(0.1f).withPlasticity(0.2f, 1.0f, 0.3f, 0.1f)}) {
+              LearningRule::traced(0.5f).withDecay(0.1f).withPlasticity(0.2f, 1.0f, 0.3f, 0.1f, true)}) {
             SCOPED_TRACE(describeLearningRule(rule) + (spatial ? " spatial" : " dense"));
             expectContinuesAfterLoad(rule, spatial);
         }
@@ -540,6 +540,21 @@ TEST(PlasticityPotentialTest, ValidatesAndDescribes)
                  std::invalid_argument);
     EXPECT_THROW(LearningRule::surrogate().withPlasticity().validate(), std::invalid_argument);
     EXPECT_EQ(describeLearningRule(LearningRule::feedbackAlignment().withPlasticity()), "fa +P");
+    EXPECT_EQ(describeLearningRule(LearningRule::feedbackAlignment().withPlasticity(0.1f, 1, 0.1f, 0, true)), "fa +Pp");
+}
+
+TEST(PlasticityPotentialTest, ParticipationSettlesSilentNeurons)
+{
+    // Two neurons, the same error: the one whose output is 0 counts as settled.
+    Plain p(1, 2, LearningRule::feedbackAlignment().withPlasticity(0.5f, 1.0f, 0.01f, 0.0f, true));
+    p.setWeights(0, {0.0f});
+    p.setWeights(1, {0.5f});
+    p.net.setInputs(std::vector<float>{1.0f});
+    p.net.step();
+    p.layer().setPlasticityPotential(1, 0.5f);
+    p.net.applyError(std::vector<float>{0.4f, 0.4f}, 0.1f);
+    EXPECT_FLOAT_EQ(p.layer().plasticityPotential()[0], 0.5f);                 // silent: faded
+    EXPECT_FLOAT_EQ(p.layer().plasticityPotential()[1], 0.5f + 0.4f * 0.5f * 0.5f);  // |m| x |y| = 0.2
 }
 
 TEST(PlasticityPotentialTest, FadesWhileSettledRisesWithErrorAndScalesTheStep)

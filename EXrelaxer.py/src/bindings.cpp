@@ -467,6 +467,8 @@ NB_MODULE(_core, m)
         .def_rw("beta", &Plasticity::beta, "Rise per unit error, >= 0.")
         .def_rw("epsilon", &Plasticity::epsilon, "The error below which a neuron counts as settled, >= 0.")
         .def_rw("floor", &Plasticity::floor, "P never fades below this, [0, 1].")
+        .def_rw("participation", &Plasticity::participation,
+                "The local error is |m| x min(1, |output|): a silent neuron counts as settled.")
         .def("__eq__", [](const Plasticity& a, const Plasticity& b) { return a == b; })
         .def("__repr__", [](const Plasticity& p) {
             return "<Plasticity " + std::string(p.enabled ? "on" : "off") + " alpha=" + std::to_string(p.alpha) +
@@ -511,7 +513,7 @@ NB_MODULE(_core, m)
         .def("with_decay", &LearningRule::withDecay, "decay"_a)
         .def_rw("plasticity", &LearningRule::plasticity, "The plasticity potential option (see Plasticity).")
         .def("with_plasticity", &LearningRule::withPlasticity, "alpha"_a = 0.001f, "beta"_a = 1.0f,
-             "epsilon"_a = 0.01f, "floor"_a = 0.0f,
+             "epsilon"_a = 0.01f, "floor"_a = 0.0f, "participation"_a = false,
              "The same rule with a plasticity potential P per neuron, driven by its local error (the modulator\n"
              "it gets: its own error for feedback_alignment / eprop / output layers, the reward or TD error\n"
              "for the reward rules). Not for surrogate.")

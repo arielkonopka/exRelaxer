@@ -735,7 +735,7 @@ void neuron_layer::learn(Modulator m, float learningRate)
         for (size_t i = 0; i < n; ++i) {
             if (frozen_[i])
                 continue;
-            const float error = std::fabs(m(i));
+            const float error = std::fabs(m(i)) * (p.participation ? std::min(1.0f, std::fabs(output_[i])) : 1.0f);
             float& P = potential_[i];
             if (error >= p.epsilon)
                 P += std::min(1.0f, p.beta * error) * (1.0f - P);
@@ -960,6 +960,7 @@ void neuron_layer::writeLearningState(std::ostream& os) const
     binary_io::write(os, p.beta);
     binary_io::write(os, p.epsilon);
     binary_io::write(os, p.floor);
+    binary_io::write(os, static_cast<std::uint8_t>(p.participation));
     writeFloats(os, potential_);
 }
 
@@ -1004,6 +1005,7 @@ void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std
             rule.plasticity.beta = binary_io::read<float>(is);
             rule.plasticity.epsilon = binary_io::read<float>(is);
             rule.plasticity.floor = binary_io::read<float>(is);
+            rule.plasticity.participation = binary_io::read<std::uint8_t>(is) != 0;
             potential = readFloats(is);
         }
         if (is) {

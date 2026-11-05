@@ -695,6 +695,7 @@ std::string withoutPlasticity(std::string bytes, size_t layers)
     std::string block(1, '\0');
     for (float v : {off.alpha, off.beta, off.epsilon, off.floor})
         block.append(reinterpret_cast<const char*>(&v), sizeof v);
+    block.append(1, '\0');                      // participation off
     block.append(sizeof(std::uint64_t), '\0');  // no potentials
     for (size_t i = 0; i < layers; ++i) {
         const size_t at = bytes.find(block);

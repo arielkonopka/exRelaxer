@@ -80,7 +80,7 @@ std::string describeLearningRule(const LearningRule& rule)
     if (rule.bias)
         os << " +bias";
     if (rule.plasticity.enabled)
-        os << " +P";
+        os << (rule.plasticity.participation ? " +Pp" : " +P");
     return os.str();
 }
 
