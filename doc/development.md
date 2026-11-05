@@ -89,6 +89,16 @@ not saved: a loaded layer gives every neuron the layer's value. On Snake (resear
 start threshold is undone by the first firing; a lower resting threshold keeps the new neurons
 eligible to learn (feedback alignment) on almost every tick and helps at recovery 0.5, not at 0.9.
 
+### Plasticity that follows error
+
+Instead of age, a neuron's plasticity can follow its own error: `LearningRule.with_plasticity`
+(doc/learning.md#plasticity-potential) gives each neuron a P that fades while its local error is
+small, rises when it grows, and scales its weight updates; grown neurons start at P = 1, so
+freezing at growth is not needed. `snake_growth` takes it as `plasticity=True` with `p_alpha`,
+`p_epsilon`, `p_beta`, `p_floor`, `p_participation`, `p_readouts` (and `weight_feedback=True`
+for the error through the readouts' real weights). On Snake (research log §73) it learns about as
+well as maturation and unfreezes when the task changes, but does not protect the old task.
+
 ### Young neurons that mature
 
 Adult-born neurons in the hippocampus are hyperexcitable and more plastic for a few weeks, then
