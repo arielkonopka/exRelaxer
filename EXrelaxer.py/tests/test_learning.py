@@ -118,3 +118,52 @@ def test_positive_only_values_and_weights():
     loaded = exr.Network.from_bytes(net.to_bytes())
     assert loaded.layer_spec(hid).positive_weights
     assert loaded.layer_spec(hid).ceiling == pytest.approx(4.0)
+
+
+def test_plasticity_potential():
+    rule = exr.LearningRule.feedback_alignment().with_plasticity(0.5, 1.0, 0.1)
+    assert rule.plasticity.enabled and rule.plasticity.alpha == pytest.approx(0.5)
+    assert "+P" in repr(rule)
+    with pytest.raises(ValueError):
+        exr.LearningRule.surrogate().with_plasticity().validate()
+    net = exr.Network()
+    spec = exr.LayerSpec.dense(2, False, False, learning_rule=rule)
+    spec.normalize = False
+    out = net.add_layer("out", spec)
+    net.add_inputs(out, 1)
+    net.add_output(out)
+    assert np.array_equal(net.plasticity_potential(out), [1.0, 1.0])
+    net.set_inputs(np.array([1.0], np.float32))
+    net.step()
+    net.apply_error(np.array([0.0, 0.5], np.float32), 0.1)   # one settled, one frustrated
+    assert net.plasticity_potential(out) == pytest.approx([0.5, 1.0])
+    net.set_plasticity_potential(out, 1, 0.25)
+    net.grow_layer(out, 1)
+    assert net.plasticity_potential(out) == pytest.approx([0.5, 0.25, 1.0])   # grown: fully plastic
+    restored = exr.Network.from_bytes(net.to_bytes())
+    assert restored.plasticity_potential(out) == pytest.approx([0.5, 0.25, 1.0])
+    assert restored.layer_spec(out).learning_rule == net.layer_spec(out).learning_rule
+    plain = exr.Network()
+    sign = plain.add_layer("s", exr.LayerSpec.dense(1))
+    assert plain.plasticity_potential(sign).size == 0
+
+
+def test_weight_feedback():
+    rule = exr.LearningRule.feedback_alignment().with_weight_feedback()
+    assert rule.weight_feedback and "+wfb" in repr(rule)
+    with pytest.raises(ValueError):
+        exr.LearningRule.traced().with_weight_feedback().validate()
+    net = exr.Network()
+    spec = exr.LayerSpec.dense(2, False, False, learning_rule=rule)
+    h = net.add_layer("h", spec)
+    o = net.add_layer("o", exr.LayerSpec.dense(1, False, False, learning_rule=exr.LearningRule.feedback_alignment()))
+    net.add_inputs(h, 1)
+    net.connect(h, o)
+    net.add_output(o)
+    net.set_weights(o, 0, np.array([1.0, 0.0], np.float32))   # only hidden 0 is read
+    before = [net.weights(h, i).copy() for i in range(2)]
+    net.set_inputs(np.array([1.0], np.float32))
+    net.step()
+    net.apply_error(np.array([1.0], np.float32), 0.1)
+    assert not np.array_equal(net.weights(h, 0), before[0])
+    assert np.array_equal(net.weights(h, 1), before[1])

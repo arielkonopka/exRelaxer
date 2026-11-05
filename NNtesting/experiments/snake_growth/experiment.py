@@ -78,6 +78,16 @@ DEFAULTS = {
     "mature_end_resting": 1.0,          # the resting threshold at maturity, x the layer's
     "mature_end_gain": 1.0,             # the learning gain at maturity, x the gain at birth
     "mature_freeze": False,             # matured neurons are frozen
+    "plasticity": False,                # plasticity potential on the adaptive layers (LearningRule
+                                        # with_plasticity): P fades while a neuron's error stays below
+                                        # p_epsilon, rises with it otherwise, and scales its updates.
+                                        # With it, steps where the readout already agrees apply a zero
+                                        # error (so P sees them) instead of being skipped
+    "p_alpha": 0.01, "p_beta": 1.0, "p_epsilon": 0.01, "p_floor": 0.0,
+    "p_participation": False,           # the local error is |error| x min(1, |output|) (silent: settled)
+    "weight_feedback": False,           # the adaptive layers get the readout error through the readouts'
+                                        # real weights, not a fixed random matrix (with_weight_feedback)
+    "p_readouts": False,                # the readouts get the plasticity potential as well
     "trigger": "saturation",            # width growth on E-R saturation; "entropy": when the layer's
                                         # firing-pattern entropy per neuron over entropy_window ticks
                                         # falls below entropy_min (PatternDiversity); "either": both
@@ -121,6 +131,8 @@ class Agent:
         self.readouts = []
         for name in ACTIONS:
             spec = exr.LayerSpec.dense(1, False, False)
+            if p["plasticity"] and p["p_readouts"]:
+                spec.learning_rule = self.plastic(spec.learning_rule)
             spec.precision = precision(p["readout_precision"], p["value_step"])
             out = net.add_layer(name, spec)
             net.connect(self.er, out)
@@ -152,8 +164,16 @@ class Agent:
         self.evaluation, self.last_score = 0, None
         self.ticks = 0
 
+    def plastic(self, rule):
+        p = self.p
+        return rule.with_plasticity(p["p_alpha"], p["p_beta"], p["p_epsilon"], p["p_floor"],
+                                   p["p_participation"]) if p["plasticity"] else rule
+
     def adaptive_spec(self, size):
-        spec = exr.LayerSpec.dense(size, False, True, learning_rule=exr.LearningRule.feedback_alignment())
+        rule = exr.LearningRule.feedback_alignment()
+        if self.p["weight_feedback"]:
+            rule = rule.with_weight_feedback()
+        spec = exr.LayerSpec.dense(size, False, True, learning_rule=self.plastic(rule))
         spec.precision = precision(self.p["precision"], self.p["value_step"])
         return spec
 
@@ -195,10 +215,12 @@ class Agent:
     def learn(self, action, reward):
         """Error-driven: the chosen action's readout learns when its sign disagrees with the reward;
         the E-R layers learn from the same error through their fixed random feedback."""
-        if self.y[action] * reward > 0:
-            return
         errors = np.zeros(len(ACTIONS), np.float32)
-        errors[action] = reward
+        if self.y[action] * reward > 0:
+            if not self.p["plasticity"]:
+                return
+        else:
+            errors[action] = reward
         self.net.apply_error(errors, self.p["lr"])
 
     def develop(self):
@@ -242,7 +264,11 @@ class Agent:
                     self.monitor = self.new_monitor()
                     self.hold_until = self.evaluation + 1 + self.p["undo"]
                 self.pending = None
-        self.diversity_log.append(dict(self.diversity.summary(), size=self.net.layer_size(self.newest)))
+        entry = dict(self.diversity.summary(), size=self.net.layer_size(self.newest))
+        if self.p["plasticity"]:
+            P = self.net.plasticity_potential(self.newest)
+            entry.update(p_mean=float(P.mean()), p_min=float(P.min()), p_low=float((P < 0.1).mean()))
+        self.diversity_log.append(entry)
         self.diversity.reset()
         self.last_score = score
         self.evaluation += 1

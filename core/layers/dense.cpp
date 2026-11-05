@@ -511,6 +511,30 @@ void dense::backpropagate(size_t ago, std::span<const float> gy, std::span<float
     }
 }
 
+void dense::transposeErrors(std::span<const float> errors, const SourceGradient& toSource) const
+{
+    if (errors.size() != size())
+        throw std::invalid_argument("dense::transposeErrors: one error per neuron");
+    std::vector<float> rows, gx;
+    for (const Group& group : groups_) {
+        const size_t first = group.neurons.first, count = group.neurons.count;
+        rows.assign(group.weights.paddedRows(), 0.0f);
+        for (size_t r = 0; r < count; ++r)
+            rows[r] = errors[first + r] * normScale(first + r);
+        gx.assign(group.weights.cols(), 0.0f);
+        group.weights.multiplyTransposed(rows, gx);
+        size_t col = 0;
+        for (const InputRange& range : group.inputs) {
+            for (const layer& source : group.sources)
+                if (range.sameBuffer(InputRange(source.outputBuffer()))) {
+                    toSource(source, range.offset, std::span<const float>(gx).subspan(col, range.count));
+                    break;
+                }
+            col += range.count;
+        }
+    }
+}
+
 void dense::applyGradients(float learningRate)
 {
     const LearningRule& rule = learningRule();

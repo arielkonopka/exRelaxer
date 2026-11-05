@@ -498,6 +498,30 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
   neurons frozen). 32 plastic neurons raise deaths; the grown layer lowers
   them by hiding; no exits. Research §72, Doom log D47.
 
+### 2026-11-05: plasticity potential on Snake (§73)
+
+- `snake_growth`: `plasticity`, `p_alpha`, `p_beta`, `p_epsilon`, `p_floor`,
+  `p_participation`, `p_readouts`, `weight_feedback`; `plasticity.py` (one
+  task) and `switch.py` (Snake, then permuted-sensor Snake, then Snake). P
+  learns about as well as maturation and unfreezes on the switch, but the old
+  task is forgotten; weight feedback relearns it 3.5x faster. Research §73,
+  `results/snake-plasticity/`.
+
+### 2026-11-05: weight feedback
+
+- `LearningRule::withWeightFeedback()` (Python `.with_weight_feedback()`): a
+  hidden feedback-alignment or e-prop layer gets the errors through the
+  output layers' real weights instead of a fixed random matrix. Network
+  format 25. See [doc/learning.md](doc/learning.md#weight-feedback).
+
+### 2026-11-05: plasticity potential
+
+- `LearningRule::withPlasticity(alpha, beta, epsilon, floor)` (Python
+  `.with_plasticity(...)`): a per-neuron plasticity potential P that fades
+  while the neuron's local error stays below epsilon, rises with the error
+  otherwise, and scales the neuron's weight steps. Network format 24 saves
+  it. See [doc/learning.md](doc/learning.md#plasticity-potential).
+
 ### 2026-11-05: stricter views, and fear (phase 33)
 
 - `doom_td.py`: `view_block` (views as a coarse picture), `view_radius`

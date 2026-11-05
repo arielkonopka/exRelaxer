@@ -6,6 +6,7 @@
 #include <functional>
 #include <iomanip>
 #include <limits>
+#include <map>
 #include <sstream>
 #include <queue>
 #include <stdexcept>
@@ -852,6 +853,31 @@ void network::applyError(std::span<const float> errors, float learningRate)
         squared += e * e;
     backpropagateSurrogate(errors, learningRate);
 
+    // Weight feedback: each output layer hands e_k w_ki / |w_k| back to the
+    // layers it reads (dense outputs only).
+    std::map<const layer*, std::vector<float>> backward;
+    for (const Node& node : this->nodes)
+        if (node.impl->hasNeurons()) {
+            const LearningRule& r = dynamic_cast<const neuron_layer&>(*node.impl).learningRule();
+            if (r.weightFeedback)
+                backward[node.impl.get()].assign(node.impl->size(), 0.0f);
+        }
+    if (!backward.empty()) {
+        size_t offset = 0;
+        for (LayerId out : this->outputs_) {
+            const size_t n = this->nodes[out].impl->size();
+            if (auto* d = dynamic_cast<const dense*>(this->nodes[out].impl.get()))
+                d->transposeErrors(errors.subspan(offset, n), [&](const layer& source, size_t at, std::span<const float> g) {
+                    auto it = backward.find(&source);
+                    if (it == backward.end())
+                        return;
+                    for (size_t i = 0; i < g.size() && at + i < it->second.size(); ++i)
+                        it->second[at + i] += g[i];
+                });
+            offset += n;
+        }
+    }
+
     for (LayerId id = 0; id < this->nodes.size(); ++id) {
         Node& node = this->nodes[id];
         if (node.spec.frozen || !node.impl->learns() || !node.impl->hasNeurons())
@@ -880,6 +906,8 @@ void network::applyError(std::span<const float> errors, float learningRate)
         }
         if (is_output)
             target.applyModulators(errors.subspan(offset, target.size()), learningRate);
+        else if (rule.weightFeedback)
+            target.applyModulators(backward[node.impl.get()], learningRate);
         else if (rule.type == LearningRuleType::FeedbackAlignment || rule.type == LearningRuleType::EProp)
             target.applyFeedback(errors, learningRate);
     }
@@ -1241,8 +1269,12 @@ constexpr char NETWORK_MAGIC[4] = {'E', 'X', 'R', 'N'};
 //  23  + a last section: the neuron model of each layer that has another
 //        model than ER (NeuronModel) and its neurons' model state. Older
 //        readers' layout is unchanged.
+//  24  neuron format 5: each layer's learning state ends with the
+//        plasticity potential option (LearningRule::plasticity) and its
+//        neurons' P
+//  25  neuron format 6: + the weight-feedback flag (LearningRule::weightFeedback)
 // Older versions load as weights only (see network::load).
-constexpr std::uint32_t NETWORK_FORMAT_VERSION = 23;
+constexpr std::uint32_t NETWORK_FORMAT_VERSION = 25;
 // Files from this version on carry the full state; older ones load as
 // weights only. (Versions 7, 8, 10 and 11 only added parameters whose defaults
 // are right for older files.)
@@ -1642,7 +1674,7 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
     const bool legacy = version < FIRST_FULL_STATE_VERSION;
     if (legacy)
         mode = DeserializeMode::WeightsOnly;
-    const std::uint32_t neuron_format = version <= 2 ? 1 : version <= 8 ? 2 : version <= 17 ? 3 : 4;
+    const std::uint32_t neuron_format = version <= 2 ? 1 : version <= 8 ? 2 : version <= 17 ? 3 : version <= 23 ? 4 : version <= 24 ? 5 : 6;
 
     auto net = std::make_unique<network>(factory);
     // Minimum sizes are saved as they are now, which earlier pruning in the
@@ -1876,6 +1908,14 @@ std::unique_ptr<network> network::load(std::istream& is, DeserializeMode mode, c
         node.impl->deserialize(is, mode, neuron_format);
         if (!is)
             throw std::runtime_error("network::load: unexpected end of data in layer '" + node.name + "'");
+        // The plasticity potential option is saved with the layer's learning
+        // state (neuron format 5), not with the topology.
+        if (node.impl->hasNeurons())
+        {
+            const LearningRule& saved = dynamic_cast<const neuron_layer&>(*node.impl).learningRule();
+            node.spec.learningRule.plasticity = saved.plasticity;
+            node.spec.learningRule.weightFeedback = saved.weightFeedback;
+        }
         if (node.impl->size() != expected_size)
             throw std::runtime_error("network::load: layer '" + node.name + "' does not match its saved state");
         if (legacy && node.impl->hasNeurons()) {

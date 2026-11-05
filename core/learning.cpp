@@ -23,6 +23,19 @@ void LearningRule::validate() const
         throw std::invalid_argument("LearningRule: width must be > 0");
     if (window < 1 || window > 1024)
         throw std::invalid_argument("LearningRule: window must be in [1, 1024]");
+    const Plasticity& p = plasticity;
+    if (!(p.alpha >= 0.0f && p.alpha <= 1.0f))
+        throw std::invalid_argument("LearningRule: plasticity alpha must be in [0, 1]");
+    if (!(p.beta >= 0.0f) || !std::isfinite(p.beta))
+        throw std::invalid_argument("LearningRule: plasticity beta must be >= 0");
+    if (!(p.epsilon >= 0.0f) || !std::isfinite(p.epsilon))
+        throw std::invalid_argument("LearningRule: plasticity epsilon must be >= 0");
+    if (!(p.floor >= 0.0f && p.floor <= 1.0f))
+        throw std::invalid_argument("LearningRule: plasticity floor must be in [0, 1]");
+    if (weightFeedback && type != LearningRuleType::FeedbackAlignment && type != LearningRuleType::EProp)
+        throw std::invalid_argument("LearningRule: weight feedback is for the FeedbackAlignment and EProp rules");
+    if (p.enabled && type == LearningRuleType::Surrogate)
+        throw std::invalid_argument("LearningRule: the plasticity potential is not for the Surrogate rule");
 }
 
 const char* learningRuleName(LearningRuleType type)
@@ -68,6 +81,10 @@ std::string describeLearningRule(const LearningRule& rule)
         os << " d" << rule.decay;
     if (rule.bias)
         os << " +bias";
+    if (rule.weightFeedback)
+        os << " +wfb";
+    if (rule.plasticity.enabled)
+        os << (rule.plasticity.participation ? " +Pp" : " +P");
     return os.str();
 }
 

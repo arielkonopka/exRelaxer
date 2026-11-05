@@ -400,7 +400,10 @@ TEST(LearningRuleTest, EveryRuleContinuesExactlyAfterLoad)
         for (const LearningRule& rule :
              {LearningRule::sign().withDecay(0.1f).withBias(), LearningRule::traced(0.5f).withBias(),
               LearningRule::feedbackAlignment(0.3f), LearningRule::perturbation(0.1f, 0.2f),
-              LearningRule::oja(1), LearningRule::bcm(0.05f, 1, 0.01f).withBias()}) {
+              LearningRule::oja(1), LearningRule::bcm(0.05f, 1, 0.01f).withBias(),
+              LearningRule::feedbackAlignment(0.3f).withPlasticity(0.1f, 2.0f, 0.05f),
+              LearningRule::traced(0.5f).withDecay(0.1f).withPlasticity(0.2f, 1.0f, 0.3f, 0.1f, true),
+              LearningRule::feedbackAlignment(0.3f).withWeightFeedback()}) {
             SCOPED_TRACE(describeLearningRule(rule) + (spatial ? " spatial" : " dense"));
             expectContinuesAfterLoad(rule, spatial);
         }
@@ -523,4 +526,158 @@ TEST(LearningRuleTest, FeedbackAlignmentSkipsSilentGatedNeurons)
     p.net.applyError(std::vector<float>{1.0f, 1.0f}, 0.1f);
     EXPECT_EQ(p.layer().weights(0)[0], 0.3f);
     EXPECT_GT(p.layer().weights(1)[0], 0.9f);
+}
+
+// --- Plasticity potential ------------------------------------------------------
+
+TEST(PlasticityPotentialTest, ValidatesAndDescribes)
+{
+    EXPECT_FALSE(LearningRule{}.plasticity.enabled);
+    EXPECT_NO_THROW(LearningRule::feedbackAlignment().withPlasticity().validate());
+    EXPECT_THROW(LearningRule::feedbackAlignment().withPlasticity(1.5f).validate(), std::invalid_argument);
+    EXPECT_THROW(LearningRule::feedbackAlignment().withPlasticity(0.1f, -1.0f).validate(), std::invalid_argument);
+    EXPECT_THROW(LearningRule::feedbackAlignment().withPlasticity(0.1f, 1.0f, -0.1f).validate(), std::invalid_argument);
+    EXPECT_THROW(LearningRule::feedbackAlignment().withPlasticity(0.1f, 1.0f, 0.1f, 2.0f).validate(),
+                 std::invalid_argument);
+    EXPECT_THROW(LearningRule::surrogate().withPlasticity().validate(), std::invalid_argument);
+    EXPECT_EQ(describeLearningRule(LearningRule::feedbackAlignment().withPlasticity()), "fa +P");
+    EXPECT_EQ(describeLearningRule(LearningRule::feedbackAlignment().withPlasticity(0.1f, 1, 0.1f, 0, true)), "fa +Pp");
+}
+
+TEST(PlasticityPotentialTest, ParticipationSettlesSilentNeurons)
+{
+    // Two neurons, the same error: the one whose output is 0 counts as settled.
+    Plain p(1, 2, LearningRule::feedbackAlignment().withPlasticity(0.5f, 1.0f, 0.01f, 0.0f, true));
+    p.setWeights(0, {0.0f});
+    p.setWeights(1, {0.5f});
+    p.net.setInputs(std::vector<float>{1.0f});
+    p.net.step();
+    p.layer().setPlasticityPotential(1, 0.5f);
+    p.net.applyError(std::vector<float>{0.4f, 0.4f}, 0.1f);
+    EXPECT_FLOAT_EQ(p.layer().plasticityPotential()[0], 0.5f);                 // silent: faded
+    EXPECT_FLOAT_EQ(p.layer().plasticityPotential()[1], 0.5f + 0.4f * 0.5f * 0.5f);  // |m| x |y| = 0.2
+}
+
+TEST(PlasticityPotentialTest, FadesWhileSettledRisesWithErrorAndScalesTheStep)
+{
+    Plain p(1, 1, LearningRule::feedbackAlignment().withPlasticity(0.5f, 1.0f, 0.1f));
+    ASSERT_EQ(p.layer().plasticityPotential().size(), 1u);
+    EXPECT_EQ(p.layer().plasticityPotential()[0], 1.0f);
+    p.setWeights(0, {0.5f});
+    p.net.setInputs(std::vector<float>{1.0f});
+    p.net.step();
+    // Small error: P = 1 * (1 - 0.5); w += rate * gain * m * P * x.
+    p.net.applyError(std::vector<float>{0.05f}, 0.1f);
+    EXPECT_FLOAT_EQ(p.layer().plasticityPotential()[0], 0.5f);
+    float w = 0.5f + 0.1f * 2.0f * 0.05f * 0.5f;
+    EXPECT_FLOAT_EQ(p.layer().weights(0)[0], w);
+    // Large error: P = 0.5 + min(1, 1 * 0.5) * (1 - 0.5) = 0.75.
+    p.net.step();
+    p.net.applyError(std::vector<float>{-0.5f}, 0.1f);
+    EXPECT_FLOAT_EQ(p.layer().plasticityPotential()[0], 0.75f);
+    w += 0.1f * 2.0f * -0.5f * 0.75f;
+    EXPECT_FLOAT_EQ(p.layer().weights(0)[0], w);
+    // A huge error is capped: P reaches 1, not beyond.
+    p.net.step();
+    p.net.applyError(std::vector<float>{100.0f}, 0.0f);
+    EXPECT_FLOAT_EQ(p.layer().plasticityPotential()[0], 1.0f);
+}
+
+TEST(PlasticityPotentialTest, SettledNeuronStopsChangingIncludingDecay)
+{
+    Plain p(1, 1, LearningRule::traced(0.0f, 0.0f).withDecay(1.0f).withPlasticity(1.0f, 1.0f, 0.5f));
+    p.setWeights(0, {0.5f});
+    p.net.setInputs(std::vector<float>{1.0f});
+    p.net.step();
+    p.net.applyReward(0.1f, 0.1f);  // below epsilon: P falls to 0
+    EXPECT_EQ(p.layer().plasticityPotential()[0], 0.0f);
+    EXPECT_FLOAT_EQ(p.layer().weights(0)[0], 0.5f);
+}
+
+TEST(PlasticityPotentialTest, FloorKeepsSomePlasticity)
+{
+    Plain p(1, 1, LearningRule::feedbackAlignment().withPlasticity(0.5f, 1.0f, 1.0f, 0.2f));
+    p.net.setInputs(std::vector<float>{1.0f});
+    for (int t = 0; t < 10; ++t) {
+        p.net.step();
+        p.net.applyError(std::vector<float>{0.0f}, 0.1f);
+    }
+    EXPECT_FLOAT_EQ(p.layer().plasticityPotential()[0], 0.2f);
+}
+
+TEST(PlasticityPotentialTest, PerNeuronFrozenKeepTheirsGrownStartPlasticPruningErases)
+{
+    network net;
+    LayerSpec spec = LayerSpec::Dense(3, false, false);
+    spec.learningRule = LearningRule::feedbackAlignment().withPlasticity(0.5f, 1.0f, 0.1f);
+    const auto out = net.addLayer("out", spec);
+    net.addInputs(out, 2);
+    net.addOutput(out);
+    auto& layer = net.layerAs<dense>(out);
+    net.freezeNeurons(out, 2, 1);
+    net.setInputs({1.0f, 1.0f});
+    net.step();
+    net.applyError(std::vector<float>{0.0f, 0.5f, 0.0f}, 0.1f);
+    const auto P = layer.plasticityPotential();
+    EXPECT_FLOAT_EQ(P[0], 0.5f);  // settled
+    EXPECT_FLOAT_EQ(P[1], 1.0f);  // frustrated
+    EXPECT_FLOAT_EQ(P[2], 1.0f);  // frozen: untouched
+    layer.setPlasticityPotential(1, 0.25f);
+    net.growLayer(out, 2);
+    ASSERT_EQ(layer.plasticityPotential().size(), 5u);
+    EXPECT_EQ(layer.plasticityPotential()[3], 1.0f);
+    net.pruneNeurons(out, {0});
+    ASSERT_EQ(layer.plasticityPotential().size(), 4u);
+    EXPECT_FLOAT_EQ(layer.plasticityPotential()[0], 0.25f);
+    EXPECT_THROW(layer.setPlasticityPotential(0, 1.5f), std::invalid_argument);
+    EXPECT_THROW(layer.setPlasticityPotential(9, 0.5f), std::out_of_range);
+    // Saved with the network, in every mode.
+    for (DeserializeMode mode : {DeserializeMode::FullState, DeserializeMode::WeightsOnly}) {
+        std::stringstream ss;
+        net.save(ss);
+        const auto restored = network::load(ss, mode);
+        EXPECT_EQ(restored->layerSpec(out).learningRule, spec.learningRule);
+        const auto Q = restored->layerAs<dense>(out).plasticityPotential();
+        EXPECT_EQ(std::vector<float>(Q.begin(), Q.end()),
+                  std::vector<float>(layer.plasticityPotential().begin(), layer.plasticityPotential().end()));
+    }
+    Plain sign(1, 1, LearningRule::sign());
+    EXPECT_TRUE(sign.layer().plasticityPotential().empty());
+    EXPECT_THROW(sign.layer().setPlasticityPotential(0, 0.5f), std::logic_error);
+}
+
+// --- Weight feedback --------------------------------------------------------------
+
+TEST(WeightFeedbackTest, HiddenErrorIsTheTransposedOutputWeights)
+{
+    network net;
+    LayerSpec hs = LayerSpec::Dense(2, false, false);
+    hs.normalize = false;
+    hs.learningRule = LearningRule::feedbackAlignment().withWeightFeedback();
+    const auto h = net.addLayer("h", hs);
+    LayerSpec os = LayerSpec::Dense(2, false, false);
+    os.normalize = false;
+    os.learningRule = LearningRule::feedbackAlignment();
+    const auto o = net.addLayer("o", os);
+    net.addInputs(h, 1);
+    net.connect(h, o);
+    net.addOutput(o);
+    auto& hid = net.layerAs<dense>(h);
+    auto& out = net.layerAs<dense>(o);
+    hid.setWeights(0, {1.0f});
+    hid.setWeights(1, {1.0f});
+    out.setWeights(0, {0.5f, 0.0f});   // output 0 reads only hidden 0
+    out.setWeights(1, {0.0f, 0.0f});
+    net.setInputs(std::vector<float>{1.0f});
+    net.step();
+    net.applyError(std::vector<float>{1.0f, 1.0f}, 0.1f);
+    // m_0 = 1 * 0.5 + 1 * 0 = 0.5: delta = 0.1 * 2 * 0.5 * x; hidden 1 is read by nobody: no change.
+    EXPECT_FLOAT_EQ(hid.weights(0)[0], 1.0f + 0.1f * 2.0f * 0.5f);
+    EXPECT_FLOAT_EQ(hid.weights(1)[0], 1.0f);
+    EXPECT_TRUE(hid.feedbackRow(0).empty());  // no random matrix was drawn
+    EXPECT_THROW(LearningRule::traced().withWeightFeedback().validate(), std::invalid_argument);
+    EXPECT_EQ(describeLearningRule(LearningRule::feedbackAlignment().withWeightFeedback()), "fa +wfb");
+    std::stringstream ss;
+    net.save(ss);
+    EXPECT_TRUE(network::load(ss)->layerSpec(h).learningRule.weightFeedback);
 }
