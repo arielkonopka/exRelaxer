@@ -687,7 +687,8 @@ std::string withoutNumberFormats(std::string bytes, size_t layers)
     return bytes;
 }
 
-// Removes the plasticity potential block (neuron format 5) of `layers`
+// Removes the plasticity potential block (neuron format 5) and the weight
+// feedback flag (format 6) of `layers`
 // layers with the option off, so the bytes read as an older format.
 std::string withoutPlasticity(std::string bytes, size_t layers)
 {
@@ -697,6 +698,7 @@ std::string withoutPlasticity(std::string bytes, size_t layers)
         block.append(reinterpret_cast<const char*>(&v), sizeof v);
     block.append(1, '\0');                      // participation off
     block.append(sizeof(std::uint64_t), '\0');  // no potentials
+    block.append(1, '\0');                      // weight feedback off (format 25)
     for (size_t i = 0; i < layers; ++i) {
         const size_t at = bytes.find(block);
         EXPECT_NE(at, std::string::npos);

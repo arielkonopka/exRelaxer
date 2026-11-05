@@ -490,6 +490,13 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-05: weight feedback
+
+- `LearningRule::withWeightFeedback()` (Python `.with_weight_feedback()`): a
+  hidden feedback-alignment or e-prop layer gets the errors through the
+  output layers' real weights instead of a fixed random matrix. Network
+  format 25. See [doc/learning.md](doc/learning.md#weight-feedback).
+
 ### 2026-11-05: plasticity potential
 
 - `LearningRule::withPlasticity(alpha, beta, epsilon, floor)` (Python

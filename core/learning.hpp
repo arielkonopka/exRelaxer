@@ -119,6 +119,11 @@ struct LearningRule
     float width = 0.5f;     // EProp, Surrogate: pseudo-derivative half-width, relative to the threshold (> 0)
     std::uint32_t window = 8;  // Surrogate: ticks backpropagated through, [1, 1024]
     Plasticity plasticity = {};  // per-neuron plasticity potential (off by default; not for Surrogate)
+    // FeedbackAlignment, EProp hidden layers: the errors reach the layer
+    // through the transposed weights of the output layers that read it (one
+    // step of backpropagation, m_i = sum_k e_k w_ki / |w_k|) instead of a
+    // fixed random matrix. A neuron no output reads gets no error.
+    bool weightFeedback = false;
 
     static LearningRule sign() { return {}; }
     static LearningRule traced(float trace = 0.0f, float baseline = 0.05f)
@@ -188,6 +193,7 @@ struct LearningRule
     }
     LearningRule withBias(bool on = true) const { LearningRule r = *this; r.bias = on; return r; }
     LearningRule withDecay(float value) const { LearningRule r = *this; r.decay = value; return r; }
+    LearningRule withWeightFeedback(bool on = true) const { LearningRule r = *this; r.weightFeedback = on; return r; }
     // The same rule with a plasticity potential per neuron:
     //   LearningRule::feedbackAlignment().withPlasticity(0.001f, 1.0f, 0.01f)
     LearningRule withPlasticity(float alpha = 0.001f, float beta = 1.0f, float epsilon = 0.01f, float floor = 0.0f,

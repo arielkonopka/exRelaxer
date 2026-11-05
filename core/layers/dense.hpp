@@ -122,6 +122,11 @@ public:
     // w -= learningRate * gain * accumulated dL / dw for unfrozen neurons
     // and inputs (and the same for the bias), then clears the gradients.
     void applyGradients(float learningRate);
+    // The errors of this layer's neurons sent back through its current
+    // weights: hands e_i w_ij / |w_i| (normalised sums) of every input range
+    // read from a layer to `toSource`, like backpropagate() but without
+    // history, derivatives or gradients (LearningRule::weightFeedback).
+    void transposeErrors(std::span<const float> errors, const SourceGradient& toSource) const;
 
     // --- Weights --------------------------------------------------------
     // Neuron `index`'s weights, in pool order (empty when not wired).

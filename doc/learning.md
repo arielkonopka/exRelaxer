@@ -241,6 +241,17 @@ for t in range(steps):
 `LearningRule::validate()` throws `std::invalid_argument` for values outside
 these ranges; `setLearningRule` and `network::addLayer` validate.
 
+## Weight feedback
+
+`weightFeedback` (`LearningRule::feedbackAlignment().withWeightFeedback()`,
+Python `.with_weight_feedback()`; FeedbackAlignment and EProp only, off by
+default): a hidden layer's modulators are the errors sent back through the
+current weights of the dense output layers that read it, one step of
+backpropagation instead of the fixed random matrix:
+`m_i = Σ_k e_k · w_ki / |w_k|` (`/ |w_k|` only for normalised readouts). A
+neuron that no output reads gets no error. Outputs that are not dense, and
+layers further back, add nothing. Saved from network format 25.
+
 ## Plasticity potential
 
 `plasticity` (`LearningRule::withPlasticity(alpha, beta, epsilon, floor)`,
@@ -300,7 +311,7 @@ unfrozen layer that learns gets:
 | Perturbation | the reward `−½ Σ errors²` |
 | an output layer (other rules) | its own errors, one per neuron (the first time it is marked as output) |
 | Surrogate (output or hidden) | its gradient, backpropagated through the Surrogate layers and time |
-| a hidden feedback-alignment or E-prop layer | its random projection of the errors |
+| a hidden feedback-alignment or E-prop layer | its random projection of the errors, or with `weightFeedback` the errors sent back through the real weights of the output layers that read it |
 | a hidden Sign, Trace or Eligibility layer | nothing: they need a scalar reward (use `applyReward`) |
 
 So a network can use both: `applyError` for the layers that learn from
@@ -335,7 +346,8 @@ columns and the per-synapse eligibility matrices. Surrogate's history is
 not saved: a loaded network starts with an empty window.
 
 Neuron format 5 (network format 24) appends the plasticity potential option
-and each neuron's `P`, restored in both modes (like the bias).
+and each neuron's `P`, restored in both modes (like the bias). Neuron format
+6 (network format 25) appends the weight-feedback flag.
 
 ## Cost
 
