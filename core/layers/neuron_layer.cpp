@@ -129,6 +129,15 @@ void neuron_layer::setNeuronLearningGain(size_t index, float gain)
     neurons_.at(index).setLearningGain(gain);
 }
 
+void neuron_layer::setPlasticityPotential(size_t index, float value)
+{
+    if (potential_.empty())
+        throw std::logic_error("setPlasticityPotential: the layer's learning rule has no plasticity potential");
+    if (!(value >= 0.0f && value <= 1.0f))
+        throw std::invalid_argument("setPlasticityPotential: P must be in [0, 1]");
+    potential_.at(index) = value;
+}
+
 void neuron_layer::setSpontaneous(const Spontaneous& spontaneous)
 {
     if (!spontaneous.valid() || !std::isfinite(spontaneous.below) || !std::isfinite(spontaneous.amplitude))
@@ -449,6 +458,7 @@ void neuron_layer::resetLearningState(const LearningRule& rule)
     bias_elig_.clear();
     bias_adapt_.clear();
     bias_grad_.clear();
+    potential_.clear();
     feedback_ = kernels::weight_matrix();
     clearInputTraces();
     resetSynapseState();
@@ -472,6 +482,7 @@ void neuron_layer::resizeLearningState()
     bias_elig_.resize(rule_.bias && (t == LearningRuleType::Eligibility || t == LearningRuleType::EProp) ? n : 0, 0.0f);
     bias_adapt_.resize(rule_.bias && t == LearningRuleType::EProp ? n : 0, 0.0f);
     bias_grad_.resize(rule_.bias && t == LearningRuleType::Surrogate ? n : 0, 0.0f);
+    potential_.resize(rule_.plasticity.enabled ? n : 0, 1.0f);  // new neurons start fully plastic
     plain_ = bias_.empty() && post_.empty() && noise_.empty() && !normalized_ && !rule_.perSynapse() &&
              !precision_.int8Values;
 }
@@ -717,6 +728,24 @@ void neuron_layer::learn(Modulator m, float learningRate)
     for (size_t i = 0; i < n; ++i)
         if (frozen_[i])
             step_active_[i] = 0;
+    if (!potential_.empty()) {
+        // Plasticity potential: P follows the neuron's local error |m|, and
+        // scales its step and its shrink (frozen neurons keep their P).
+        const Plasticity& p = r.plasticity;
+        for (size_t i = 0; i < n; ++i) {
+            if (frozen_[i])
+                continue;
+            const float error = std::fabs(m(i)) * (p.participation ? std::min(1.0f, std::fabs(output_[i])) : 1.0f);
+            float& P = potential_[i];
+            if (error >= p.epsilon)
+                P += std::min(1.0f, p.beta * error) * (1.0f - P);
+            else
+                P = std::max(p.floor, P * (1.0f - p.alpha));  // NaN errors count as settled
+            step_delta_[i] *= P;
+            if (scaled)
+                step_keep_[i] = 1.0f - P * (1.0f - step_keep_[i]);
+        }
+    }
     any_active.store(std::ranges::any_of(step_active_, [](std::uint8_t a) { return a != 0; }),
                      std::memory_order_relaxed);
     // The baseline follows the modulator whether or not anything learned.
@@ -774,7 +803,7 @@ void neuron_layer::eraseNeuronState(std::span<const size_t> indices)
     muted_count_ = static_cast<size_t>(std::count(muted_.begin(), muted_.end(), std::uint8_t{1}));
     erase(growth_order_);
     for (std::vector<float>* v : {&bias_, &post_, &noise_, &noise_trace_, &baseline_, &theta_, &dyds_, &dydthr_,
-                                  &dthrdthr_, &dthrds_, &bias_elig_, &bias_adapt_, &bias_grad_, &inverse_norm_})
+                                  &dthrdthr_, &dthrds_, &bias_elig_, &bias_adapt_, &bias_grad_, &potential_, &inverse_norm_})
         erase(*v);
     std::vector<size_t> rows;
     for (size_t i : indices)
@@ -924,6 +953,15 @@ void neuron_layer::writeLearningState(std::ostream& os) const
     // rounding generator.
     if (precision_.int8Weights)
         binary_io::write(os, rounding_state_);
+    // Neuron format 5: the plasticity potential option and P per neuron.
+    const Plasticity& p = rule_.plasticity;
+    binary_io::write(os, static_cast<std::uint8_t>(p.enabled));
+    binary_io::write(os, p.alpha);
+    binary_io::write(os, p.beta);
+    binary_io::write(os, p.epsilon);
+    binary_io::write(os, p.floor);
+    binary_io::write(os, static_cast<std::uint8_t>(p.participation));
+    writeFloats(os, potential_);
 }
 
 void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std::uint32_t neuronFormat)
@@ -951,7 +989,7 @@ void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std
     const auto feedback_cols = binary_io::read<std::uint64_t>(is);
     std::vector<float> traces = readFloats(is);
     const auto rng_state = binary_io::read<std::uint64_t>(is);
-    std::vector<float> bias_elig, bias_adapt, frozen;
+    std::vector<float> bias_elig, bias_adapt, frozen, potential;
     std::uint64_t rounding = rounding_state_;
     if (neuronFormat >= 4) {
         rule.width = binary_io::read<float>(is);
@@ -961,6 +999,15 @@ void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std
         frozen = readFloats(is);
         if (precision_.int8Weights)
             rounding = binary_io::read<std::uint64_t>(is);
+        if (neuronFormat >= 5) {
+            rule.plasticity.enabled = binary_io::read<std::uint8_t>(is) != 0;
+            rule.plasticity.alpha = binary_io::read<float>(is);
+            rule.plasticity.beta = binary_io::read<float>(is);
+            rule.plasticity.epsilon = binary_io::read<float>(is);
+            rule.plasticity.floor = binary_io::read<float>(is);
+            rule.plasticity.participation = binary_io::read<std::uint8_t>(is) != 0;
+            potential = readFloats(is);
+        }
         if (is) {
             try {
                 rule.validate();
@@ -986,6 +1033,15 @@ void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std
             to = std::move(from);
     };
     restore(bias_, state[0]);
+    if (!potential_.empty() && !potential.empty()) {
+        // P is learned like a weight: restored in every mode.
+        if (potential.size() != n)
+            throw std::runtime_error("layer deserialize: plasticity potentials do not match the neuron count");
+        for (float P : potential)
+            if (!(P >= 0.0f && P <= 1.0f))
+                throw std::runtime_error("layer deserialize: a plasticity potential outside [0, 1]");
+        potential_ = std::move(potential);
+    }
     if (frozen.size() == n) {
         for (size_t i = 0; i < n; ++i) {
             const auto bits = static_cast<unsigned>(frozen[i]);

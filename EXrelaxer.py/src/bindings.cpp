@@ -457,6 +457,24 @@ NB_MODULE(_core, m)
     nb::enum_<WeightInit>(m, "WeightInit", "How new weights start when wiring changes: Random or Zero.")
         .value("Random", WeightInit::Random)
         .value("Zero", WeightInit::Zero);
+    nb::class_<Plasticity>(m, "Plasticity",
+                           "Per-neuron plasticity potential P in [0, 1]: while the neuron's local error |m| < epsilon,\n"
+                           "P *= 1 - alpha; otherwise P += min(1, beta * |m|) * (1 - P). Its weight steps (and decay)\n"
+                           "are multiplied by P. New and grown neurons start at P = 1. See LearningRule.with_plasticity.")
+        .def(nb::init<>())
+        .def_rw("enabled", &Plasticity::enabled)
+        .def_rw("alpha", &Plasticity::alpha, "Fade per update while settled, [0, 1].")
+        .def_rw("beta", &Plasticity::beta, "Rise per unit error, >= 0.")
+        .def_rw("epsilon", &Plasticity::epsilon, "The error below which a neuron counts as settled, >= 0.")
+        .def_rw("floor", &Plasticity::floor, "P never fades below this, [0, 1].")
+        .def_rw("participation", &Plasticity::participation,
+                "The local error is |m| x min(1, |output|): a silent neuron counts as settled.")
+        .def("__eq__", [](const Plasticity& a, const Plasticity& b) { return a == b; })
+        .def("__repr__", [](const Plasticity& p) {
+            return "<Plasticity " + std::string(p.enabled ? "on" : "off") + " alpha=" + std::to_string(p.alpha) +
+                   " beta=" + std::to_string(p.beta) + " epsilon=" + std::to_string(p.epsilon) +
+                   " floor=" + std::to_string(p.floor) + ">";
+        });
     nb::class_<LearningRule>(m, "LearningRule",
                              "How a layer learns: sign (default), trace, feedback_alignment, perturbation, oja, bcm, "
                              "eligibility, eprop or surrogate.")
@@ -493,6 +511,12 @@ NB_MODULE(_core, m)
                     "and between Surrogate layers; driven by Network.apply_error. Dense layers only.")
         .def("with_bias", &LearningRule::withBias, "on"_a = true)
         .def("with_decay", &LearningRule::withDecay, "decay"_a)
+        .def_rw("plasticity", &LearningRule::plasticity, "The plasticity potential option (see Plasticity).")
+        .def("with_plasticity", &LearningRule::withPlasticity, "alpha"_a = 0.001f, "beta"_a = 1.0f,
+             "epsilon"_a = 0.01f, "floor"_a = 0.0f, "participation"_a = false,
+             "The same rule with a plasticity potential P per neuron, driven by its local error (the modulator\n"
+             "it gets: its own error for feedback_alignment / eprop / output layers, the reward or TD error\n"
+             "for the reward rules). Not for surrogate.")
         .def_prop_ro("unsupervised", &LearningRule::unsupervised)
         .def_prop_ro("per_synapse", &LearningRule::perSynapse)
         .def("validate", &LearningRule::validate)
@@ -1274,6 +1298,19 @@ NB_MODULE(_core, m)
             "layer"_a, "neuron"_a, "value"_a,
             "One neuron's learning gain (multiplies its weight updates; default constants.default_learning_gain,\n"
             "0: it stops learning). Saved with the network.")
+        .def(
+            "plasticity_potential",
+            [](network& net, LayerId id) {
+                const auto p = neuronLayer(net, id).plasticityPotential();
+                return toNumpy(std::vector<float>(p.begin(), p.end()));
+            },
+            "layer"_a,
+            "Each neuron's plasticity potential P (a copy; empty unless the layer's rule has with_plasticity).")
+        .def(
+            "set_plasticity_potential", [](network& net, LayerId id, size_t index, float value) {
+                neuronLayer(net, id).setPlasticityPotential(index, value);
+            },
+            "layer"_a, "neuron"_a, "value"_a, "One neuron's plasticity potential, in [0, 1]. Saved with the network.")
         .def(
             "set_output", [](network& net, LayerId id, size_t index, float value) {
                 neuronLayer(net, id).setOutput(index, value);

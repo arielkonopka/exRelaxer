@@ -490,6 +490,14 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-05: plasticity potential
+
+- `LearningRule::withPlasticity(alpha, beta, epsilon, floor)` (Python
+  `.with_plasticity(...)`): a per-neuron plasticity potential P that fades
+  while the neuron's local error stays below epsilon, rises with the error
+  otherwise, and scales the neuron's weight steps. Network format 24 saves
+  it. See [doc/learning.md](doc/learning.md#plasticity-potential).
+
 ### 2026-11-05: stricter views, and fear (phase 33)
 
 - `doom_td.py`: `view_block` (views as a coarse picture), `view_radius`

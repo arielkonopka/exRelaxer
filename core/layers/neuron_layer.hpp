@@ -91,6 +91,13 @@ public:
     // e.g. a young grown neuron that learns faster than the rest; >= 0 and
     // finite (0: it stops learning). Saved with the neuron.
     void setNeuronLearningGain(size_t index, float gain);
+    // Each neuron's plasticity potential P in [0, 1] (empty unless the rule
+    // has the option; see Plasticity in learning.hpp), and setting one
+    // neuron's P. Saved with the layer's learning state.
+    std::span<const float> plasticityPotential() const { return potential_; }
+    // Throws std::logic_error without the option, std::invalid_argument
+    // outside [0, 1], std::out_of_range for a bad index.
+    void setPlasticityPotential(size_t index, float value);
     // Normalised weighted sum: each neuron's sum is divided by the length
     // (L2 norm) of its weight vector before bias, habituation and E-R, so
     // only the weights' direction matters and |sum| <= |inputs|. The norms
@@ -330,6 +337,9 @@ protected:
     float normScale(size_t index) const { return normalized_ && index < inverse_norm_.size() ? inverse_norm_[index] : 1.0f; }
     // Surrogate gradients: accumulated dL / dbias per neuron (rule.bias).
     std::vector<float> bias_grad_;
+    // Plasticity potential P per neuron (size() entries when the rule has the
+    // option, else empty; see Plasticity in learning.hpp).
+    std::vector<float> potential_;
     // Applies -learningRate * gain * bias_grad_ to the bias (unfrozen
     // neurons) and zeroes bias_grad_.
     void applyBiasGradient(float learningRate);

@@ -118,3 +118,31 @@ def test_positive_only_values_and_weights():
     loaded = exr.Network.from_bytes(net.to_bytes())
     assert loaded.layer_spec(hid).positive_weights
     assert loaded.layer_spec(hid).ceiling == pytest.approx(4.0)
+
+
+def test_plasticity_potential():
+    rule = exr.LearningRule.feedback_alignment().with_plasticity(0.5, 1.0, 0.1)
+    assert rule.plasticity.enabled and rule.plasticity.alpha == pytest.approx(0.5)
+    assert "+P" in repr(rule)
+    with pytest.raises(ValueError):
+        exr.LearningRule.surrogate().with_plasticity().validate()
+    net = exr.Network()
+    spec = exr.LayerSpec.dense(2, False, False, learning_rule=rule)
+    spec.normalize = False
+    out = net.add_layer("out", spec)
+    net.add_inputs(out, 1)
+    net.add_output(out)
+    assert np.array_equal(net.plasticity_potential(out), [1.0, 1.0])
+    net.set_inputs(np.array([1.0], np.float32))
+    net.step()
+    net.apply_error(np.array([0.0, 0.5], np.float32), 0.1)   # one settled, one frustrated
+    assert net.plasticity_potential(out) == pytest.approx([0.5, 1.0])
+    net.set_plasticity_potential(out, 1, 0.25)
+    net.grow_layer(out, 1)
+    assert net.plasticity_potential(out) == pytest.approx([0.5, 0.25, 1.0])   # grown: fully plastic
+    restored = exr.Network.from_bytes(net.to_bytes())
+    assert restored.plasticity_potential(out) == pytest.approx([0.5, 0.25, 1.0])
+    assert restored.layer_spec(out).learning_rule == net.layer_spec(out).learning_rule
+    plain = exr.Network()
+    sign = plain.add_layer("s", exr.LayerSpec.dense(1))
+    assert plain.plasticity_potential(sign).size == 0

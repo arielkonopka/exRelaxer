@@ -241,6 +241,45 @@ for t in range(steps):
 `LearningRule::validate()` throws `std::invalid_argument` for values outside
 these ranges; `setLearningRule` and `network::addLayer` validate.
 
+## Plasticity potential
+
+`plasticity` (`LearningRule::withPlasticity(alpha, beta, epsilon, floor)`,
+Python `.with_plasticity(...)`; off by default) gives each neuron a
+plasticity potential `P` in [0, 1] that follows its **local error**: the
+modulator `m` the neuron gets in that update (see [Driving
+learning](#driving-learning)). On every update, before its step is applied:
+
+    |m| <  epsilon:  P ← max(floor, P · (1 − alpha))         settled: P fades
+    |m| ≥ epsilon:   P ← P + min(1, beta · |m|) · (1 − P)    frustrated: P rises
+    delta ← P · delta,   keep ← 1 − P · (1 − keep)
+
+So a neuron whose error stays small stops changing its weights (decay
+included), and one whose error grows becomes plastic again: plasticity that
+depends on error instead of on age (compare `Maturation` in
+[development.md](development.md)) or on a judged significance.
+
+| Field | Default | Effect |
+|-------|---------|--------|
+| `alpha` | 0.001 | fade per update while settled, in [0, 1] |
+| `beta` | 1 | rise per unit error, ≥ 0; the step is capped at `1 − P`, so P never passes 1 |
+| `epsilon` | 0.01 | the error below which a neuron counts as settled, ≥ 0 |
+| `floor` | 0 | P never fades below this, in [0, 1] |
+| `participation` | false | the local error is `\|m\| · min(1, \|output\|)`: only a neuron that took part (fired) can be frustrated; a silent one counts as settled |
+
+- What `m` is depends on the rule and the call: a feedback-alignment or e-prop
+  hidden neuron's own projection of the errors, an output neuron's own
+  error, or (`applyReward`, `applyRewardTD`) the reward or TD error, the same
+  for every neuron of the layer, which then makes P a layer-wide surprise
+  signal. Oja and BCM ignore the reward, so P there follows whatever is
+  passed. Not for Surrogate (its gradients do not go through a modulator).
+- `P` is only updated when the layer learns: a caller that skips the update
+  on correct steps (instead of passing a zero error) never lets P fade.
+- New and grown neurons start at `P = 1`; frozen neurons keep theirs; pruning
+  removes theirs. `neuron_layer::plasticityPotential()` /
+  `setPlasticityPotential(i, P)` (Python `net.plasticity_potential(layer)`,
+  `net.set_plasticity_potential(layer, i, P)`) read and set it.
+- `epsilon` is in the units of the errors: measure typical `|m|` first.
+
 ## Driving learning
 
 | Call | Modulator |
@@ -294,6 +333,9 @@ Neuron format 4 (network format 18) adds `width`, `window`, the bias
 eligibility, the frozen-neuron mask and, for `dense`, the frozen input
 columns and the per-synapse eligibility matrices. Surrogate's history is
 not saved: a loaded network starts with an empty window.
+
+Neuron format 5 (network format 24) appends the plasticity potential option
+and each neuron's `P`, restored in both modes (like the bias).
 
 ## Cost
 
