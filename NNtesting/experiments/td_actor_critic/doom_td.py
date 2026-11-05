@@ -146,6 +146,14 @@ DEFAULTS = {
     # e.g. 6 x 8 for b = 5), centred and normalised, instead of a random projection; view_radius = r > 0:
     # a fixed radius replaces the running mean: remembered when d > r, reward c * clip(d / r - 1, 0, 2).
     "view_block": 0, "view_radius": 0.0,
+    # A plastic reservoir (phase 34): plastic = N > 0 adds an E-R layer of N neurons beside the frozen
+    # reservoir, reading the same frozen vision features, that learns by e-prop (eligibility trace
+    # plastic_trace) from a random projection of the actor-critic's errors: delta * (onehot(a) - pi)
+    # per action and delta for the value (plastic_rate). Its outputs and thresholds are features of
+    # the actor and the critic. plastic_every = G > 0: every G training games it grows by plastic_add
+    # neurons (up to plastic_max); plastic_freeze: the older neurons stop learning (progressive growth).
+    "plastic": 0, "plastic_rate": 0.01, "plastic_trace": 0.9, "plastic_every": 0, "plastic_add": 8,
+    "plastic_max": 64, "plastic_freeze": 1,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -696,7 +704,19 @@ class Learner:
                                                                       settle=p["vplace_settle"]) if p["vplace"] else None
         self.arm, self.p, self.buttons = arm, p, buttons
         self.rng = np.random.default_rng(seed)
-        self.agent = Agent(self.res.size + p["vplace"], buttons, p["gamma"], p["lam"], p["critic_rate"], p["actor_rate"],
+        self.plastic = None
+        if p["plastic"] > 0:
+            net = self.res.net
+            self.plastic = net.add_layer("plastic", exr.LayerSpec.dense(
+                p["plastic"], False, True, learning_rule=exr.LearningRule.eprop(p["plastic_trace"])))
+            net.connect(self.res.pool, self.plastic)
+            self.plastic_out = net.add_layer("plastic_out", exr.LayerSpec.dense(
+                buttons + 1, False, False, learning_rule=exr.LearningRule.feedback_alignment()))
+            net.connect(self.plastic, self.plastic_out)
+            net.add_output(self.plastic_out)
+        self.prev_a, self.prev_probs = None, None
+        self.plastic_events = []
+        self.agent = Agent(self.res.size + p["vplace"] + 2 * p["plastic"], buttons, p["gamma"], p["lam"], p["critic_rate"], p["actor_rate"],
                            clip=p["clip"], modulator="reward" if arm == "reward" else "td", post=p["post"],
                            tau=p["tau"], entropy=p["entropy"], center=p["center"], rng=self.rng)
 
@@ -743,7 +763,62 @@ class Learner:
         if self.vplace is not None:
             # The learned place cells read the reservoir and the vision features, not the raw inputs.
             x = np.concatenate([x, self.vplace(x[:len(x) - self.res.extra], learn)])
+        if self.plastic is not None:
+            net = self.res.net
+            x = np.concatenate([x, np.asarray(net.layer_output(self.plastic), dtype=np.float64).ravel(),
+                                np.asarray(net.neuron_state(self.plastic)["threshold"], dtype=np.float64)])
         return x
+
+    def plastic_learn(self, a, learn):
+        """After the agent's step: the plastic layer learns from the TD error of the transition the
+        previous action caused (its eligibility traces carry the credit back in time)."""
+        if self.plastic is not None and learn and self.prev_a is not None and self.agent.log.deltas:
+            delta = float(np.clip(self.agent.log.deltas[-1], -1.0, 1.0))
+            net = self.res.net
+            n = sum(net.layer_size(l) for l in net.output_layers)
+            e = np.zeros(n, np.float32)
+            k = self.buttons
+            onehot = np.zeros(k)
+            onehot[self.prev_a] = 1.0
+            e[n - k - 1:n - 1] = delta * (onehot - self.prev_probs)
+            e[n - 1] = delta
+            net.apply_error(e, self.p["plastic_rate"])
+        if a is None:
+            self.prev_a, self.prev_probs = None, None
+        else:
+            self.prev_a, self.prev_probs = a, np.asarray(self.agent.actor.probs, dtype=np.float64).copy()
+
+    def reset_plastic(self):
+        if self.plastic is not None:
+            self.res.net.reset_state(self.plastic)
+            self.res.net.reset_traces(self.plastic)
+        self.prev_a, self.prev_probs = None, None
+
+    def grow_plastic(self, ep):
+        """Progressive growth: plastic_add new neurons (the older ones frozen if plastic_freeze); the
+        actor and critic get zero weights for the new features."""
+        p = self.p
+        if self.plastic is None or p["plastic_every"] <= 0 or ep <= 0 or ep % p["plastic_every"]:
+            return
+        net = self.res.net
+        n = net.layer_size(self.plastic)
+        k = min(p["plastic_add"], p["plastic_max"] - n)
+        if k <= 0:
+            return
+        net.grow_layer(self.plastic, k, freeze_existing=bool(p["plastic_freeze"]))
+        base = self.agent.critic.w.size - 2 * n
+        where = [base + n] * k + [base + 2 * n] * k
+        ag = self.agent
+        ag.critic.w = np.insert(ag.critic.w, where, 0.0)
+        ag.critic.e = np.insert(ag.critic.e, where, 0.0)
+        ag.actor.W = np.insert(ag.actor.W, where, 0.0, axis=1)
+        ag.actor.E = np.insert(ag.actor.E, where, 0.0, axis=1)
+        if ag.mean is not None:
+            ag.mean = np.insert(ag.mean, where, 0.0)
+        anchor = ag.__dict__.get("anchor")
+        if anchor is not None:
+            ag.anchor = (np.insert(anchor[0], where, 0.0, axis=1), anchor[1])
+        self.plastic_events.append((ep, n, n + k))
 
     def anchored(self, pos, learn):
         """path=2: integrate self-motion once placed; get placed (or corrected) by recognised views.
@@ -869,6 +944,7 @@ class Learner:
 
     def act(self, x, reward, terminal, learn):
         a = self.agent.step(x, reward, terminal, learn=learn and self.arm != "random", explore=learn)
+        self.plastic_learn(a, learn and self.arm != "random")
         if self.arm == "random" and not terminal:
             a = int(self.rng.integers(self.buttons))
         return a
@@ -879,6 +955,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     instead of the scenario's own."""
     game.new_episode()
     learner.res.reset()
+    learner.reset_plastic()
     learner.agent.end_episode()
     learner.agent.log.new()
     learner.res.spikes = 0
@@ -1042,6 +1119,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
                 # (V(s_T) as if play went on), else running out the clock would
                 # look like relief from the living cost (delta ~ -V > 0).
                 learner.agent.step(x, r, False, learn=learn and learner.arm != "random", explore=False)
+                learner.plastic_learn(None, learn and learner.arm != "random")
                 learner.agent.end_episode()
             else:
                 learner.act(np.zeros(len(learner.agent.critic.w)), r, True, learn)
@@ -1154,6 +1232,9 @@ def main():
         learner.danger = saved.get("danger", learner.danger)  # (checkpoints before phase 31 lack these)
         learner.curiosity = saved.get("curiosity", learner.curiosity)
         learner.view_novelty = saved.get("view_novelty", learner.view_novelty)
+        if saved.get("plastic_net") is not None:
+            learner.res.net = exr.Network.from_bytes(saved["plastic_net"])
+            learner.plastic_events = saved.get("plastic_events", [])
         with open(log_path) as f:
             kept = f.readlines()[:start]
         with open(log_path, "w") as f:
@@ -1183,7 +1264,9 @@ def main():
                                  "landmarks": (learner.landmarks, learner.lives, learner.origin),
                                  "detector": learner.detector, "games": learner.games,
                                  "danger": learner.danger, "curiosity": learner.curiosity,
-                                 "view_novelty": learner.view_novelty}, f)
+                                 "view_novelty": learner.view_novelty,
+                                 "plastic_net": learner.res.net.to_bytes() if learner.plastic is not None else None,
+                                 "plastic_events": learner.plastic_events}, f)
                 os.replace(ckpt_path + ".tmp", ckpt_path)
                 if args.keep_every > 0 and ep % args.keep_every == 0:
                     shutil.copy(ckpt_path, os.path.join(args.out, f"checkpoint_{ep}.pkl"))
@@ -1209,7 +1292,10 @@ def main():
             if len(levels) > 1:
                 game.set_doom_map(level)
             s = episode(game, learner, scale, True, trace, shaper_for(level))
+            learner.grow_plastic(ep + 1)
             s["episode"] = ep
+            if learner.plastic is not None:
+                s["plastic"] = learner.res.net.layer_size(learner.plastic)
             s["map"] = level
             act = learner.agent.actor
             if anchor is not None:

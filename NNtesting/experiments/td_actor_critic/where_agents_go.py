@@ -61,6 +61,9 @@ def replay(run, games, seed, record=None, level=None):
     learner.games = saved.get("games", learner.games)
     learner.danger = saved.get("danger", learner.danger)
     learner.curiosity = saved.get("curiosity", learner.curiosity)
+    learner.view_novelty = saved.get("view_novelty", learner.view_novelty)
+    if saved.get("plastic_net") is not None:
+        learner.res.net = dt.exr.Network.from_bytes(saved["plastic_net"])
     shaper = dt.drl.make_shaper(dt.doom_rl_params(level, p["skill"], p["until_death"], p["approach"],
                                                   kill=p["kill_weight"],
                                                   heights=bool(p.get("approach_heights", 0))))
