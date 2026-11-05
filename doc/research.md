@@ -3859,9 +3859,9 @@ in §67.
   rate comes from hiding: on MAP05 every seed stands in 10-11 squares with
   no deaths and no kills; doors fall to 0.4 per game.
 - Recorded games (2 per agent per unseen level, `plastic/*_paths.png`): on
-  MAP02 two fixed-32 agents and one grown agent roam the hall west of the
-  spawn near the exit enclosure, as in §71, without getting in; the other
-  grown and fixed agents circle the spawn room.
+  MAP02 one fixed-32 agent circles the hall around the exit enclosure and
+  one grown agent the rooms east of it, as in §71, without getting in; two
+  agents stay in the spawn room and two wander south.
 
 **What it means.** Features that learn from δ do not give the agent a better
 grasp of new levels. While they keep changing, the policy reading them gets
