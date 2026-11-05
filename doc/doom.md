@@ -1618,6 +1618,32 @@ exit; fear does nothing.
 **Data.** `results/td-actor-critic/doom/view_fear/` (paths per unseen
 level); videos in the project's `reports/doom-td/videos_fear/`.
 
+### D47. A plastic reservoir (2026-11-05)
+
+**Question.** (Phase 34.) Do learned features beside the frozen reservoir
+help the agent on levels it never trained on?
+
+**Setup.** D46's strict-views agent plus an e-prop E-R layer reading the
+frozen Gabor pool, trained by feedback alignment from δ * (onehot(a) - π)
+and δ; its outputs and thresholds join the features. Arms: 32 neurons
+(`plastic=32`), or 8 growing by 8 every 150 games to 72 with older neurons
+frozen (`plastic=8 plastic_every=150 plastic_add=8 plastic_max=72`);
+3 seeds, 1500 games.
+
+**Result.**
+- No exits. Deaths on unseen levels: 32 neurons 72%, growing 36% (D46
+  strict 49%); on trained levels 62% and 21% (strict 33%).
+- The layer learns (weights move 17-33%) and the actor reads it as much as
+  the frozen features.
+- The growing agent hides: 11 squares on MAP05 on every seed, 0.4 doors.
+
+**Conclusion.** Features that keep changing hurt the policy; frozen in
+stages they are safe but used for hiding. A global δ is a weak teacher for
+vision.
+
+**Data.** `results/td-actor-critic/doom/plastic/` (paths per unseen level);
+videos in the project's `reports/doom-td/videos_plastic/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

@@ -490,6 +490,14 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-05: a plastic reservoir (phase 34)
+
+- `doom_td.py`: `plastic=N` (an e-prop E-R layer on the frozen vision,
+  trained by feedback alignment from the actor-critic's δ), with
+  `plastic_every`/`plastic_add`/`plastic_max` for progressive growth (older
+  neurons frozen). 32 plastic neurons raise deaths; the grown layer lowers
+  them by hiding; no exits. Research §72, Doom log D47.
+
 ### 2026-11-05: stricter views, and fear (phase 33)
 
 - `doom_td.py`: `view_block` (views as a coarse picture), `view_radius`

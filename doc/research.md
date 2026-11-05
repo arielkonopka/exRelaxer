@@ -3820,6 +3820,53 @@ teaches nothing new when the agent cannot see what makes a place
 dangerous: the frozen features give the actor no handle for "avoid that
 monster" beyond what the reflexes already do.
 
+## 72. A plastic reservoir
+
+**Question.** (Phase 34; Doom log D47.) §71 ended on the frozen features as
+the likely limit: every hidden layer is random and fixed, and only the
+readouts learn. Does a layer that learns its own features from the
+actor-critic's errors, beside the frozen reservoir, help on unseen levels?
+
+**Setup.** §71's strict-views agent (`view_novelty=0.03`, `view_block=5`,
+`view_radius=0.6`, danger unit) plus `plastic=N`: a dense E-R layer reading
+the frozen Gabor pool, trained with e-prop (`plastic_trace=0.9`) through
+an output layer with feedback alignment. After each step the output layer
+gets the actor's error δ * (onehot(a) - π) and the critic's δ (clipped to
+±1, rate 0.01); the layer's outputs and thresholds are appended to the
+features. Two arms: 32 plastic neurons (fixed), and 8 neurons growing by 8
+every 150 games to 72, with older neurons frozen at each growth
+(progressive, `plastic_every=150`, `plastic_add=8`, `plastic_max=72`; new
+readout weights start at zero). Seeds 1-3, 1500 games, levels and tests as
+in §67.
+
+**Results.** Tests averaged over 3 seeds and 3 levels:
+
+| arm | deaths, trained | deaths, unseen | kills, unseen | doors, unseen | squares MAP05 | squares MAP06 |
+|---|---|---|---|---|---|---|
+| strict views (§71) | 33% | 49% | 3.9 | 0.9 | 47 | 67 |
+| plastic 32 | 62% | 72% | 3.9 | 0.9 | 56 | 53 |
+| plastic 8 -> 72 | 21% | 36% | 2.3 | 0.4 | 11 | 71 |
+
+- No exits anywhere.
+- The layer learns: from game 100 to the end its weights move by 17-33% of
+  their size (32 neurons), and the actor's weights on the plastic features
+  are 1.1-1.3 times those on the frozen ones; the critic reads them less
+  (0.3-0.4 times).
+- With 32 plastic neurons the agent dies more on every level, trained ones
+  included (62% vs 33%).
+- The growing layer reaches 72 neurons at game ~1050 (8 growths). The actor
+  reads its features less (0.4-0.5 times the frozen ones). Its low death
+  rate comes from hiding: on MAP05 every seed stands in 10-11 squares with
+  no deaths and no kills; doors fall to 0.4 per game.
+- Recorded games: `plastic/*_paths.png`.
+
+**What it means.** Features that learn from δ do not give the agent a better
+grasp of new levels. While they keep changing, the policy reading them gets
+worse even on the levels it trains on; frozen in stages, they are stable but
+read weakly, and the agent falls back to the safe habit of earlier phases,
+standing still. A global δ is a weak teacher for features: it says how much
+better or worse things went, not what in the picture mattered.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4176,6 +4223,12 @@ monster" beyond what the reflexes already do.
     rate (49% on unseen levels) and ends the standing still on MAP05; a cost
     for predicted danger does not lower deaths. After many drives and reflexes,
     the frozen features look like the limit.
+66. **Learning features from δ does not help on new levels** (§72): an
+    e-prop E-R layer beside the frozen reservoir, trained by feedback
+    alignment from the actor's and critic's errors, learns and is read, but
+    32 changing neurons raise deaths (72% on unseen levels vs 49%), and a
+    progressively grown, frozen-in-stages layer lowers them only by hiding
+    (36%, 11 squares on MAP05). No exits.
 
 ## Open questions and next steps
 
