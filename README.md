@@ -490,6 +490,15 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-05: plasticity potential on Snake (§73)
+
+- `snake_growth`: `plasticity`, `p_alpha`, `p_beta`, `p_epsilon`, `p_floor`,
+  `p_participation`, `p_readouts`, `weight_feedback`; `plasticity.py` (one
+  task) and `switch.py` (Snake, then permuted-sensor Snake, then Snake). P
+  learns about as well as maturation and unfreezes on the switch, but the old
+  task is forgotten; weight feedback relearns it 3.5x faster. Research §73,
+  `results/snake-plasticity/`.
+
 ### 2026-11-05: weight feedback
 
 - `LearningRule::withWeightFeedback()` (Python `.with_weight_feedback()`): a

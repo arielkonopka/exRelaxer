@@ -3820,6 +3820,87 @@ teaches nothing new when the agent cannot see what makes a place
 dangerous: the frozen features give the actor no handle for "avoid that
 monster" beyond what the reflexes already do.
 
+## 73. A plasticity potential instead of maturation
+
+(§72 is left to the Doom thread's phase 34.)
+
+**Question.** (The user's idea, 2026-11-05.) Replace §39's age-based critical period and §69's
+significance judgement with one per-neuron value: a plasticity potential P in [0, 1] that fades
+while the neuron's local error stays small and rises when it grows (`P ← P(1 − α)` if |e| < ε,
+else `P ← P + min(1, β|e|)(1 − P)`), and scales every weight update. A neuron that does its job
+stops changing, and unfreezes when the world changes and its error comes back. Does it learn as
+well as maturation and the fixed net, and does it protect an old skill across a task switch?
+
+**Setup.** `LearningRule.with_plasticity` (doc/learning.md#plasticity-potential); the local error
+is the neuron's modulator: for the feedback-alignment E-R layer, its row of the fixed random
+matrix times the readout error. Two variants of the error: *participation* (|e| × min(1,
+|output|): a silent neuron counts as settled) and *weight feedback* (`with_weight_feedback`: the
+error through the readouts' real weights, one step of backpropagation, so a neuron the readouts
+do not use gets none). `snake_growth` at recovery 0.5, β = 1; with P on, steps the readout gets
+right apply a zero error so P can fade. One task: 3,000 games, seeds 1-30. Task switch
+(`switch.py`): Snake A for 3,000 games, then B = the same Snake with the 23 sensors in a fixed
+random order for 1,500 games, then A again; scores are 100 greedy test games, seeds 1-20
+(`results/snake-plasticity/`).
+
+**Results, one task** (apples per game, last three windows; Δ paired by seed against fixed
+ER(16)):
+
+| arm | final | Δ vs fixed ER(16) | mean P |
+|---|---|---|---|
+| fixed ER(16) | 9.73 | | |
+| fixed ER(16) + P (α 0.001, ε 0.01) | 9.97 | +0.25 ± 0.12 | 0.53 |
+| fixed ER(16) + P (α 0.01, ε 0.1) | 8.93 | −0.80 ± 0.13 | 0.08 |
+| fixed ER(16), weight feedback | 9.67 | −0.06 ± 0.15 | |
+| fixed ER(16), weight feedback + P (α 0.001, ε 0.01) | 9.99 | +0.26 ± 0.10 | 0.42 |
+| growth, older neurons frozen | 7.14 | −2.58 ± 0.20 | |
+| growth, nothing frozen | 7.77 | −1.96 ± 0.14 | |
+| growth + §39's young-for-good neurons | 7.86 | −1.86 ± 0.20 | |
+| growth + P (α 0.001, ε 0.01) | 7.64 | −2.09 ± 0.16 | 0.78 |
+| growth + P (α 0.01, ε 0.1) | 6.34 | −3.39 ± 0.24 | 0.20 |
+| growth + P with participation (α 0.01, ε 0.1) | 5.04 | −4.68 ± 0.35 | 0.17 |
+| growth, weight feedback | 8.18 | −1.54 ± 0.15 | |
+
+**Results, task switch** (A on its own after learning B, and A in the first 50 learning games
+back; Δ paired against fixed ER(16)):
+
+| arm | A before | A after B | Δ after | A back, first 50 | B learned |
+|---|---|---|---|---|---|
+| fixed ER(16) | 12.6 | 0.54 | | 2.3 | 12.5 |
+| fixed ER(16) + P (α 0.01, ε 0.1) | 12.6 | 1.10 | +0.57 ± 0.28 | 2.7 | 11.5 |
+| fixed ER(16) + P with participation (α 0.01, ε 0.1) | 11.9 | 0.63 | +0.09 ± 0.13 | 3.6 | 10.6 |
+| fixed ER(16), weight feedback | 13.7 | 0.38 | −0.16 ± 0.07 | **8.0** | 13.6 |
+| fixed ER(16), weight feedback + P (α 0.001, ε 0.01) | 13.3 | 0.16 | −0.38 ± 0.11 | 7.9 | 13.3 |
+| growth, nothing frozen | 10.9 | 0.78 | +0.24 ± 0.18 | 1.2 | 9.4 |
+| growth + P (α 0.01, ε 0.1) | 9.7 | 1.05 | +0.51 ± 0.26 | 1.3 | 6.3 |
+| growth, weight feedback | 11.2 | 0.20 | −0.34 ± 0.12 | 4.3 | 10.2 |
+
+- **On one task P is a small cost or a small gain, never a replacement for maturation.** A gentle
+  P (half-life ~700 settled updates) lifts fixed ER(16)'s final score by about 2 s.e. but not its
+  learning curve (Δ all −0.00 ± 0.04); with growth it matches growing with nothing frozen; a
+  strong P, which leaves half the neurons below 0.1, stops learning too early.
+- **P unfreezes as designed, but every arm forgets A.** After the switch mean P rises (0.07 → 0.15
+  at α 0.01), and B is learned nearly as fast as without P; the strongest P keeps 0.5-0.6 apples
+  of 12 (about 2 s.e.) and pays for it on B.
+- **Why it cannot protect**: with feedback alignment every hidden neuron's error is its fixed
+  random share of the same readout error, so P follows how often the whole agent is right, not
+  what each neuron does; on the switch they all become frustrated together. Participation does not
+  separate them, because Snake's 23 sensors are ±1 every tick and the same E-R neurons fire in A
+  and B. Weight feedback ties the error to how much the readouts use a neuron, but in Snake they
+  use nearly all of them, and P on top of it changes nothing.
+- **Weight feedback brings the old task back fast** (savings): after B the net scores almost
+  nothing on A, yet it is back at 8.0 apples in the first 50 games, against 2.3 with random FA
+  (+5.7 ± 0.4 paired; with growth +3.0 ± 0.3 over FA growth). A's features survive in the hidden
+  layer; mostly the readouts are overwritten. It is also the better learner during growth from one
+  cell (8.18 against 7.77).
+
+**What it means.** Error-gated plasticity does what the user wanted mechanically (settled neurons
+stop changing, a changed world unfreezes them), but forgetting needs a way to tell *which* neurons
+hold the old task, and a shared error broadcast (random or through the readouts' weights) does not
+give one when the two tasks use the same neurons. The hidden layer keeps more than the scores
+show (weight feedback's savings): the shared, always-plastic readouts are where the old task is
+lost. Next levers: a readout per task or context, or protecting readouts, and tasks whose inputs
+use different neurons.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4176,6 +4257,13 @@ monster" beyond what the reflexes already do.
     rate (49% on unseen levels) and ends the standing still on MAP05; a cost
     for predicted danger does not lower deaths. After many drives and reflexes,
     the frozen features look like the limit.
+67. **Plasticity that follows error unfreezes on change but does not protect** (§73): a
+    per-neuron P that fades while the neuron's local error is small and rises with it learns
+    Snake about as well as maturation (fixed ER(16) +0.25 ± 0.12 at a gentle setting), and P
+    rises when the task switches, but A is forgotten all the same (0.5-1.1 of 12.6 apples): a
+    feedback error shared by all neurons cannot say which ones hold the old task. Weight feedback
+    (the error through the readouts' real weights) relearns the old task 3.5x faster (8.0 against
+    2.3 apples in the first 50 games back): the hidden layer keeps it, the readouts lose it.
 
 ## Open questions and next steps
 
