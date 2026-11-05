@@ -512,6 +512,10 @@ NB_MODULE(_core, m)
         .def("with_bias", &LearningRule::withBias, "on"_a = true)
         .def("with_decay", &LearningRule::withDecay, "decay"_a)
         .def_rw("plasticity", &LearningRule::plasticity, "The plasticity potential option (see Plasticity).")
+        .def_rw("weight_feedback", &LearningRule::weightFeedback,
+                "feedback_alignment / eprop hidden layers: errors come back through the output layers' real\n"
+                "weights (one step of backpropagation) instead of a fixed random matrix.")
+        .def("with_weight_feedback", &LearningRule::withWeightFeedback, "on"_a = true)
         .def("with_plasticity", &LearningRule::withPlasticity, "alpha"_a = 0.001f, "beta"_a = 1.0f,
              "epsilon"_a = 0.01f, "floor"_a = 0.0f, "participation"_a = false,
              "The same rule with a plasticity potential P per neuron, driven by its local error (the modulator\n"

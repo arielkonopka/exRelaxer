@@ -962,6 +962,8 @@ void neuron_layer::writeLearningState(std::ostream& os) const
     binary_io::write(os, p.floor);
     binary_io::write(os, static_cast<std::uint8_t>(p.participation));
     writeFloats(os, potential_);
+    // Neuron format 6: weight feedback.
+    binary_io::write(os, static_cast<std::uint8_t>(rule_.weightFeedback));
 }
 
 void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std::uint32_t neuronFormat)
@@ -1008,6 +1010,8 @@ void neuron_layer::readLearningState(std::istream& is, DeserializeMode mode, std
             rule.plasticity.participation = binary_io::read<std::uint8_t>(is) != 0;
             potential = readFloats(is);
         }
+        if (neuronFormat >= 6)
+            rule.weightFeedback = binary_io::read<std::uint8_t>(is) != 0;
         if (is) {
             try {
                 rule.validate();

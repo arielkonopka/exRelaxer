@@ -32,6 +32,8 @@ void LearningRule::validate() const
         throw std::invalid_argument("LearningRule: plasticity epsilon must be >= 0");
     if (!(p.floor >= 0.0f && p.floor <= 1.0f))
         throw std::invalid_argument("LearningRule: plasticity floor must be in [0, 1]");
+    if (weightFeedback && type != LearningRuleType::FeedbackAlignment && type != LearningRuleType::EProp)
+        throw std::invalid_argument("LearningRule: weight feedback is for the FeedbackAlignment and EProp rules");
     if (p.enabled && type == LearningRuleType::Surrogate)
         throw std::invalid_argument("LearningRule: the plasticity potential is not for the Surrogate rule");
 }
@@ -79,6 +81,8 @@ std::string describeLearningRule(const LearningRule& rule)
         os << " d" << rule.decay;
     if (rule.bias)
         os << " +bias";
+    if (rule.weightFeedback)
+        os << " +wfb";
     if (rule.plasticity.enabled)
         os << (rule.plasticity.participation ? " +Pp" : " +P");
     return os.str();

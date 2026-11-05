@@ -402,7 +402,8 @@ TEST(LearningRuleTest, EveryRuleContinuesExactlyAfterLoad)
               LearningRule::feedbackAlignment(0.3f), LearningRule::perturbation(0.1f, 0.2f),
               LearningRule::oja(1), LearningRule::bcm(0.05f, 1, 0.01f).withBias(),
               LearningRule::feedbackAlignment(0.3f).withPlasticity(0.1f, 2.0f, 0.05f),
-              LearningRule::traced(0.5f).withDecay(0.1f).withPlasticity(0.2f, 1.0f, 0.3f, 0.1f, true)}) {
+              LearningRule::traced(0.5f).withDecay(0.1f).withPlasticity(0.2f, 1.0f, 0.3f, 0.1f, true),
+              LearningRule::feedbackAlignment(0.3f).withWeightFeedback()}) {
             SCOPED_TRACE(describeLearningRule(rule) + (spatial ? " spatial" : " dense"));
             expectContinuesAfterLoad(rule, spatial);
         }
@@ -643,4 +644,40 @@ TEST(PlasticityPotentialTest, PerNeuronFrozenKeepTheirsGrownStartPlasticPruningE
     Plain sign(1, 1, LearningRule::sign());
     EXPECT_TRUE(sign.layer().plasticityPotential().empty());
     EXPECT_THROW(sign.layer().setPlasticityPotential(0, 0.5f), std::logic_error);
+}
+
+// --- Weight feedback --------------------------------------------------------------
+
+TEST(WeightFeedbackTest, HiddenErrorIsTheTransposedOutputWeights)
+{
+    network net;
+    LayerSpec hs = LayerSpec::Dense(2, false, false);
+    hs.normalize = false;
+    hs.learningRule = LearningRule::feedbackAlignment().withWeightFeedback();
+    const auto h = net.addLayer("h", hs);
+    LayerSpec os = LayerSpec::Dense(2, false, false);
+    os.normalize = false;
+    os.learningRule = LearningRule::feedbackAlignment();
+    const auto o = net.addLayer("o", os);
+    net.addInputs(h, 1);
+    net.connect(h, o);
+    net.addOutput(o);
+    auto& hid = net.layerAs<dense>(h);
+    auto& out = net.layerAs<dense>(o);
+    hid.setWeights(0, {1.0f});
+    hid.setWeights(1, {1.0f});
+    out.setWeights(0, {0.5f, 0.0f});   // output 0 reads only hidden 0
+    out.setWeights(1, {0.0f, 0.0f});
+    net.setInputs(std::vector<float>{1.0f});
+    net.step();
+    net.applyError(std::vector<float>{1.0f, 1.0f}, 0.1f);
+    // m_0 = 1 * 0.5 + 1 * 0 = 0.5: delta = 0.1 * 2 * 0.5 * x; hidden 1 is read by nobody: no change.
+    EXPECT_FLOAT_EQ(hid.weights(0)[0], 1.0f + 0.1f * 2.0f * 0.5f);
+    EXPECT_FLOAT_EQ(hid.weights(1)[0], 1.0f);
+    EXPECT_TRUE(hid.feedbackRow(0).empty());  // no random matrix was drawn
+    EXPECT_THROW(LearningRule::traced().withWeightFeedback().validate(), std::invalid_argument);
+    EXPECT_EQ(describeLearningRule(LearningRule::feedbackAlignment().withWeightFeedback()), "fa +wfb");
+    std::stringstream ss;
+    net.save(ss);
+    EXPECT_TRUE(network::load(ss)->layerSpec(h).learningRule.weightFeedback);
 }

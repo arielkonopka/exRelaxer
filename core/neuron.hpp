@@ -59,8 +59,9 @@ inline constexpr float default_learning_gain = 2.0f;        // default per-neuro
 // neurons and inputs (network format 18). The neuron model's state is not in
 // the record: networks save it after everything else (format 23). Format 5
 // adds the learning rule's plasticity potential option and each neuron's P
-// (network format 24).
-inline constexpr std::uint32_t NEURON_FORMAT_VERSION = 5;
+// (network format 24). Format 6 adds the weight-feedback flag (network
+// format 25).
+inline constexpr std::uint32_t NEURON_FORMAT_VERSION = 6;
 // Upper bound for a serialized weight count, so corrupt data fails with an
 // error instead of an enormous allocation.
 inline constexpr std::uint64_t max_serialized_weights = std::uint64_t{1} << 26;

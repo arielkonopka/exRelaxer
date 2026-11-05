@@ -146,3 +146,24 @@ def test_plasticity_potential():
     plain = exr.Network()
     sign = plain.add_layer("s", exr.LayerSpec.dense(1))
     assert plain.plasticity_potential(sign).size == 0
+
+
+def test_weight_feedback():
+    rule = exr.LearningRule.feedback_alignment().with_weight_feedback()
+    assert rule.weight_feedback and "+wfb" in repr(rule)
+    with pytest.raises(ValueError):
+        exr.LearningRule.traced().with_weight_feedback().validate()
+    net = exr.Network()
+    spec = exr.LayerSpec.dense(2, False, False, learning_rule=rule)
+    h = net.add_layer("h", spec)
+    o = net.add_layer("o", exr.LayerSpec.dense(1, False, False, learning_rule=exr.LearningRule.feedback_alignment()))
+    net.add_inputs(h, 1)
+    net.connect(h, o)
+    net.add_output(o)
+    net.set_weights(o, 0, np.array([1.0, 0.0], np.float32))   # only hidden 0 is read
+    before = [net.weights(h, i).copy() for i in range(2)]
+    net.set_inputs(np.array([1.0], np.float32))
+    net.step()
+    net.apply_error(np.array([1.0], np.float32), 0.1)
+    assert not np.array_equal(net.weights(h, 0), before[0])
+    assert np.array_equal(net.weights(h, 1), before[1])
