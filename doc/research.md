@@ -3858,7 +3858,10 @@ in §67.
   reads its features less (0.4-0.5 times the frozen ones). Its low death
   rate comes from hiding: on MAP05 every seed stands in 10-11 squares with
   no deaths and no kills; doors fall to 0.4 per game.
-- Recorded games: `plastic/*_paths.png`.
+- Recorded games (2 per agent per unseen level, `plastic/*_paths.png`): on
+  MAP02 two fixed-32 agents and one grown agent roam the hall west of the
+  spawn near the exit enclosure, as in §71, without getting in; the other
+  grown and fixed agents circle the spawn room.
 
 **What it means.** Features that learn from δ do not give the agent a better
 grasp of new levels. While they keep changing, the policy reading them gets
