@@ -154,6 +154,12 @@ DEFAULTS = {
     # neurons (up to plastic_max); plastic_freeze: the older neurons stop learning (progressive growth).
     "plastic": 0, "plastic_rate": 0.01, "plastic_trace": 0.9, "plastic_every": 0, "plastic_add": 8,
     "plastic_max": 64, "plastic_freeze": 1,
+    # Phase 35: plastic_teacher = "view" trains the plastic layer to predict the next frame instead
+    # of from the TD error: its output layer reads out the coarse picture of the screen (the pooled
+    # screen averaged over plastic_block x plastic_block blocks, centred, unit variance, clipped to
+    # +-3) one step ahead, and the error is (next picture - prediction). A dense, self-supervised
+    # teacher for the features, independent of reward.
+    "plastic_teacher": "delta", "plastic_block": 5,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -710,11 +716,18 @@ class Learner:
             self.plastic = net.add_layer("plastic", exr.LayerSpec.dense(
                 p["plastic"], False, True, learning_rule=exr.LearningRule.eprop(p["plastic_trace"])))
             net.connect(self.res.pool, self.plastic)
+            if p["plastic_teacher"] == "view":
+                b = p["plastic_block"]
+                self.plastic_shape = (120 // p["pool"], 160 // p["pool"])
+                out_n = (self.plastic_shape[0] // b) * (self.plastic_shape[1] // b)
+            else:
+                out_n = buttons + 1
             self.plastic_out = net.add_layer("plastic_out", exr.LayerSpec.dense(
-                buttons + 1, False, False, learning_rule=exr.LearningRule.feedback_alignment()))
+                out_n, False, False, learning_rule=exr.LearningRule.feedback_alignment()))
             net.connect(self.plastic, self.plastic_out)
             net.add_output(self.plastic_out)
         self.prev_a, self.prev_probs = None, None
+        self.prev_pred, self.plastic_target = None, None
         self.plastic_events = []
         self.agent = Agent(self.res.size + p["vplace"] + 2 * p["plastic"], buttons, p["gamma"], p["lam"], p["critic_rate"], p["actor_rate"],
                            clip=p["clip"], modulator="reward" if arm == "reward" else "td", post=p["post"],
@@ -765,6 +778,10 @@ class Learner:
             x = np.concatenate([x, self.vplace(x[:len(x) - self.res.extra], learn)])
         if self.plastic is not None:
             net = self.res.net
+            if self.p["plastic_teacher"] == "view":
+                b, (h, w) = self.p["plastic_block"], self.plastic_shape
+                v = np.asarray(self.eye_now, dtype=np.float64).reshape(h // b, b, w // b, b).mean(axis=(1, 3)).ravel()
+                self.plastic_target = np.clip((v - v.mean()) / (v.std() + 1e-6), -3.0, 3.0)
             x = np.concatenate([x, np.asarray(net.layer_output(self.plastic), dtype=np.float64).ravel(),
                                 np.asarray(net.neuron_state(self.plastic)["threshold"], dtype=np.float64)])
         return x
@@ -772,6 +789,18 @@ class Learner:
     def plastic_learn(self, a, learn):
         """After the agent's step: the plastic layer learns from the TD error of the transition the
         previous action caused (its eligibility traces carry the credit back in time)."""
+        if self.plastic is not None and self.p["plastic_teacher"] == "view":
+            net = self.res.net
+            if learn and self.prev_pred is not None and self.plastic_target is not None:
+                n = sum(net.layer_size(l) for l in net.output_layers)
+                d = len(self.prev_pred)
+                e = np.zeros(n, np.float32)
+                err = self.plastic_target - self.prev_pred
+                e[n - d:] = err
+                net.apply_error(e, self.p["plastic_rate"])
+                self.plastic_err = 0.99 * getattr(self, "plastic_err", float(np.mean(err ** 2))) + 0.01 * float(np.mean(err ** 2))
+            self.prev_pred = None if a is None else np.asarray(net.layer_output(self.plastic_out), dtype=np.float64).ravel().copy()
+            return
         if self.plastic is not None and learn and self.prev_a is not None and self.agent.log.deltas:
             delta = float(np.clip(self.agent.log.deltas[-1], -1.0, 1.0))
             net = self.res.net
@@ -793,6 +822,7 @@ class Learner:
             self.res.net.reset_state(self.plastic)
             self.res.net.reset_traces(self.plastic)
         self.prev_a, self.prev_probs = None, None
+        self.prev_pred = None
 
     def grow_plastic(self, ep):
         """Progressive growth: plastic_add new neurons (the older ones frozen if plastic_freeze); the
@@ -1296,6 +1326,8 @@ def main():
             s["episode"] = ep
             if learner.plastic is not None:
                 s["plastic"] = learner.res.net.layer_size(learner.plastic)
+                if hasattr(learner, "plastic_err"):
+                    s["plastic_err"] = learner.plastic_err
             s["map"] = level
             act = learner.agent.actor
             if anchor is not None:

@@ -140,7 +140,10 @@ alignment from δ * (onehot(a) - π) and δ (`plastic_rate`); its outputs and
 thresholds are appended to the features. `plastic_every=G` grows it by
 `plastic_add` neurons every G games up to `plastic_max`, freezing the
 older ones when `plastic_freeze=1`; the readouts of new neurons start at
-zero. The whole layer is kept in the checkpoint.
+zero. The whole layer is kept in the checkpoint. Phase 35:
+`plastic_teacher=view` trains it instead to predict the next frame's coarse
+picture (the pooled screen averaged over `plastic_block` blocks, centred,
+unit variance), a dense self-supervised teacher independent of reward.
 
 `where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
 replays trained MAP01 runs and draws where they go (phase 17); `--record`
