@@ -490,6 +490,15 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-06: can the plastic layer learn to see? (phases 36-37)
+
+- `predictor_probe.py`: records random games and fits next-frame predictors
+  offline. `doom_td.py`: `plastic_feedback=weight` (the plastic layer's
+  errors through the readout's real weights). The predictor diverges at the
+  phase-35 rate and barely beats a frozen layer at a safe one; in play it
+  does not learn, and neither teacher helps on unseen levels; no exits.
+  Research §75, Doom log D49.
+
 ### 2026-11-06: what should teach the plastic layer (phase 35)
 
 - `doom_td.py`: `plastic_teacher=view` (the plastic layer predicts the next

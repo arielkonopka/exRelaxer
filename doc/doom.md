@@ -1668,6 +1668,31 @@ before it can be judged.
 **Data.** `results/td-actor-critic/doom/plastic_teacher/` (paths per unseen
 level); videos in the project's `reports/doom-td/videos_plastic_teacher/`.
 
+### D49. Can the plastic layer learn to see? (2026-11-06)
+
+**Question.** (Phases 36-37.) Why does D48's predictor fail, and does
+weight feedback fix it?
+
+**Setup.** Offline: `predictor_probe.py` on 30 recorded random games
+(next coarse picture, error 1.0 = mean picture). In play: 128 plastic
+neurons, `plastic_feedback=weight`, rate 0.001, taught by the next frame or
+by δ; 3 seeds, 1500 games.
+
+**Result.**
+- Offline: copy 0.43, ridge from the pool 0.54, frozen random layer + ridge
+  0.80 (32) / 0.74 (128); learned layer at D48's rate diverges (1.5-1.9),
+  at 0.001 0.87-0.91 with random feedback, 0.82-0.84 with weight feedback.
+- In play the prediction still does not improve (one seed diverges).
+- Unseen deaths: next frame 40% (but 39 squares, hiding on MAP05), δ 53%;
+  no exits.
+
+**Conclusion.** The plastic-reservoir line is closed: the small spiking
+layer with local learning loses the picture the frozen pool still holds.
+
+**Data.** `results/td-actor-critic/doom/predictor_probe/`,
+`results/td-actor-critic/doom/plastic_wf/`; videos in the project's
+`reports/doom-td/videos_plastic_wf/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

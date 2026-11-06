@@ -4006,6 +4006,76 @@ whether predicted vision helps; its layer acts as a drifting random
 projection that the actor happens to lean on. A fair test needs the
 predictor shown to learn offline first.
 
+## 75. Can the plastic layer learn to see? (offline probe, weight feedback)
+
+**Question.** (Phases 36-37; Doom log D49.) §74's next-frame predictor got
+worse at its task in play. Is the timing, the rate or the learning rule to
+blame, and does the library's new weight feedback (§73,
+`with_weight_feedback`: errors through the readout's real weights) make a
+plastic layer that learns and helps?
+
+**Setup, offline (phase 36).** `predictor_probe.py` records 30 random games
+(2 minutes each, actions held ~10 steps, strike and orient reflexes from
+labels) on MAP01/03/04 and keeps per step the frozen vision pool (500 values)
+and §74's coarse target picture. 21 games train, 9 test; error is the test
+MSE of the next picture divided by its mean square (1.0 = the mean picture).
+The plastic layer is trained online in one pass, with the error applied one
+step late as in play (`lag`) or at once (`aligned`).
+
+| predictor | error |
+|---|---|
+| the current picture (copy) | 0.43 |
+| ridge from the pool | 0.54 |
+| online linear (LMS) from the pool, best rate | 0.66 |
+| frozen random E-R layer, ridge readout, 32 / 128 / 512 | 0.80 / 0.74 / 0.67 |
+| frozen random E-R layer, online readout, 32 / 128 | 0.91 / 0.86 |
+| e-prop + random feedback, rate 0.01, 32 / 128 (the §74 setting) | 1.5-1.9 |
+| e-prop + random feedback, rate 0.001, 32 / 128 | 0.91 / 0.87 |
+| e-prop + weight feedback, rate 0.001, 32 / 128 | 0.84 / 0.82 |
+
+- Timing makes no difference (lag and aligned within 0.07).
+- At §74's rate the layer diverges; at a safe rate random feedback teaches
+  it nothing beyond what a frozen layer gives; weight feedback gains a
+  little (0.82 vs 0.86).
+- The next picture is mostly the current one (copy 0.43), and a small
+  spiking layer loses most of the picture that the pool still holds.
+
+**Setup, in play (phase 37).** §74's agent with 128 plastic neurons, weight
+feedback (`plastic_feedback=weight`) and rate 0.001, taught by the next
+frame (`plastic_teacher=view`) or by δ; seeds 1-3, 1500 games, levels and
+tests as in §67.
+
+**Results.** Tests averaged over 3 seeds and 3 levels:
+
+| arm | deaths, trained | deaths, unseen | kills, unseen | doors, unseen | squares, unseen | squares MAP05 |
+|---|---|---|---|---|---|---|
+| strict views (§71) | 33% | 49% | 3.9 | 0.9 | 52 | 47 |
+| next frame, 32, random feedback (§74) | 30% | 50% | 3.9 | 0.8 | 59 | 59 |
+| next frame, 128, weight feedback | 37% | 40% | 2.6 | 0.7 | 39 | 26 |
+| δ, 128, weight feedback | 39% | 53% | 3.3 | 0.8 | 45 | 43 |
+
+- No exits anywhere.
+- In play the predictor still does not learn: its median error per game
+  rises from 0.65-0.8 early to about 1.1 at the end on two seeds, and on
+  seed 3 it diverges (about 16 for most of the run).
+- The next-frame agents die less on unseen levels (40%), but they walk less
+  (39 squares); two seeds stand in 11-16 squares on MAP05.
+- The δ arm is within the seed spread of the strict agent; one seed is bold
+  (87 squares on MAP05, 67% deaths), one hides (11 squares).
+- Recorded games (2 per agent per unseen level, `plastic_wf/*_paths.png`):
+  on MAP02 one δ agent walks the hall around the exit enclosure; the rest
+  stay near the spawn or wander south and east; none gets in.
+
+**What it means.** A plastic E-R layer beside the frozen vision does not
+learn useful features in play with any teacher tried here (δ fast or slow,
+next frame, random or weight feedback). Offline the best rule only slightly
+beats a frozen layer, and in play, where the agent's own behaviour shifts the
+frames it sees, even that is lost. The pool itself holds the picture (ridge
+0.54), so the bottleneck is the small spiking layer and its local learning,
+not the vision. This closes the plastic-reservoir line: features for new
+levels need a different route, such as learning vision offline from
+recorded play with a stronger learner, or reading the pool directly.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4381,6 +4451,13 @@ predictor shown to learn offline first.
     (49%). A layer taught to predict the next coarse frame gets worse at it
     (error 0.75-0.89 early, 0.95-0.99 at the end, 1.0 for the mean picture); the agent reading it matches the strict
     agent on average (50%), with one seed exploring widely. No exits.
+69. **The plastic layer does not learn to see in play** (§75): offline, a
+    next-frame predictor built from e-prop E-R neurons diverges at the rate
+    used in play, matches a frozen random layer with random feedback, and
+    gains a little with weight feedback (0.82 vs 0.86; ridge from the pool
+    0.54). In play, with 128 neurons and weight feedback, the prediction
+    does not improve, and neither teacher changes unseen-level results
+    beyond hiding. No exits.
 
 ## Open questions and next steps
 
