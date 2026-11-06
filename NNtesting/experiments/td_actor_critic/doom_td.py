@@ -160,6 +160,9 @@ DEFAULTS = {
     # +-3) one step ahead, and the error is (next picture - prediction). A dense, self-supervised
     # teacher for the features, independent of reward.
     "plastic_teacher": "delta", "plastic_block": 5,
+    # Phase 37: plastic_feedback = "weight" sends the plastic layer its errors through the output
+    # layer's real weights (LearningRule.with_weight_feedback) instead of a fixed random matrix.
+    "plastic_feedback": "random",
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -714,7 +717,7 @@ class Learner:
         if p["plastic"] > 0:
             net = self.res.net
             self.plastic = net.add_layer("plastic", exr.LayerSpec.dense(
-                p["plastic"], False, True, learning_rule=exr.LearningRule.eprop(p["plastic_trace"])))
+                p["plastic"], False, True, learning_rule=self.plastic_rule()))
             net.connect(self.res.pool, self.plastic)
             if p["plastic_teacher"] == "view":
                 b = p["plastic_block"]
@@ -785,6 +788,10 @@ class Learner:
             x = np.concatenate([x, np.asarray(net.layer_output(self.plastic), dtype=np.float64).ravel(),
                                 np.asarray(net.neuron_state(self.plastic)["threshold"], dtype=np.float64)])
         return x
+
+    def plastic_rule(self):
+        rule = exr.LearningRule.eprop(self.p["plastic_trace"])
+        return rule.with_weight_feedback() if self.p["plastic_feedback"] == "weight" else rule
 
     def plastic_learn(self, a, learn):
         """After the agent's step: the plastic layer learns from the TD error of the transition the
