@@ -163,6 +163,16 @@ DEFAULTS = {
     # Phase 37: plastic_feedback = "weight" sends the plastic layer its errors through the output
     # layer's real weights (LearningRule.with_weight_feedback) instead of a fixed random matrix.
     "plastic_feedback": "random",
+    # Phase 38: vision_model = path of a frozen offline vision model (vision_offline.py fit) reading
+    # the vision pool; vision_feed = "out" (its 22 predictions: monsters and depth per column, hit
+    # soon, distance to the exit), "hidden" (its hidden layer) or "both" are appended to the
+    # features. vision_pull = w > 0 rewards each step w * (previous - current predicted distance to
+    # the exit), clipped to +-w: a learned, map-independent sense of where exits are.
+    "vision_model": "", "vision_feed": "out", "vision_pull": 0.0,
+    # depth_oracle = 1 appends the true depth per screen column (log of the median depth of the
+    # middle third of ViZDoom's depth buffer, 10 columns): the upper bound of what stereo vision
+    # could give the agent.
+    "depth_oracle": 0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -226,9 +236,11 @@ def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kil
     return q
 
 
-def make_game(scenario, seed, skill=None, labels=False, until_death=0, approach=0.0, color=False):
+def make_game(scenario, seed, skill=None, labels=False, until_death=0, approach=0.0, color=False, depth=False):
     if scenario in MAPS:
-        return drl.make_game(doom_rl_params(scenario, skill, until_death, approach, labels, color=color), seed)
+        q = doom_rl_params(scenario, skill, until_death, approach, labels, color=color)
+        q["depth"] = bool(depth)
+        return drl.make_game(q, seed)
     game = vzd.DoomGame()
     game.load_config(os.path.join(vzd.scenarios_path, scenario + ".cfg"))
     game.set_window_visible(False)
@@ -732,7 +744,14 @@ class Learner:
         self.prev_a, self.prev_probs = None, None
         self.prev_pred, self.plastic_target = None, None
         self.plastic_events = []
-        self.agent = Agent(self.res.size + p["vplace"] + 2 * p["plastic"], buttons, p["gamma"], p["lam"], p["critic_rate"], p["actor_rate"],
+        self.vision, n_vision = None, 0
+        if p["vision_model"]:
+            from vision_offline import MLP
+            self.vision = MLP.load(p["vision_model"])
+            hidden = self.vision.W1.shape[1]
+            n_vision = {"out": 22, "hidden": hidden, "both": 22 + hidden}[p["vision_feed"]]
+        self.vision_exit, self.vision_prev = None, None
+        self.agent = Agent(self.res.size + p["vplace"] + 2 * p["plastic"] + n_vision + 10 * bool(p["depth_oracle"]), buttons, p["gamma"], p["lam"], p["critic_rate"], p["actor_rate"],
                            clip=p["clip"], modulator="reward" if arm == "reward" else "td", post=p["post"],
                            tau=p["tau"], entropy=p["entropy"], center=p["center"], rng=self.rng)
 
@@ -774,7 +793,7 @@ class Learner:
             self.danger_z = x[:len(x) - self.res.extra].copy()
         if self.curiosity is not None:
             self.cur_z = x[:len(x) - self.res.extra].copy()
-        if self.landmarks is not None or self.detector is not None:
+        if self.landmarks is not None or self.detector is not None or self.vision is not None:
             self.view = np.asarray(self.res.net.layer_output(self.res.pool), dtype=np.float64).ravel()
         if self.vplace is not None:
             # The learned place cells read the reservoir and the vision features, not the raw inputs.
@@ -787,6 +806,18 @@ class Learner:
                 self.plastic_target = np.clip((v - v.mean()) / (v.std() + 1e-6), -3.0, 3.0)
             x = np.concatenate([x, np.asarray(net.layer_output(self.plastic), dtype=np.float64).ravel(),
                                 np.asarray(net.neuron_state(self.plastic)["threshold"], dtype=np.float64)])
+        if self.vision is not None:
+            v = self.view[None, :]
+            z = self.vision.hidden(v)
+            pm, pd_, ph, pe = self.vision.predict(v)
+            self.vision_exit = float(pe[0])
+            out = np.concatenate([pm[0], pd_[0], ph, pe])
+            feed = self.p["vision_feed"]
+            parts = [out] if feed == "out" else [z[0]] if feed == "hidden" else [out, z[0]]
+            x = np.concatenate([x] + parts)
+        if self.p["depth_oracle"]:
+            from vision_offline import depth_columns
+            x = np.concatenate([x, depth_columns(state.depth_buffer)])
         return x
 
     def plastic_rule(self):
@@ -830,6 +861,7 @@ class Learner:
             self.res.net.reset_traces(self.plastic)
         self.prev_a, self.prev_probs = None, None
         self.prev_pred = None
+        self.vision_prev = None
 
     def grow_plastic(self, ep):
         """Progressive growth: plastic_add new neurons (the older ones frozen if plastic_freeze); the
@@ -1178,6 +1210,14 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             if learn:
                 r += bonus
                 novelty += bonus  # intrinsic, not the game's
+        if learner.vision is not None and learner.p["vision_pull"] > 0:
+            w = learner.p["vision_pull"]
+            if learner.vision_prev is not None:
+                pull = float(np.clip(w * (learner.vision_prev - learner.vision_exit), -w, w))
+                if learn:
+                    r += pull
+                    novelty += pull  # intrinsic, not the game's
+            learner.vision_prev = learner.vision_exit
         if learn and learner.danger is not None and learner.p["fear"] > 0:
             r -= learner.p["fear"] * learner.danger_p
             novelty -= learner.p["fear"] * learner.danger_p  # intrinsic, not the game's
@@ -1257,7 +1297,7 @@ def main():
         start = saved["episode"]
     # A resumed run plays new games from the restart on (the game's seed moves with the episode).
     game = make_game(args.scenario, 10_000 + args.seed + 7919 * start, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]),
-                     p["until_death"], color=bool(p["detector_colour"]))
+                     p["until_death"], color=bool(p["detector_colour"]), depth=bool(p["depth_oracle"]))
     learner = Learner(p, game.get_available_buttons_size(), args.arm, args.seed)
     if saved is not None:
         learner.agent, learner.rng = saved["agent"], saved["rng"]
@@ -1364,7 +1404,7 @@ def main():
     game.close()
     # Greedy test on fresh episodes, no learning.
     test_game = make_game(args.scenario, 20_000 + args.seed, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]), p["until_death"],
-                          color=bool(p["detector_colour"]))
+                          color=bool(p["detector_colour"]), depth=bool(p["depth_oracle"]))
     test_levels = [args.scenario] + [m.strip() for m in (p["maps"] + "," + p["test_maps"]).split(",")
                                      if m.strip() and m.strip() != args.scenario]
     test_levels = list(dict.fromkeys(test_levels))

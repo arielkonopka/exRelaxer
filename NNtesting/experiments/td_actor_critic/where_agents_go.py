@@ -50,7 +50,7 @@ def replay(run, games, seed, record=None, level=None):
     labels = p["features"] == "oracle" or bool(p["attack_reflex"])
     level = level or cfg.get("scenario", "map01")
     game = dt.make_game(level, 30_000 + seed, p["skill"], labels, p["until_death"],
-                        color=bool(p.get("detector_colour", 0)))
+                        color=bool(p.get("detector_colour", 0)), depth=bool(p.get("depth_oracle", 0)))
     learner = dt.Learner(p, game.get_available_buttons_size(), cfg["arm"], cfg["seed"])
     saved = Unpickler(open(os.path.join(run, "checkpoint.pkl"), "rb")).load()
     learner.agent, learner.rng = saved["agent"], saved["rng"]
