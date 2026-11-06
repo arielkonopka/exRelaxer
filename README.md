@@ -490,6 +490,13 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-06: what should teach the plastic layer (phase 35)
+
+- `doom_td.py`: `plastic_teacher=view` (the plastic layer predicts the next
+  coarse frame, no reward) and `plastic_block`. A slow δ teacher stops the
+  extra deaths of phase 34 but does not help on unseen levels; the next-frame
+  predictor does not learn its task; no exits. Research §74, Doom log D48.
+
 ### 2026-11-05: a plastic reservoir (phase 34)
 
 - `doom_td.py`: `plastic=N` (an e-prop E-R layer on the frozen vision,

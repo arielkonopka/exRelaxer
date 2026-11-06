@@ -3951,6 +3951,61 @@ show (weight feedback's savings): the shared, always-plastic readouts are where 
 lost. Next levers: a readout per task or context, or protecting readouts, and tasks whose inputs
 use different neurons.
 
+## 74. What should teach the plastic layer
+
+**Question.** (Phase 35; Doom log D48.) In §72 a plastic layer taught by the
+TD error raised deaths, even on trained levels. Was it the teacher (one
+scalar δ says little about what in the picture mattered) or the speed (features
+that keep changing under the actor)?
+
+**Setup.** §72's fixed 32-neuron plastic layer on §71's strict-views agent,
+two new arms, seeds 1-3, 1500 games, levels and tests as in §67:
+- *next frame* (`plastic_teacher=view`): the layer's output layer predicts
+  the next frame's coarse picture (the pooled screen averaged into 6 x 8
+  blocks, centred, unit variance, clipped to ±3); the error (next picture -
+  prediction) trains it every step, with no reward. The error is applied one
+  step later, when the next picture is known, so the output layer's inputs
+  are one step newer than the prediction they correct (the e-prop traces of
+  the plastic layer carry the older activity).
+- *slow δ*: §72's δ teacher at a tenth of the rate (`plastic_rate=0.001`).
+
+**Results.** Tests averaged over 3 seeds and 3 levels:
+
+| arm | deaths, trained | deaths, unseen | kills, unseen | doors, unseen | squares, unseen | squares MAP05 |
+|---|---|---|---|---|---|---|
+| strict views (§71) | 33% | 49% | 3.9 | 0.9 | 52 | 47 |
+| δ, rate 0.01 (§72) | 62% | 72% | 3.9 | 0.9 | 50 | 56 |
+| δ, rate 0.001 | 19% | 49% | 2.9 | 0.6 | 45 | 16 |
+| next frame | 30% | 50% | 3.9 | 0.8 | 59 | 59 |
+
+- No exits anywhere.
+- Slow δ: weights move only 2% after game 100 and the actor reads the
+  layer like the frozen features (1.0-1.1 times). Deaths on trained levels
+  fall from 62% to 19%, so §72's extra deaths came from the speed. On
+  unseen levels it is the strict agent again, and two of three seeds stand
+  in 11 squares on MAP05.
+- Next frame: the prediction is not learned. The mean squared error of
+  the prediction is 0.75-0.89 in the first 100 games and 0.95-0.99 in the
+  last 100 (predicting the mean picture gives 1.0). Meanwhile the
+  layer's weights grow to about four times their starting size, and the
+  actor reads the layer 2.6-2.9 times as strongly as the frozen features.
+  The average equals the strict agent, with a wide seed spread: seed 2 walks
+  118 squares on MAP05 and is the only agent so far with a positive reward
+  on unseen levels (+2.8); seed 1 stands still there.
+- Recorded games (2 per agent per unseen level, `plastic_teacher/*_paths.png`):
+  on MAP02 most agents of both arms walk the northern hall around the exit
+  enclosure, one next-frame agent reaching its west side, but none gets in;
+  two slow-δ agents wander south.
+
+**What it means.** Learning speed, not the δ teacher alone, made §72's
+plastic layer harmful: slowed down it is harmless, and useless. The
+self-supervised teacher as built here does not learn its task (an e-prop
+E-R layer with a random feedback matrix and a linear readout does not fit a
+48-dimensional prediction at this rate), so this phase does not yet test
+whether predicted vision helps; its layer acts as a drifting random
+projection that the actor happens to lean on. A fair test needs the
+predictor shown to learn offline first.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4320,6 +4375,12 @@ use different neurons.
     feedback error shared by all neurons cannot say which ones hold the old task. Weight feedback
     (the error through the readouts' real weights) relearns the old task 3.5x faster (8.0 against
     2.3 apples in the first 50 games back): the hidden layer keeps it, the readouts lose it.
+68. **Slow plastic features are safe but no help; a next-frame teacher did not
+    learn** (§74): at a tenth of the rate the δ-taught layer stops raising
+    deaths (19% on trained levels vs 62%), but unseen levels are unchanged
+    (49%). A layer taught to predict the next coarse frame gets worse at it
+    (error 0.75-0.89 early, 0.95-0.99 at the end, 1.0 for the mean picture); the agent reading it matches the strict
+    agent on average (50%), with one seed exploring widely. No exits.
 
 ## Open questions and next steps
 

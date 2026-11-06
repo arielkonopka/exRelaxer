@@ -1644,6 +1644,30 @@ vision.
 **Data.** `results/td-actor-critic/doom/plastic/` (paths per unseen level);
 videos in the project's `reports/doom-td/videos_plastic/`.
 
+### D48. What should teach the plastic layer (2026-11-06)
+
+**Question.** (Phase 35.) Was D47's harm from the δ teacher or from
+features changing too fast?
+
+**Setup.** D47's 32-neuron plastic layer, taught by δ at a tenth of the rate
+(`plastic_rate=0.001`), or by predicting the next frame's coarse 6 x 8
+picture (`plastic_teacher=view`, no reward); 3 seeds, 1500 games.
+
+**Result.**
+- No exits. Deaths on unseen levels: slow δ 49%, next frame 50% (D46
+  strict 49%, D47 δ 72%); on trained levels 19% and 30%.
+- Slow δ hides on MAP05 (2 of 3 seeds in 11 squares).
+- The next-frame predictor does not learn (error 0.75-0.89 early,
+  0.95-0.99 late; 1.0 for the mean picture); one seed still explores
+  widely (118 squares on MAP05, reward +2.8).
+
+**Conclusion.** Speed caused D47's deaths; a slow layer is harmless and
+useless. The self-supervised teacher needs to be shown to learn offline
+before it can be judged.
+
+**Data.** `results/td-actor-critic/doom/plastic_teacher/` (paths per unseen
+level); videos in the project's `reports/doom-td/videos_plastic_teacher/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
