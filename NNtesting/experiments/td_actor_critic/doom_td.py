@@ -178,6 +178,11 @@ DEFAULTS = {
     # columns (true depth): forward when it lies in the middle two, else it turns toward it.
     # Uses the depth buffer; actions overridden like the other reflexes.
     "open_reflex": 0.0,
+    # Phase 41: open_novel = 1 makes the open-space reflex prefer new ground: among the columns
+    # deeper than the median, it heads for the one whose line of sight (points 128 and 256 units
+    # ahead, from the agent's own position and heading) crosses the most squares it has not yet
+    # visited this game; ties go to the deeper column.
+    "open_novel": 0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -1094,7 +1099,19 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         if learner.p["open_reflex"] > 0 and state is not None and state.depth_buffer is not None and \
                 learner.rng.random() < learner.p["open_reflex"] * learner.boredom_level:
             from vision_offline import depth_columns
-            deepest = int(np.argmax(depth_columns(state.depth_buffer)))
+            dcol = depth_columns(state.depth_buffer)
+            deepest = int(np.argmax(dcol))
+            if learner.p["open_novel"] and pos is not None:
+                heading = np.radians(pos[2])
+                best = None
+                for c in np.where(dcol >= np.median(dcol))[0]:
+                    h = heading + np.radians((0.5 - (c + 0.5) / 10) * 90.0)  # 90-degree field of view
+                    new = sum((int((pos[0] + r * np.cos(h)) // 64), int((pos[1] + r * np.sin(h)) // 64)) not in cells
+                              for r in (128.0, 256.0))
+                    key = (new, dcol[c])
+                    if best is None or key > best[0]:
+                        best = (key, int(c))
+                deepest = best[1]
             go = fwd if deepest in (4, 5) else names.index("TURN_LEFT" if deepest < 4 else "TURN_RIGHT")
             buttons = [0] * len(names)
             buttons[go] = 1
