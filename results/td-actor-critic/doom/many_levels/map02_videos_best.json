@@ -1,0 +1,32 @@
+{
+ "kills": {
+  "run": "manydepth_s1",
+  "game": 1,
+  "kills": 7.0,
+  "seconds": 30.857142857142858,
+  "doors": 0.0,
+  "died": 1,
+  "game_reward": 3.705999999999996,
+  "visited": 51
+ },
+ "longest": {
+  "run": "manydepth_s2",
+  "game": 1,
+  "kills": 4.0,
+  "seconds": 300.0,
+  "doors": 0.0,
+  "died": 0,
+  "game_reward": -6.236999999999796,
+  "visited": 19
+ },
+ "doors": {
+  "run": "many_s2",
+  "game": 0,
+  "kills": 3.0,
+  "seconds": 33.714285714285715,
+  "doors": 1.0,
+  "died": 1,
+  "game_reward": -0.10300000000000953,
+  "visited": 43
+ }
+}

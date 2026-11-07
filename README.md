@@ -490,6 +490,12 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-07: training on twelve levels (phase 39)
+
+- The agent trained on 12 levels (MAP01/03/04, MAP07-15) opens more doors
+  and dies less on unseen levels; with true depth it dies least but stays
+  near the spawn room; no exits. Research §77, Doom log D51.
+
 ### 2026-11-07: vision learned offline, and true depth (phase 38)
 
 - `vision_offline.py` (records random games with labels and depth, fits an

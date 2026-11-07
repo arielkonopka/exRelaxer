@@ -4144,6 +4144,46 @@ sense one seed in three became a real explorer. Stereo vision could add up
 to this much and no more; the missing piece is still how to leave a closed
 room (find and open its door) on a level never seen.
 
+## 77. Training on twelve levels
+
+**Question.** (Phase 39; Doom log D51.) §76 found that vision learned on 3
+levels does not transfer and vision learned on 12 does. The agent itself
+has only ever trained on 3. Does training it on 12 levels help it on unseen
+ones, with or without true depth?
+
+**Setup.** §71's strict-views agent trained on MAP01/03/04 and MAP07-15
+(`maps=`, 12 levels, about 125 games each in 1500), without and with
+`depth_oracle=1`; seeds 1-3; tested on the training levels and on the
+unseen MAP02/05/06 as in §67.
+
+**Results.** Tests averaged over 3 seeds (unseen: MAP02/05/06):
+
+| arm | deaths, trained | deaths, unseen | kills, unseen | doors, unseen | squares, unseen | squares MAP05 | reward, unseen |
+|---|---|---|---|---|---|---|---|
+| 3 levels (§71) | 33% | 49% | 3.9 | 0.9 | 52 | 47 | -2.0 |
+| 3 levels + depth (§76) | 20% | 33% | 3.8 | 0.5 | 63 | 50 | +0.2 |
+| 12 levels | 61% | 43% | 3.4 | 1.0 | 42 | 20 | -0.8 |
+| 12 levels + depth | 41% | 31% | 2.7 | 0.5 | 42 | 13 | -1.8 |
+
+- No exits on any level, trained or unseen.
+- The 12 levels are harder than the 3 (61% deaths on them); on unseen
+  levels the 12-level agent dies less, opens the most doors so far (1.0
+  per game; every seed opens MAP05's spawn-room door 0.8-1.0 times a game)
+  and has a better reward than the 3-level agent, but walks less.
+- With depth it dies least (31%), but every seed stays in or near MAP05's
+  spawn room (11-18 squares); on MAP06 it walks 76-87 squares with rewards
+  up to +4.6.
+- Recorded games (`many_levels/*_paths.png`): on MAP05 one plain agent
+  (seed 1) roams the whole outdoor area west of the exit building but never
+  finds its entrance; the others stay in the spawn room.
+
+**What it means.** More training levels make the agent's habits more
+general (more doors on new levels, fewer deaths), as they did for vision,
+but they do not add a way through a level: no agent finds an exit on any of
+15 levels. With depth the agent again turns its better sense of danger into
+caution. The missing piece is still a drive or skill that takes it out of
+a room and onward through an unknown level.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4534,6 +4574,11 @@ room (find and open its door) on a level never seen.
     depth, the upper bound of stereo, gives the best unseen-level average
     (33% deaths, 63 squares, reward +0.2) through one bold seed of three.
     No exits.
+71. **Twelve training levels make habits more general but find no exits**
+    (§77): trained on 12 levels the agent opens more doors on unseen
+    levels (1.0 per game) and dies less (43% vs 49%); with true depth it
+    dies least (31%) but stays near MAP05's spawn room. No exits on any of
+    15 levels.
 
 ## Open questions and next steps
 

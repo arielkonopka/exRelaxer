@@ -1721,6 +1721,26 @@ is still the missing skill.
 `results/td-actor-critic/doom/depth_oracle/`; videos in the project's
 `reports/doom-td/videos_vision/` and `videos_depth/`.
 
+### D51. Training on twelve levels (2026-11-07)
+
+**Question.** (Phase 39.) Does training the agent on 12 levels instead of 3
+help it on unseen ones, with or without true depth?
+
+**Setup.** D46's strict-views agent, `maps=` MAP01/03/04 and MAP07-15,
+alone or with `depth_oracle=1`; 3 seeds, 1500 games; tests on MAP02/05/06.
+
+**Result.**
+- No exits on any level.
+- Unseen deaths: 12 levels 43%, with depth 31% (3 levels 49%, with depth
+  33%); doors 1.0 and 0.5 per game; reward -0.8 and -1.8.
+- With depth every seed stays near MAP05's spawn room.
+
+**Conclusion.** More levels give more general habits, not a way through a
+level.
+
+**Data.** `results/td-actor-critic/doom/many_levels/`; videos in the
+project's `reports/doom-td/videos_many/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
