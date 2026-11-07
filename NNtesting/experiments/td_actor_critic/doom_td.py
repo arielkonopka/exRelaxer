@@ -173,6 +173,11 @@ DEFAULTS = {
     # middle third of ViZDoom's depth buffer, 10 columns): the upper bound of what stereo vision
     # could give the agent.
     "depth_oracle": 0,
+    # Phase 40: open_reflex = p > 0: an instinct for open space. Each step, with probability
+    # p * boredom (no new square for a while), the agent heads for the deepest of 10 screen
+    # columns (true depth): forward when it lies in the middle two, else it turns toward it.
+    # Uses the depth buffer; actions overridden like the other reflexes.
+    "open_reflex": 0.0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -1046,6 +1051,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         learner.games += 1
     blocked, reflexes = False, 0
     pokes = 0
+    opens = 0
     retreat_left = retreats = 0
     back = names.index("MOVE_BACKWARD") if "MOVE_BACKWARD" in names else None
     fwd = names.index("MOVE_FORWARD") if "MOVE_FORWARD" in names else None
@@ -1085,6 +1091,14 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             buttons = list(buttons)  # the poke reflex: press USE now and then, at whatever is ahead
             buttons[use] = 1
             pokes += 1
+        if learner.p["open_reflex"] > 0 and state is not None and state.depth_buffer is not None and \
+                learner.rng.random() < learner.p["open_reflex"] * learner.boredom_level:
+            from vision_offline import depth_columns
+            deepest = int(np.argmax(depth_columns(state.depth_buffer)))
+            go = fwd if deepest in (4, 5) else names.index("TURN_LEFT" if deepest < 4 else "TURN_RIGHT")
+            buttons = [0] * len(names)
+            buttons[go] = 1
+            opens += 1
         where = monster_ahead(state, learner.p["attack_cone"]) if instinct and state is not None else None
         det = learner.detector
         if det is not None and instinct and state is not None and learner.view is not None:
@@ -1238,7 +1252,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
              novelty=novelty, curious=curious, viewed=viewed,
              views=learner.view_novelty.size if learner.view_novelty is not None else 0,
              curiosity_error=float(np.mean(learner.curiosity.errors)) if learner.curiosity is not None and learner.curiosity.errors else -1.0,
-             reflexes=reflexes, strikes=strikes, pokes=pokes, retreats=retreats,
+             reflexes=reflexes, strikes=strikes, pokes=pokes, opens=opens, retreats=retreats,
              danger_hurt=float(np.mean(learner.danger.hurt_p)) if learner.danger is not None and learner.danger.hurt_p else -1.0,
              danger_safe=float(np.mean(learner.danger.safe_p)) if learner.danger is not None and learner.danger.safe_p else -1.0,
              det_recall=det_hits / max(1, det_true), det_false=det_false / max(1, steps), fb_shots=fb_shots,
@@ -1297,7 +1311,7 @@ def main():
         start = saved["episode"]
     # A resumed run plays new games from the restart on (the game's seed moves with the episode).
     game = make_game(args.scenario, 10_000 + args.seed + 7919 * start, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]),
-                     p["until_death"], color=bool(p["detector_colour"]), depth=bool(p["depth_oracle"]))
+                     p["until_death"], color=bool(p["detector_colour"]), depth=bool(p["depth_oracle"] or p["open_reflex"]))
     learner = Learner(p, game.get_available_buttons_size(), args.arm, args.seed)
     if saved is not None:
         learner.agent, learner.rng = saved["agent"], saved["rng"]
@@ -1404,7 +1418,7 @@ def main():
     game.close()
     # Greedy test on fresh episodes, no learning.
     test_game = make_game(args.scenario, 20_000 + args.seed, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]), p["until_death"],
-                          color=bool(p["detector_colour"]), depth=bool(p["depth_oracle"]))
+                          color=bool(p["detector_colour"]), depth=bool(p["depth_oracle"] or p["open_reflex"]))
     test_levels = [args.scenario] + [m.strip() for m in (p["maps"] + "," + p["test_maps"]).split(",")
                                      if m.strip() and m.strip() != args.scenario]
     test_levels = list(dict.fromkeys(test_levels))
