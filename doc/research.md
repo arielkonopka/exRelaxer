@@ -4076,6 +4076,74 @@ not the vision. This closes the plastic-reservoir line: features for new
 levels need a different route, such as learning vision offline from
 recorded play with a stronger learner, or reading the pool directly.
 
+## 76. Vision learned offline, and true depth
+
+**Question.** (Phase 38; Doom log D50.) §75 closed the plastic reservoir:
+local learning in play does not extract more from the frozen vision pool.
+Does vision learned offline by a stronger learner, frozen and read by the
+agent, help on unseen levels? And (the user's question) would 3D vision,
+stereo, help? Its upper bound is the true depth.
+
+**Setup, offline.** `vision_offline.py collect` plays random games (2 min,
+actions held ~10 steps, strike and orient reflexes from labels, USE with
+p = 0.1): 25 on each of MAP01-06, 15 on each of MAP07-15. Per step it keeps
+the frozen vision pool (500 values) and four targets: monsters per screen
+column (labels), log depth per column (median of the middle third of the
+depth buffer), being hit within 8 steps, and the walking distance to the
+exit divided by the level's largest. `fit` trains a numpy MLP (pool -> 128
+ReLU -> all targets, Adam, 3 epochs) and tests it on held-out games of its
+levels and on the unseen MAP02/05/06.
+
+| trained on | test | monsters AUC | depth R² | hit soon AUC | exit distance r |
+|---|---|---|---|---|---|
+| MAP01/03/04 | held-out games | 0.87 | 0.70 | 0.71 | 0.74 |
+| MAP01/03/04 | MAP02 / 05 / 06 | 0.75 / 0.90 / 0.74 | 0.07 / 0.12 / 0.34 | 0.60-0.68 | 0.02-0.09 |
+| 12 levels (MAP01/03/04, 07-15) | held-out games | 0.85 | 0.70 | 0.70 | 0.63 |
+| 12 levels | MAP02 / 05 / 06 | 0.79 / 0.89 / 0.85 | 0.59 / 0.27 / 0.63 | 0.63-0.69 | -0.11-0.07 |
+
+- Three levels are too few: the model learns those levels, not vision.
+  Twelve levels give depth that carries over (R² 0.6 on MAP02 and MAP06).
+- The distance to the exit never carries over; it encodes which level the
+  frames come from, so the planned exit pull (`vision_pull`) was not run.
+- Larger (512) or longer-trained models do no better on unseen levels.
+
+**Setup, in play.** §71's strict-views agent plus the frozen 12-level model
+(`vision_model`): its 22 predictions (`vision_feed=out`), or the predictions
+and its 128 hidden units (`both`); and, for the stereo question, the true
+depth of 10 columns (`depth_oracle=1`). Seeds 1-3, 1500 games, tests as in
+§67.
+
+**Results.** Tests averaged over 3 seeds and 3 levels:
+
+| arm | deaths, trained | deaths, unseen | kills, unseen | doors, unseen | squares, unseen | squares MAP05 | reward, unseen |
+|---|---|---|---|---|---|---|---|
+| strict views (§71) | 33% | 49% | 3.9 | 0.9 | 52 | 47 | -2.0 |
+| learned vision, predictions | 12% | 40% | 3.1 | 0.7 | 47 | 21 | -2.2 |
+| learned vision, + hidden | 22% | 26% | 2.7 | 0.3 | 32 | 9 | -6.4 |
+| true depth | 20% | 33% | 3.8 | 0.5 | 63 | 50 | +0.2 |
+
+- No exits anywhere.
+- Learned vision lowers deaths on trained levels (12%, the lowest since
+  §67) but on unseen levels mostly makes the agent careful: with the hidden
+  units it walks least and stands in MAP05's closed spawn room on every
+  seed.
+- True depth is the best on unseen levels on average (33% deaths, 63
+  squares, the only positive reward), carried by seed 1: 102 squares on
+  average, 127 on MAP05 (one door per game), reward +8.6 on MAP06. Seeds 2
+  and 3 stay in MAP05's spawn room like most earlier agents.
+- Recorded games: `vision_offline/*_paths.png`, `depth_oracle/*_paths.png`.
+  On MAP05 none of the learned-vision agents leaves the spawn room; with
+  true depth seed 1 roams the big outdoor area west of the exit building,
+  and in one recorded game seed 2 also opens the spawn room's door, but no
+  agent finds the way into the exit building.
+
+**What it means.** Learned vision transfers only when it is learned on many
+levels, and even then it gives the actor caution rather than a way forward.
+Depth helps more than learned features but not reliably: with a depth
+sense one seed in three became a real explorer. Stereo vision could add up
+to this much and no more; the missing piece is still how to leave a closed
+room (find and open its door) on a level never seen.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4458,6 +4526,14 @@ recorded play with a stronger learner, or reading the pool directly.
     0.54). In play, with 128 neurons and weight feedback, the prediction
     does not improve, and neither teacher changes unseen-level results
     beyond hiding. No exits.
+70. **Offline-learned vision transfers only from many levels and makes the
+    agent careful; true depth helps most but not reliably** (§76): an MLP
+    on the frozen pool trained on 3 levels does not carry depth to new
+    levels (R² 0.07-0.34), on 12 it does (0.27-0.63); exit distance never
+    does. Read by the agent it lowers deaths by hiding. True per-column
+    depth, the upper bound of stereo, gives the best unseen-level average
+    (33% deaths, 63 squares, reward +0.2) through one bold seed of three.
+    No exits.
 
 ## Open questions and next steps
 

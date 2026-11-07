@@ -1693,6 +1693,34 @@ layer with local learning loses the picture the frozen pool still holds.
 `results/td-actor-critic/doom/plastic_wf/`; videos in the project's
 `reports/doom-td/videos_plastic_wf/`.
 
+### D50. Vision learned offline, and true depth (2026-11-07)
+
+**Question.** (Phase 38.) Does a vision model learned offline from recorded
+play help on unseen levels, and would stereo (true depth) help?
+
+**Setup.** `vision_offline.py`: random games on 15 levels; an MLP on the
+frozen pool predicts monsters and depth per column, being hit soon and the
+distance to the exit; trained on 12 levels (MAP02/05/06 left out), frozen,
+read by the agent as 22 predictions (`vision_model`, `vision_feed=out`) or
+with its hidden units (`both`). Stereo's upper bound: true depth per column
+(`depth_oracle=1`). 3 seeds, 1500 games each.
+
+**Result.**
+- Offline, unseen levels: depth R² 0.27-0.63 (0.07-0.34 when trained on 3
+  levels), monsters AUC 0.79-0.89; exit distance does not transfer.
+- Unseen deaths: predictions 40%, + hidden 26% (but 32 squares, hiding),
+  true depth 33% with 63 squares and reward +0.2 (strict 49%, 52, -2.0).
+- One depth seed explores widely (127 squares on MAP05); the others stay in
+  MAP05's spawn room. No exits.
+
+**Conclusion.** Learned vision buys caution; depth helps one seed in three.
+Stereo would help at most this much: leaving a closed room on a new level
+is still the missing skill.
+
+**Data.** `results/td-actor-critic/doom/vision_offline/`,
+`results/td-actor-critic/doom/depth_oracle/`; videos in the project's
+`reports/doom-td/videos_vision/` and `videos_depth/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

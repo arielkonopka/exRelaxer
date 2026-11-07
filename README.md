@@ -490,6 +490,15 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-07: vision learned offline, and true depth (phase 38)
+
+- `vision_offline.py` (records random games with labels and depth, fits an
+  MLP on the frozen vision pool); `doom_td.py`: `vision_model`,
+  `vision_feed`, `vision_pull`, `depth_oracle`; `doom_rl` `depth` parameter
+  (depth buffer). Vision learned on 12 levels transfers depth to unseen
+  levels but makes the agent careful; true depth gives the best unseen-level
+  average through one bold seed; no exits. Research §76, Doom log D50.
+
 ### 2026-11-06: can the plastic layer learn to see? (phases 36-37)
 
 - `predictor_probe.py`: records random games and fits next-frame predictors

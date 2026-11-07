@@ -151,6 +151,15 @@ through the output layer's real weights (`with_weight_feedback`).
 compares next-frame predictors offline (copy, ridge, the plastic layer at
 several rates and timings); `--load frames.npz` fits again.
 
+Phase 38: `vision_offline.py collect --levels mapNN --games 25 --out frames_mapNN.npz`
+records random games (pool, monsters and depth per column, hit within 8
+steps, walking distance to the exit); `vision_offline.py fit --data a.npz,b.npz
+--train levels --out vision.npz` fits a numpy MLP and reports how it does on
+the other levels. `doom_td.py` reads it with `vision_model=vision.npz`
+(`vision_feed=out|hidden|both`; `vision_pull=w` rewards a falling predicted
+exit distance). `depth_oracle=1` appends the true depth of 10 screen
+columns.
+
 `where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
 replays trained MAP01 runs and draws where they go (phase 17); `--record`
 keeps three videos (most kills, longest play, most doors); `--level mapNN` plays the runs on another level (one they never trained on);

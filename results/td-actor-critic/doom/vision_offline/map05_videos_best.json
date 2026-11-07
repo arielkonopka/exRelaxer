@@ -1,0 +1,32 @@
+{
+ "kills": {
+  "run": "visout_s1",
+  "game": 0,
+  "kills": 0.0,
+  "seconds": 300.0,
+  "doors": 0.0,
+  "died": 0,
+  "game_reward": -4.532999999999923,
+  "visited": 12
+ },
+ "longest": {
+  "run": "visout_s2",
+  "game": 0,
+  "kills": 0.0,
+  "seconds": 300.0,
+  "doors": 1.0,
+  "died": 0,
+  "game_reward": -3.668999999999931,
+  "visited": 14
+ },
+ "doors": {
+  "run": "visboth_s2",
+  "game": 1,
+  "kills": 0.0,
+  "seconds": 300.0,
+  "doors": 1.0,
+  "died": 0,
+  "game_reward": -10.249000000000203,
+  "visited": 11
+ }
+}
