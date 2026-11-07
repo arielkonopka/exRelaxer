@@ -490,6 +490,12 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-07: an instinct for open space (phase 40)
+
+- `doom_td.py`: `open_reflex=p` (a bored agent heads for the deepest screen
+  column, true depth). Every agent now leaves MAP05's closed spawn room;
+  unseen deaths 33-36%; no exits. Research §78, Doom log D52.
+
 ### 2026-11-07: training on twelve levels (phase 39)
 
 - The agent trained on 12 levels (MAP01/03/04, MAP07-15) opens more doors

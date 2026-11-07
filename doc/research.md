@@ -4184,6 +4184,50 @@ but they do not add a way through a level: no agent finds an exit on any of
 caution. The missing piece is still a drive or skill that takes it out of
 a room and onward through an unknown level.
 
+## 78. An instinct for open space
+
+**Question.** (Phase 40; Doom log D52.) Every phase so far ends at the same
+missing skill: leaving a room and moving on through a level never seen.
+True depth helped most (§76-§77). Does an innate pull toward open space,
+read from depth, get the agent out of rooms on unseen levels?
+
+**Setup.** §77's 12-level agent with true depth plus `open_reflex=p`: each
+step, with probability p times the boredom level (the share of
+`boredom_steps` since the last new square), the actor's choice is replaced
+by a move toward the deepest of the 10 depth columns: forward when it is
+one of the middle two, otherwise a turn toward it. The reflex acts in tests
+too (an instinct, like the door and strike reflexes). p = 0.5 and 0.2;
+seeds 1-3, 1500 games; tests on the 12 training levels and on the unseen
+MAP02/05/06.
+
+**Results.** Tests averaged over 3 seeds:
+
+| arm | deaths, trained | deaths, unseen | doors, unseen | squares, unseen | squares MAP05 | reward, unseen |
+|---|---|---|---|---|---|---|
+| 12 levels (§77) | 61% | 43% | 1.0 | 42 | 20 | -0.8 |
+| 12 levels + depth (§77) | 41% | 31% | 0.5 | 42 | 13 | -1.8 |
+| + open space, p = 0.5 | 48% | 36% | 0.6 | 50 | 26 | +0.3 |
+| + open space, p = 0.2 | 57% | 33% | 1.0 | 53 | 54 | -2.3 |
+
+- No exits on any level.
+- In training the bored agents walk more squares per game (80-94 vs 62-71
+  for depth alone over the last 100 games); the reflex takes over 200-530
+  steps per game.
+- Every seed of both arms now leaves MAP05's closed spawn room; with
+  p = 0.2 they walk 42-73 squares there (depth alone 11-18).
+- MAP02 stays deadly (deaths up to 100% per seed); MAP06 goes well
+  (72-103 squares).
+- Recorded games (`open_space/*_paths.png`): on MAP05 four of six agents
+  leave the spawn room and sweep the outdoor area west of the exit
+  building, one reaching the corridor east of it, but none finds the way
+  into the building.
+
+**What it means.** A simple instinct does what learning did not: it takes
+the agent out of rooms it would otherwise sit in, on levels it has never
+seen. It does not find exits. Heading for open space is not the same as
+heading somewhere new: without a memory of where it has been, the agent
+wanders the open areas it reaches.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4579,6 +4623,10 @@ a room and onward through an unknown level.
     levels (1.0 per game) and dies less (43% vs 49%); with true depth it
     dies least (31%) but stays near MAP05's spawn room. No exits on any of
     15 levels.
+72. **An instinct for open space gets the agent out of rooms on new levels**
+    (§78): when bored, heading for the deepest screen column (true depth)
+    takes every seed out of MAP05's closed spawn room (42-73 squares with
+    p = 0.2, vs 11-18 without) and keeps unseen deaths at 33-36%; no exits.
 
 ## Open questions and next steps
 

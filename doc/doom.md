@@ -1741,6 +1741,27 @@ level.
 **Data.** `results/td-actor-critic/doom/many_levels/`; videos in the
 project's `reports/doom-td/videos_many/`.
 
+### D52. An instinct for open space (2026-11-07)
+
+**Question.** (Phase 40.) Does an innate pull toward open space get the
+agent out of rooms on unseen levels?
+
+**Setup.** D51's 12-level agent with true depth plus `open_reflex=p`: when
+bored (no new square for a while) it sometimes heads for the deepest screen
+column; p = 0.5 and 0.2, 3 seeds, 1500 games.
+
+**Result.**
+- No exits.
+- Unseen deaths 36% and 33%; squares 50 and 53 (depth alone 31%, 42).
+- Every seed leaves MAP05's spawn room (p = 0.2: 42-73 squares; before
+  11-18).
+
+**Conclusion.** The instinct gets the agent out of rooms; finding the exit
+still needs a sense of where it has not been.
+
+**Data.** `results/td-actor-critic/doom/open_space/`; videos in the
+project's `reports/doom-td/videos_open/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

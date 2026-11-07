@@ -159,6 +159,8 @@ the other levels. `doom_td.py` reads it with `vision_model=vision.npz`
 (`vision_feed=out|hidden|both`; `vision_pull=w` rewards a falling predicted
 exit distance). `depth_oracle=1` appends the true depth of 10 screen
 columns.
+Phase 40: `open_reflex=p` makes a bored agent (probability p times the
+boredom level) head for the deepest of the 10 depth columns.
 
 `where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
 replays trained MAP01 runs and draws where they go (phase 17); `--record`
