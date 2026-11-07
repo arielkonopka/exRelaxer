@@ -1,0 +1,8 @@
+# Extra controls on the same frames (frames.npz, 30 random games of 2 min on MAP01/03/04, 21 train / 9 test),
+# normalised test MSE of the next coarse picture (1.0 = the mean picture). Run inline after predictor_probe.py.
+frozen random E-R layer, ridge readout:      32 -> 0.804   128 -> 0.736   512 -> 0.674   (34% of neurons active)
+online LMS readout from the pool (one pass): lr 0.1 -> 0.718   0.01 -> 0.659   0.001 -> 0.815
+frozen E-R layer, online FA readout only:    32: 0.912 (rate 0.003), 0.938 (0.001); 128: 0.855 (0.003), 0.887 (0.001)
+e-prop + weight feedback (with_weight_feedback), lag timing:
+                                             32: 0.861 (0.003), 0.838 (0.001), 0.880 (0.0003)
+                                             128: 0.868 (0.003), 0.819 (0.001), 0.868 (0.0003)

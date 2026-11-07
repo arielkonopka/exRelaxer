@@ -1,0 +1,32 @@
+{
+ "kills": {
+  "run": "viewwf_s1",
+  "game": 1,
+  "kills": 5.0,
+  "seconds": 300.0,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 9.373000000000006,
+  "visited": 83
+ },
+ "longest": {
+  "run": "viewwf_s1",
+  "game": 0,
+  "kills": 3.0,
+  "seconds": 300.0,
+  "doors": 2.0,
+  "died": 0,
+  "game_reward": 3.040000000000108,
+  "visited": 99
+ },
+ "doors": {
+  "run": "deltawf_s1",
+  "game": 0,
+  "kills": 5.0,
+  "seconds": 165.82857142857142,
+  "doors": 3.0,
+  "died": 1,
+  "game_reward": 4.906999999999989,
+  "visited": 83
+ }
+}

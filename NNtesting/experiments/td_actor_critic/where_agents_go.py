@@ -50,7 +50,7 @@ def replay(run, games, seed, record=None, level=None):
     labels = p["features"] == "oracle" or bool(p["attack_reflex"])
     level = level or cfg.get("scenario", "map01")
     game = dt.make_game(level, 30_000 + seed, p["skill"], labels, p["until_death"],
-                        color=bool(p.get("detector_colour", 0)))
+                        color=bool(p.get("detector_colour", 0)), depth=bool(p.get("depth_oracle", 0)))
     learner = dt.Learner(p, game.get_available_buttons_size(), cfg["arm"], cfg["seed"])
     saved = Unpickler(open(os.path.join(run, "checkpoint.pkl"), "rb")).load()
     learner.agent, learner.rng = saved["agent"], saved["rng"]
@@ -61,6 +61,9 @@ def replay(run, games, seed, record=None, level=None):
     learner.games = saved.get("games", learner.games)
     learner.danger = saved.get("danger", learner.danger)
     learner.curiosity = saved.get("curiosity", learner.curiosity)
+    learner.view_novelty = saved.get("view_novelty", learner.view_novelty)
+    if saved.get("plastic_net") is not None:
+        learner.res.net = dt.exr.Network.from_bytes(saved["plastic_net"])
     shaper = dt.drl.make_shaper(dt.doom_rl_params(level, p["skill"], p["until_death"], p["approach"],
                                                   kill=p["kill_weight"],
                                                   heights=bool(p.get("approach_heights", 0))))

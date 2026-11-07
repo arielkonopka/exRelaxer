@@ -146,6 +146,33 @@ DEFAULTS = {
     # e.g. 6 x 8 for b = 5), centred and normalised, instead of a random projection; view_radius = r > 0:
     # a fixed radius replaces the running mean: remembered when d > r, reward c * clip(d / r - 1, 0, 2).
     "view_block": 0, "view_radius": 0.0,
+    # A plastic reservoir (phase 34): plastic = N > 0 adds an E-R layer of N neurons beside the frozen
+    # reservoir, reading the same frozen vision features, that learns by e-prop (eligibility trace
+    # plastic_trace) from a random projection of the actor-critic's errors: delta * (onehot(a) - pi)
+    # per action and delta for the value (plastic_rate). Its outputs and thresholds are features of
+    # the actor and the critic. plastic_every = G > 0: every G training games it grows by plastic_add
+    # neurons (up to plastic_max); plastic_freeze: the older neurons stop learning (progressive growth).
+    "plastic": 0, "plastic_rate": 0.01, "plastic_trace": 0.9, "plastic_every": 0, "plastic_add": 8,
+    "plastic_max": 64, "plastic_freeze": 1,
+    # Phase 35: plastic_teacher = "view" trains the plastic layer to predict the next frame instead
+    # of from the TD error: its output layer reads out the coarse picture of the screen (the pooled
+    # screen averaged over plastic_block x plastic_block blocks, centred, unit variance, clipped to
+    # +-3) one step ahead, and the error is (next picture - prediction). A dense, self-supervised
+    # teacher for the features, independent of reward.
+    "plastic_teacher": "delta", "plastic_block": 5,
+    # Phase 37: plastic_feedback = "weight" sends the plastic layer its errors through the output
+    # layer's real weights (LearningRule.with_weight_feedback) instead of a fixed random matrix.
+    "plastic_feedback": "random",
+    # Phase 38: vision_model = path of a frozen offline vision model (vision_offline.py fit) reading
+    # the vision pool; vision_feed = "out" (its 22 predictions: monsters and depth per column, hit
+    # soon, distance to the exit), "hidden" (its hidden layer) or "both" are appended to the
+    # features. vision_pull = w > 0 rewards each step w * (previous - current predicted distance to
+    # the exit), clipped to +-w: a learned, map-independent sense of where exits are.
+    "vision_model": "", "vision_feed": "out", "vision_pull": 0.0,
+    # depth_oracle = 1 appends the true depth per screen column (log of the median depth of the
+    # middle third of ViZDoom's depth buffer, 10 columns): the upper bound of what stereo vision
+    # could give the agent.
+    "depth_oracle": 0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -209,9 +236,11 @@ def doom_rl_params(scenario, skill, until_death, approach=0.0, labels=False, kil
     return q
 
 
-def make_game(scenario, seed, skill=None, labels=False, until_death=0, approach=0.0, color=False):
+def make_game(scenario, seed, skill=None, labels=False, until_death=0, approach=0.0, color=False, depth=False):
     if scenario in MAPS:
-        return drl.make_game(doom_rl_params(scenario, skill, until_death, approach, labels, color=color), seed)
+        q = doom_rl_params(scenario, skill, until_death, approach, labels, color=color)
+        q["depth"] = bool(depth)
+        return drl.make_game(q, seed)
     game = vzd.DoomGame()
     game.load_config(os.path.join(vzd.scenarios_path, scenario + ".cfg"))
     game.set_window_visible(False)
@@ -696,7 +725,33 @@ class Learner:
                                                                       settle=p["vplace_settle"]) if p["vplace"] else None
         self.arm, self.p, self.buttons = arm, p, buttons
         self.rng = np.random.default_rng(seed)
-        self.agent = Agent(self.res.size + p["vplace"], buttons, p["gamma"], p["lam"], p["critic_rate"], p["actor_rate"],
+        self.plastic = None
+        if p["plastic"] > 0:
+            net = self.res.net
+            self.plastic = net.add_layer("plastic", exr.LayerSpec.dense(
+                p["plastic"], False, True, learning_rule=self.plastic_rule()))
+            net.connect(self.res.pool, self.plastic)
+            if p["plastic_teacher"] == "view":
+                b = p["plastic_block"]
+                self.plastic_shape = (120 // p["pool"], 160 // p["pool"])
+                out_n = (self.plastic_shape[0] // b) * (self.plastic_shape[1] // b)
+            else:
+                out_n = buttons + 1
+            self.plastic_out = net.add_layer("plastic_out", exr.LayerSpec.dense(
+                out_n, False, False, learning_rule=exr.LearningRule.feedback_alignment()))
+            net.connect(self.plastic, self.plastic_out)
+            net.add_output(self.plastic_out)
+        self.prev_a, self.prev_probs = None, None
+        self.prev_pred, self.plastic_target = None, None
+        self.plastic_events = []
+        self.vision, n_vision = None, 0
+        if p["vision_model"]:
+            from vision_offline import MLP
+            self.vision = MLP.load(p["vision_model"])
+            hidden = self.vision.W1.shape[1]
+            n_vision = {"out": 22, "hidden": hidden, "both": 22 + hidden}[p["vision_feed"]]
+        self.vision_exit, self.vision_prev = None, None
+        self.agent = Agent(self.res.size + p["vplace"] + 2 * p["plastic"] + n_vision + 10 * bool(p["depth_oracle"]), buttons, p["gamma"], p["lam"], p["critic_rate"], p["actor_rate"],
                            clip=p["clip"], modulator="reward" if arm == "reward" else "td", post=p["post"],
                            tau=p["tau"], entropy=p["entropy"], center=p["center"], rng=self.rng)
 
@@ -738,12 +793,101 @@ class Learner:
             self.danger_z = x[:len(x) - self.res.extra].copy()
         if self.curiosity is not None:
             self.cur_z = x[:len(x) - self.res.extra].copy()
-        if self.landmarks is not None or self.detector is not None:
+        if self.landmarks is not None or self.detector is not None or self.vision is not None:
             self.view = np.asarray(self.res.net.layer_output(self.res.pool), dtype=np.float64).ravel()
         if self.vplace is not None:
             # The learned place cells read the reservoir and the vision features, not the raw inputs.
             x = np.concatenate([x, self.vplace(x[:len(x) - self.res.extra], learn)])
+        if self.plastic is not None:
+            net = self.res.net
+            if self.p["plastic_teacher"] == "view":
+                b, (h, w) = self.p["plastic_block"], self.plastic_shape
+                v = np.asarray(self.eye_now, dtype=np.float64).reshape(h // b, b, w // b, b).mean(axis=(1, 3)).ravel()
+                self.plastic_target = np.clip((v - v.mean()) / (v.std() + 1e-6), -3.0, 3.0)
+            x = np.concatenate([x, np.asarray(net.layer_output(self.plastic), dtype=np.float64).ravel(),
+                                np.asarray(net.neuron_state(self.plastic)["threshold"], dtype=np.float64)])
+        if self.vision is not None:
+            v = self.view[None, :]
+            z = self.vision.hidden(v)
+            pm, pd_, ph, pe = self.vision.predict(v)
+            self.vision_exit = float(pe[0])
+            out = np.concatenate([pm[0], pd_[0], ph, pe])
+            feed = self.p["vision_feed"]
+            parts = [out] if feed == "out" else [z[0]] if feed == "hidden" else [out, z[0]]
+            x = np.concatenate([x] + parts)
+        if self.p["depth_oracle"]:
+            from vision_offline import depth_columns
+            x = np.concatenate([x, depth_columns(state.depth_buffer)])
         return x
+
+    def plastic_rule(self):
+        rule = exr.LearningRule.eprop(self.p["plastic_trace"])
+        return rule.with_weight_feedback() if self.p["plastic_feedback"] == "weight" else rule
+
+    def plastic_learn(self, a, learn):
+        """After the agent's step: the plastic layer learns from the TD error of the transition the
+        previous action caused (its eligibility traces carry the credit back in time)."""
+        if self.plastic is not None and self.p["plastic_teacher"] == "view":
+            net = self.res.net
+            if learn and self.prev_pred is not None and self.plastic_target is not None:
+                n = sum(net.layer_size(l) for l in net.output_layers)
+                d = len(self.prev_pred)
+                e = np.zeros(n, np.float32)
+                err = self.plastic_target - self.prev_pred
+                e[n - d:] = err
+                net.apply_error(e, self.p["plastic_rate"])
+                self.plastic_err = 0.99 * getattr(self, "plastic_err", float(np.mean(err ** 2))) + 0.01 * float(np.mean(err ** 2))
+            self.prev_pred = None if a is None else np.asarray(net.layer_output(self.plastic_out), dtype=np.float64).ravel().copy()
+            return
+        if self.plastic is not None and learn and self.prev_a is not None and self.agent.log.deltas:
+            delta = float(np.clip(self.agent.log.deltas[-1], -1.0, 1.0))
+            net = self.res.net
+            n = sum(net.layer_size(l) for l in net.output_layers)
+            e = np.zeros(n, np.float32)
+            k = self.buttons
+            onehot = np.zeros(k)
+            onehot[self.prev_a] = 1.0
+            e[n - k - 1:n - 1] = delta * (onehot - self.prev_probs)
+            e[n - 1] = delta
+            net.apply_error(e, self.p["plastic_rate"])
+        if a is None:
+            self.prev_a, self.prev_probs = None, None
+        else:
+            self.prev_a, self.prev_probs = a, np.asarray(self.agent.actor.probs, dtype=np.float64).copy()
+
+    def reset_plastic(self):
+        if self.plastic is not None:
+            self.res.net.reset_state(self.plastic)
+            self.res.net.reset_traces(self.plastic)
+        self.prev_a, self.prev_probs = None, None
+        self.prev_pred = None
+        self.vision_prev = None
+
+    def grow_plastic(self, ep):
+        """Progressive growth: plastic_add new neurons (the older ones frozen if plastic_freeze); the
+        actor and critic get zero weights for the new features."""
+        p = self.p
+        if self.plastic is None or p["plastic_every"] <= 0 or ep <= 0 or ep % p["plastic_every"]:
+            return
+        net = self.res.net
+        n = net.layer_size(self.plastic)
+        k = min(p["plastic_add"], p["plastic_max"] - n)
+        if k <= 0:
+            return
+        net.grow_layer(self.plastic, k, freeze_existing=bool(p["plastic_freeze"]))
+        base = self.agent.critic.w.size - 2 * n
+        where = [base + n] * k + [base + 2 * n] * k
+        ag = self.agent
+        ag.critic.w = np.insert(ag.critic.w, where, 0.0)
+        ag.critic.e = np.insert(ag.critic.e, where, 0.0)
+        ag.actor.W = np.insert(ag.actor.W, where, 0.0, axis=1)
+        ag.actor.E = np.insert(ag.actor.E, where, 0.0, axis=1)
+        if ag.mean is not None:
+            ag.mean = np.insert(ag.mean, where, 0.0)
+        anchor = ag.__dict__.get("anchor")
+        if anchor is not None:
+            ag.anchor = (np.insert(anchor[0], where, 0.0, axis=1), anchor[1])
+        self.plastic_events.append((ep, n, n + k))
 
     def anchored(self, pos, learn):
         """path=2: integrate self-motion once placed; get placed (or corrected) by recognised views.
@@ -869,6 +1013,7 @@ class Learner:
 
     def act(self, x, reward, terminal, learn):
         a = self.agent.step(x, reward, terminal, learn=learn and self.arm != "random", explore=learn)
+        self.plastic_learn(a, learn and self.arm != "random")
         if self.arm == "random" and not terminal:
             a = int(self.rng.integers(self.buttons))
         return a
@@ -879,6 +1024,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     instead of the scenario's own."""
     game.new_episode()
     learner.res.reset()
+    learner.reset_plastic()
     learner.agent.end_episode()
     learner.agent.log.new()
     learner.res.spikes = 0
@@ -1042,6 +1188,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
                 # (V(s_T) as if play went on), else running out the clock would
                 # look like relief from the living cost (delta ~ -V > 0).
                 learner.agent.step(x, r, False, learn=learn and learner.arm != "random", explore=False)
+                learner.plastic_learn(None, learn and learner.arm != "random")
                 learner.agent.end_episode()
             else:
                 learner.act(np.zeros(len(learner.agent.critic.w)), r, True, learn)
@@ -1063,6 +1210,14 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             if learn:
                 r += bonus
                 novelty += bonus  # intrinsic, not the game's
+        if learner.vision is not None and learner.p["vision_pull"] > 0:
+            w = learner.p["vision_pull"]
+            if learner.vision_prev is not None:
+                pull = float(np.clip(w * (learner.vision_prev - learner.vision_exit), -w, w))
+                if learn:
+                    r += pull
+                    novelty += pull  # intrinsic, not the game's
+            learner.vision_prev = learner.vision_exit
         if learn and learner.danger is not None and learner.p["fear"] > 0:
             r -= learner.p["fear"] * learner.danger_p
             novelty -= learner.p["fear"] * learner.danger_p  # intrinsic, not the game's
@@ -1142,7 +1297,7 @@ def main():
         start = saved["episode"]
     # A resumed run plays new games from the restart on (the game's seed moves with the episode).
     game = make_game(args.scenario, 10_000 + args.seed + 7919 * start, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]),
-                     p["until_death"], color=bool(p["detector_colour"]))
+                     p["until_death"], color=bool(p["detector_colour"]), depth=bool(p["depth_oracle"]))
     learner = Learner(p, game.get_available_buttons_size(), args.arm, args.seed)
     if saved is not None:
         learner.agent, learner.rng = saved["agent"], saved["rng"]
@@ -1154,6 +1309,9 @@ def main():
         learner.danger = saved.get("danger", learner.danger)  # (checkpoints before phase 31 lack these)
         learner.curiosity = saved.get("curiosity", learner.curiosity)
         learner.view_novelty = saved.get("view_novelty", learner.view_novelty)
+        if saved.get("plastic_net") is not None:
+            learner.res.net = exr.Network.from_bytes(saved["plastic_net"])
+            learner.plastic_events = saved.get("plastic_events", [])
         with open(log_path) as f:
             kept = f.readlines()[:start]
         with open(log_path, "w") as f:
@@ -1183,7 +1341,9 @@ def main():
                                  "landmarks": (learner.landmarks, learner.lives, learner.origin),
                                  "detector": learner.detector, "games": learner.games,
                                  "danger": learner.danger, "curiosity": learner.curiosity,
-                                 "view_novelty": learner.view_novelty}, f)
+                                 "view_novelty": learner.view_novelty,
+                                 "plastic_net": learner.res.net.to_bytes() if learner.plastic is not None else None,
+                                 "plastic_events": learner.plastic_events}, f)
                 os.replace(ckpt_path + ".tmp", ckpt_path)
                 if args.keep_every > 0 and ep % args.keep_every == 0:
                     shutil.copy(ckpt_path, os.path.join(args.out, f"checkpoint_{ep}.pkl"))
@@ -1209,7 +1369,12 @@ def main():
             if len(levels) > 1:
                 game.set_doom_map(level)
             s = episode(game, learner, scale, True, trace, shaper_for(level))
+            learner.grow_plastic(ep + 1)
             s["episode"] = ep
+            if learner.plastic is not None:
+                s["plastic"] = learner.res.net.layer_size(learner.plastic)
+                if hasattr(learner, "plastic_err"):
+                    s["plastic_err"] = learner.plastic_err
             s["map"] = level
             act = learner.agent.actor
             if anchor is not None:
@@ -1239,7 +1404,7 @@ def main():
     game.close()
     # Greedy test on fresh episodes, no learning.
     test_game = make_game(args.scenario, 20_000 + args.seed, p["skill"], p["features"] == "oracle" or bool(p["attack_reflex"]), p["until_death"],
-                          color=bool(p["detector_colour"]))
+                          color=bool(p["detector_colour"]), depth=bool(p["depth_oracle"]))
     test_levels = [args.scenario] + [m.strip() for m in (p["maps"] + "," + p["test_maps"]).split(",")
                                      if m.strip() and m.strip() != args.scenario]
     test_levels = list(dict.fromkeys(test_levels))

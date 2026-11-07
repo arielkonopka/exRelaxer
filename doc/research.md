@@ -3820,6 +3820,56 @@ teaches nothing new when the agent cannot see what makes a place
 dangerous: the frozen features give the actor no handle for "avoid that
 monster" beyond what the reflexes already do.
 
+## 72. A plastic reservoir
+
+**Question.** (Phase 34; Doom log D47.) §71 ended on the frozen features as
+the likely limit: every hidden layer is random and fixed, and only the
+readouts learn. Does a layer that learns its own features from the
+actor-critic's errors, beside the frozen reservoir, help on unseen levels?
+
+**Setup.** §71's strict-views agent (`view_novelty=0.03`, `view_block=5`,
+`view_radius=0.6`, danger unit) plus `plastic=N`: a dense E-R layer reading
+the frozen Gabor pool, trained with e-prop (`plastic_trace=0.9`) through
+an output layer with feedback alignment. After each step the output layer
+gets the actor's error δ * (onehot(a) - π) and the critic's δ (clipped to
+±1, rate 0.01); the layer's outputs and thresholds are appended to the
+features. Two arms: 32 plastic neurons (fixed), and 8 neurons growing by 8
+every 150 games to 72, with older neurons frozen at each growth
+(progressive, `plastic_every=150`, `plastic_add=8`, `plastic_max=72`; new
+readout weights start at zero). Seeds 1-3, 1500 games, levels and tests as
+in §67.
+
+**Results.** Tests averaged over 3 seeds and 3 levels:
+
+| arm | deaths, trained | deaths, unseen | kills, unseen | doors, unseen | squares MAP05 | squares MAP06 |
+|---|---|---|---|---|---|---|
+| strict views (§71) | 33% | 49% | 3.9 | 0.9 | 47 | 67 |
+| plastic 32 | 62% | 72% | 3.9 | 0.9 | 56 | 53 |
+| plastic 8 -> 72 | 21% | 36% | 2.3 | 0.4 | 11 | 71 |
+
+- No exits anywhere.
+- The layer learns: from game 100 to the end its weights move by 17-33% of
+  their size (32 neurons), and the actor's weights on the plastic features
+  are 1.1-1.3 times those on the frozen ones; the critic reads them less
+  (0.3-0.4 times).
+- With 32 plastic neurons the agent dies more on every level, trained ones
+  included (62% vs 33%).
+- The growing layer reaches 72 neurons at game ~1050 (8 growths). The actor
+  reads its features less (0.4-0.5 times the frozen ones). Its low death
+  rate comes from hiding: on MAP05 every seed stands in 10-11 squares with
+  no deaths and no kills; doors fall to 0.4 per game.
+- Recorded games (2 per agent per unseen level, `plastic/*_paths.png`): on
+  MAP02 one fixed-32 agent circles the hall around the exit enclosure and
+  one grown agent the rooms east of it, as in §71, without getting in; two
+  agents stay in the spawn room and two wander south.
+
+**What it means.** Features that learn from δ do not give the agent a better
+grasp of new levels. While they keep changing, the policy reading them gets
+worse even on the levels it trains on; frozen in stages, they are stable but
+read weakly, and the agent falls back to the safe habit of earlier phases,
+standing still. A global δ is a weak teacher for features: it says how much
+better or worse things went, not what in the picture mattered.
+
 ## 73. A plasticity potential instead of maturation
 
 (§72 is left to the Doom thread's phase 34.)
@@ -3900,6 +3950,199 @@ give one when the two tasks use the same neurons. The hidden layer keeps more th
 show (weight feedback's savings): the shared, always-plastic readouts are where the old task is
 lost. Next levers: a readout per task or context, or protecting readouts, and tasks whose inputs
 use different neurons.
+
+## 74. What should teach the plastic layer
+
+**Question.** (Phase 35; Doom log D48.) In §72 a plastic layer taught by the
+TD error raised deaths, even on trained levels. Was it the teacher (one
+scalar δ says little about what in the picture mattered) or the speed (features
+that keep changing under the actor)?
+
+**Setup.** §72's fixed 32-neuron plastic layer on §71's strict-views agent,
+two new arms, seeds 1-3, 1500 games, levels and tests as in §67:
+- *next frame* (`plastic_teacher=view`): the layer's output layer predicts
+  the next frame's coarse picture (the pooled screen averaged into 6 x 8
+  blocks, centred, unit variance, clipped to ±3); the error (next picture -
+  prediction) trains it every step, with no reward. The error is applied one
+  step later, when the next picture is known, so the output layer's inputs
+  are one step newer than the prediction they correct (the e-prop traces of
+  the plastic layer carry the older activity).
+- *slow δ*: §72's δ teacher at a tenth of the rate (`plastic_rate=0.001`).
+
+**Results.** Tests averaged over 3 seeds and 3 levels:
+
+| arm | deaths, trained | deaths, unseen | kills, unseen | doors, unseen | squares, unseen | squares MAP05 |
+|---|---|---|---|---|---|---|
+| strict views (§71) | 33% | 49% | 3.9 | 0.9 | 52 | 47 |
+| δ, rate 0.01 (§72) | 62% | 72% | 3.9 | 0.9 | 50 | 56 |
+| δ, rate 0.001 | 19% | 49% | 2.9 | 0.6 | 45 | 16 |
+| next frame | 30% | 50% | 3.9 | 0.8 | 59 | 59 |
+
+- No exits anywhere.
+- Slow δ: weights move only 2% after game 100 and the actor reads the
+  layer like the frozen features (1.0-1.1 times). Deaths on trained levels
+  fall from 62% to 19%, so §72's extra deaths came from the speed. On
+  unseen levels it is the strict agent again, and two of three seeds stand
+  in 11 squares on MAP05.
+- Next frame: the prediction is not learned. The mean squared error of
+  the prediction is 0.75-0.89 in the first 100 games and 0.95-0.99 in the
+  last 100 (predicting the mean picture gives 1.0). Meanwhile the
+  layer's weights grow to about four times their starting size, and the
+  actor reads the layer 2.6-2.9 times as strongly as the frozen features.
+  The average equals the strict agent, with a wide seed spread: seed 2 walks
+  118 squares on MAP05 and is the only agent so far with a positive reward
+  on unseen levels (+2.8); seed 1 stands still there.
+- Recorded games (2 per agent per unseen level, `plastic_teacher/*_paths.png`):
+  on MAP02 most agents of both arms walk the northern hall around the exit
+  enclosure, one next-frame agent reaching its west side, but none gets in;
+  two slow-δ agents wander south.
+
+**What it means.** Learning speed, not the δ teacher alone, made §72's
+plastic layer harmful: slowed down it is harmless, and useless. The
+self-supervised teacher as built here does not learn its task (an e-prop
+E-R layer with a random feedback matrix and a linear readout does not fit a
+48-dimensional prediction at this rate), so this phase does not yet test
+whether predicted vision helps; its layer acts as a drifting random
+projection that the actor happens to lean on. A fair test needs the
+predictor shown to learn offline first.
+
+## 75. Can the plastic layer learn to see? (offline probe, weight feedback)
+
+**Question.** (Phases 36-37; Doom log D49.) §74's next-frame predictor got
+worse at its task in play. Is the timing, the rate or the learning rule to
+blame, and does the library's new weight feedback (§73,
+`with_weight_feedback`: errors through the readout's real weights) make a
+plastic layer that learns and helps?
+
+**Setup, offline (phase 36).** `predictor_probe.py` records 30 random games
+(2 minutes each, actions held ~10 steps, strike and orient reflexes from
+labels) on MAP01/03/04 and keeps per step the frozen vision pool (500 values)
+and §74's coarse target picture. 21 games train, 9 test; error is the test
+MSE of the next picture divided by its mean square (1.0 = the mean picture).
+The plastic layer is trained online in one pass, with the error applied one
+step late as in play (`lag`) or at once (`aligned`).
+
+| predictor | error |
+|---|---|
+| the current picture (copy) | 0.43 |
+| ridge from the pool | 0.54 |
+| online linear (LMS) from the pool, best rate | 0.66 |
+| frozen random E-R layer, ridge readout, 32 / 128 / 512 | 0.80 / 0.74 / 0.67 |
+| frozen random E-R layer, online readout, 32 / 128 | 0.91 / 0.86 |
+| e-prop + random feedback, rate 0.01, 32 / 128 (the §74 setting) | 1.5-1.9 |
+| e-prop + random feedback, rate 0.001, 32 / 128 | 0.91 / 0.87 |
+| e-prop + weight feedback, rate 0.001, 32 / 128 | 0.84 / 0.82 |
+
+- Timing makes no difference (lag and aligned within 0.07).
+- At §74's rate the layer diverges; at a safe rate random feedback teaches
+  it nothing beyond what a frozen layer gives; weight feedback gains a
+  little (0.82 vs 0.86).
+- The next picture is mostly the current one (copy 0.43), and a small
+  spiking layer loses most of the picture that the pool still holds.
+
+**Setup, in play (phase 37).** §74's agent with 128 plastic neurons, weight
+feedback (`plastic_feedback=weight`) and rate 0.001, taught by the next
+frame (`plastic_teacher=view`) or by δ; seeds 1-3, 1500 games, levels and
+tests as in §67.
+
+**Results.** Tests averaged over 3 seeds and 3 levels:
+
+| arm | deaths, trained | deaths, unseen | kills, unseen | doors, unseen | squares, unseen | squares MAP05 |
+|---|---|---|---|---|---|---|
+| strict views (§71) | 33% | 49% | 3.9 | 0.9 | 52 | 47 |
+| next frame, 32, random feedback (§74) | 30% | 50% | 3.9 | 0.8 | 59 | 59 |
+| next frame, 128, weight feedback | 37% | 40% | 2.6 | 0.7 | 39 | 26 |
+| δ, 128, weight feedback | 39% | 53% | 3.3 | 0.8 | 45 | 43 |
+
+- No exits anywhere.
+- In play the predictor still does not learn: its median error per game
+  rises from 0.65-0.8 early to about 1.1 at the end on two seeds, and on
+  seed 3 it diverges (about 16 for most of the run).
+- The next-frame agents die less on unseen levels (40%), but they walk less
+  (39 squares); two seeds stand in 11-16 squares on MAP05.
+- The δ arm is within the seed spread of the strict agent; one seed is bold
+  (87 squares on MAP05, 67% deaths), one hides (11 squares).
+- Recorded games (2 per agent per unseen level, `plastic_wf/*_paths.png`):
+  on MAP02 one δ agent walks the hall around the exit enclosure; the rest
+  stay near the spawn or wander south and east; none gets in.
+
+**What it means.** A plastic E-R layer beside the frozen vision does not
+learn useful features in play with any teacher tried here (δ fast or slow,
+next frame, random or weight feedback). Offline the best rule only slightly
+beats a frozen layer, and in play, where the agent's own behaviour shifts the
+frames it sees, even that is lost. The pool itself holds the picture (ridge
+0.54), so the bottleneck is the small spiking layer and its local learning,
+not the vision. This closes the plastic-reservoir line: features for new
+levels need a different route, such as learning vision offline from
+recorded play with a stronger learner, or reading the pool directly.
+
+## 76. Vision learned offline, and true depth
+
+**Question.** (Phase 38; Doom log D50.) §75 closed the plastic reservoir:
+local learning in play does not extract more from the frozen vision pool.
+Does vision learned offline by a stronger learner, frozen and read by the
+agent, help on unseen levels? And (the user's question) would 3D vision,
+stereo, help? Its upper bound is the true depth.
+
+**Setup, offline.** `vision_offline.py collect` plays random games (2 min,
+actions held ~10 steps, strike and orient reflexes from labels, USE with
+p = 0.1): 25 on each of MAP01-06, 15 on each of MAP07-15. Per step it keeps
+the frozen vision pool (500 values) and four targets: monsters per screen
+column (labels), log depth per column (median of the middle third of the
+depth buffer), being hit within 8 steps, and the walking distance to the
+exit divided by the level's largest. `fit` trains a numpy MLP (pool -> 128
+ReLU -> all targets, Adam, 3 epochs) and tests it on held-out games of its
+levels and on the unseen MAP02/05/06.
+
+| trained on | test | monsters AUC | depth R² | hit soon AUC | exit distance r |
+|---|---|---|---|---|---|
+| MAP01/03/04 | held-out games | 0.87 | 0.70 | 0.71 | 0.74 |
+| MAP01/03/04 | MAP02 / 05 / 06 | 0.75 / 0.90 / 0.74 | 0.07 / 0.12 / 0.34 | 0.60-0.68 | 0.02-0.09 |
+| 12 levels (MAP01/03/04, 07-15) | held-out games | 0.85 | 0.70 | 0.70 | 0.63 |
+| 12 levels | MAP02 / 05 / 06 | 0.79 / 0.89 / 0.85 | 0.59 / 0.27 / 0.63 | 0.63-0.69 | -0.11-0.07 |
+
+- Three levels are too few: the model learns those levels, not vision.
+  Twelve levels give depth that carries over (R² 0.6 on MAP02 and MAP06).
+- The distance to the exit never carries over; it encodes which level the
+  frames come from, so the planned exit pull (`vision_pull`) was not run.
+- Larger (512) or longer-trained models do no better on unseen levels.
+
+**Setup, in play.** §71's strict-views agent plus the frozen 12-level model
+(`vision_model`): its 22 predictions (`vision_feed=out`), or the predictions
+and its 128 hidden units (`both`); and, for the stereo question, the true
+depth of 10 columns (`depth_oracle=1`). Seeds 1-3, 1500 games, tests as in
+§67.
+
+**Results.** Tests averaged over 3 seeds and 3 levels:
+
+| arm | deaths, trained | deaths, unseen | kills, unseen | doors, unseen | squares, unseen | squares MAP05 | reward, unseen |
+|---|---|---|---|---|---|---|---|
+| strict views (§71) | 33% | 49% | 3.9 | 0.9 | 52 | 47 | -2.0 |
+| learned vision, predictions | 12% | 40% | 3.1 | 0.7 | 47 | 21 | -2.2 |
+| learned vision, + hidden | 22% | 26% | 2.7 | 0.3 | 32 | 9 | -6.4 |
+| true depth | 20% | 33% | 3.8 | 0.5 | 63 | 50 | +0.2 |
+
+- No exits anywhere.
+- Learned vision lowers deaths on trained levels (12%, the lowest since
+  §67) but on unseen levels mostly makes the agent careful: with the hidden
+  units it walks least and stands in MAP05's closed spawn room on every
+  seed.
+- True depth is the best on unseen levels on average (33% deaths, 63
+  squares, the only positive reward), carried by seed 1: 102 squares on
+  average, 127 on MAP05 (one door per game), reward +8.6 on MAP06. Seeds 2
+  and 3 stay in MAP05's spawn room like most earlier agents.
+- Recorded games: `vision_offline/*_paths.png`, `depth_oracle/*_paths.png`.
+  On MAP05 none of the learned-vision agents leaves the spawn room; with
+  true depth seed 1 roams the big outdoor area west of the exit building,
+  and in one recorded game seed 2 also opens the spawn room's door, but no
+  agent finds the way into the exit building.
+
+**What it means.** Learned vision transfers only when it is learned on many
+levels, and even then it gives the actor caution rather than a way forward.
+Depth helps more than learned features but not reliably: with a depth
+sense one seed in three became a real explorer. Stereo vision could add up
+to this much and no more; the missing piece is still how to leave a closed
+room (find and open its door) on a level never seen.
 
 ## Conclusions
 
@@ -4257,6 +4500,12 @@ use different neurons.
     rate (49% on unseen levels) and ends the standing still on MAP05; a cost
     for predicted danger does not lower deaths. After many drives and reflexes,
     the frozen features look like the limit.
+66. **Learning features from δ does not help on new levels** (§72): an
+    e-prop E-R layer beside the frozen reservoir, trained by feedback
+    alignment from the actor's and critic's errors, learns and is read, but
+    32 changing neurons raise deaths (72% on unseen levels vs 49%), and a
+    progressively grown, frozen-in-stages layer lowers them only by hiding
+    (36%, 11 squares on MAP05). No exits.
 67. **Plasticity that follows error unfreezes on change but does not protect** (§73): a
     per-neuron P that fades while the neuron's local error is small and rises with it learns
     Snake about as well as maturation (fixed ER(16) +0.25 ± 0.12 at a gentle setting), and P
@@ -4264,6 +4513,27 @@ use different neurons.
     feedback error shared by all neurons cannot say which ones hold the old task. Weight feedback
     (the error through the readouts' real weights) relearns the old task 3.5x faster (8.0 against
     2.3 apples in the first 50 games back): the hidden layer keeps it, the readouts lose it.
+68. **Slow plastic features are safe but no help; a next-frame teacher did not
+    learn** (§74): at a tenth of the rate the δ-taught layer stops raising
+    deaths (19% on trained levels vs 62%), but unseen levels are unchanged
+    (49%). A layer taught to predict the next coarse frame gets worse at it
+    (error 0.75-0.89 early, 0.95-0.99 at the end, 1.0 for the mean picture); the agent reading it matches the strict
+    agent on average (50%), with one seed exploring widely. No exits.
+69. **The plastic layer does not learn to see in play** (§75): offline, a
+    next-frame predictor built from e-prop E-R neurons diverges at the rate
+    used in play, matches a frozen random layer with random feedback, and
+    gains a little with weight feedback (0.82 vs 0.86; ridge from the pool
+    0.54). In play, with 128 neurons and weight feedback, the prediction
+    does not improve, and neither teacher changes unseen-level results
+    beyond hiding. No exits.
+70. **Offline-learned vision transfers only from many levels and makes the
+    agent careful; true depth helps most but not reliably** (§76): an MLP
+    on the frozen pool trained on 3 levels does not carry depth to new
+    levels (R² 0.07-0.34), on 12 it does (0.27-0.63); exit distance never
+    does. Read by the agent it lowers deaths by hiding. True per-column
+    depth, the upper bound of stereo, gives the best unseen-level average
+    (33% deaths, 63 squares, reward +0.2) through one bold seed of three.
+    No exits.
 
 ## Open questions and next steps
 

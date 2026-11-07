@@ -67,7 +67,7 @@ def make_game(p, seed, visible=False):
     game.set_render_hud(False)
     game.set_render_messages(False)
     game.set_automap_buffer_enabled(False)
-    game.set_depth_buffer_enabled(False)
+    game.set_depth_buffer_enabled(bool(p.get("depth", False)))  # vision_offline.py reads depth
     game.set_labels_buffer_enabled(bool(p.get("labels", False)))
     game.set_sound_enabled(p["sound"])
     game.set_audio_buffer_enabled(p["sound"])

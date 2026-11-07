@@ -490,6 +490,39 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-07: vision learned offline, and true depth (phase 38)
+
+- `vision_offline.py` (records random games with labels and depth, fits an
+  MLP on the frozen vision pool); `doom_td.py`: `vision_model`,
+  `vision_feed`, `vision_pull`, `depth_oracle`; `doom_rl` `depth` parameter
+  (depth buffer). Vision learned on 12 levels transfers depth to unseen
+  levels but makes the agent careful; true depth gives the best unseen-level
+  average through one bold seed; no exits. Research §76, Doom log D50.
+
+### 2026-11-06: can the plastic layer learn to see? (phases 36-37)
+
+- `predictor_probe.py`: records random games and fits next-frame predictors
+  offline. `doom_td.py`: `plastic_feedback=weight` (the plastic layer's
+  errors through the readout's real weights). The predictor diverges at the
+  phase-35 rate and barely beats a frozen layer at a safe one; in play it
+  does not learn, and neither teacher helps on unseen levels; no exits.
+  Research §75, Doom log D49.
+
+### 2026-11-06: what should teach the plastic layer (phase 35)
+
+- `doom_td.py`: `plastic_teacher=view` (the plastic layer predicts the next
+  coarse frame, no reward) and `plastic_block`. A slow δ teacher stops the
+  extra deaths of phase 34 but does not help on unseen levels; the next-frame
+  predictor does not learn its task; no exits. Research §74, Doom log D48.
+
+### 2026-11-05: a plastic reservoir (phase 34)
+
+- `doom_td.py`: `plastic=N` (an e-prop E-R layer on the frozen vision,
+  trained by feedback alignment from the actor-critic's δ), with
+  `plastic_every`/`plastic_add`/`plastic_max` for progressive growth (older
+  neurons frozen). 32 plastic neurons raise deaths; the grown layer lowers
+  them by hiding; no exits. Research §72, Doom log D47.
+
 ### 2026-11-05: plasticity potential on Snake (§73)
 
 - `snake_growth`: `plasticity`, `p_alpha`, `p_beta`, `p_epsilon`, `p_floor`,

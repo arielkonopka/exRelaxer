@@ -1,0 +1,32 @@
+{
+ "kills": {
+  "run": "fixed32_s1",
+  "game": 0,
+  "kills": 6.0,
+  "seconds": 300.0,
+  "doors": 4.0,
+  "died": 0,
+  "game_reward": -0.8280000000002121,
+  "visited": 47
+ },
+ "longest": {
+  "run": "fixed32_s3",
+  "game": 1,
+  "kills": 5.0,
+  "seconds": 300.0,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 10.133000000000013,
+  "visited": 99
+ },
+ "doors": {
+  "run": "fixed32_s2",
+  "game": 1,
+  "kills": 2.0,
+  "seconds": 187.31428571428572,
+  "doors": 2.0,
+  "died": 1,
+  "game_reward": 0.3350000000000204,
+  "visited": 88
+ }
+}

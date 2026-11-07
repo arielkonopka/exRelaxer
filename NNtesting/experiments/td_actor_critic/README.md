@@ -133,7 +133,32 @@ from the nearest remembered one. Phase 33: `view_keep=k` remembers a view
 only when d > k * mean d; `view_block=b` makes a view the pooled screen
 averaged over b x b blocks instead of a random projection; `view_radius=r`
 replaces the running mean with a fixed radius; `fear=w` costs w times the
-danger unit's output each step.
+danger unit's output each step. Phase 34: `plastic=N` adds
+an E-R layer of N neurons reading the frozen Gabor pool, learning with
+e-prop (`plastic_trace`) through an output layer trained by feedback
+alignment from δ * (onehot(a) - π) and δ (`plastic_rate`); its outputs and
+thresholds are appended to the features. `plastic_every=G` grows it by
+`plastic_add` neurons every G games up to `plastic_max`, freezing the
+older ones when `plastic_freeze=1`; the readouts of new neurons start at
+zero. The whole layer is kept in the checkpoint. Phase 35:
+`plastic_teacher=view` trains it instead to predict the next frame's coarse
+picture (the pooled screen averaged over `plastic_block` blocks, centred,
+unit variance), a dense self-supervised teacher independent of reward.
+Phase 37: `plastic_feedback=weight` sends the plastic layer its errors
+through the output layer's real weights (`with_weight_feedback`).
+
+`predictor_probe.py --games 30 --out frames.npz` records random games and
+compares next-frame predictors offline (copy, ridge, the plastic layer at
+several rates and timings); `--load frames.npz` fits again.
+
+Phase 38: `vision_offline.py collect --levels mapNN --games 25 --out frames_mapNN.npz`
+records random games (pool, monsters and depth per column, hit within 8
+steps, walking distance to the exit); `vision_offline.py fit --data a.npz,b.npz
+--train levels --out vision.npz` fits a numpy MLP and reports how it does on
+the other levels. `doom_td.py` reads it with `vision_model=vision.npz`
+(`vision_feed=out|hidden|both`; `vision_pull=w` rewards a falling predicted
+exit distance). `depth_oracle=1` appends the true depth of 10 screen
+columns.
 
 `where_agents_go.py --runs DIR ... --games N --out paths.png [--heights] [--record videos]`
 replays trained MAP01 runs and draws where they go (phase 17); `--record`
