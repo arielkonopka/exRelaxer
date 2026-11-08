@@ -1,0 +1,32 @@
+{
+ "kills": {
+  "run": "novel2_s1",
+  "game": 0,
+  "kills": 8.0,
+  "seconds": 300.0,
+  "doors": 3.0,
+  "died": 0,
+  "game_reward": 15.288000000000006,
+  "visited": 124
+ },
+ "longest": {
+  "run": "novel5_s1",
+  "game": 0,
+  "kills": 0.0,
+  "seconds": 300.0,
+  "doors": 1.0,
+  "died": 0,
+  "game_reward": 4.2800000000000145,
+  "visited": 99
+ },
+ "doors": {
+  "run": "novel2_s2",
+  "game": 0,
+  "kills": 6.0,
+  "seconds": 74.97142857142858,
+  "doors": 3.0,
+  "died": 1,
+  "game_reward": 5.373000000000005,
+  "visited": 82
+ }
+}

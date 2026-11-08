@@ -1762,6 +1762,23 @@ still needs a sense of where it has not been.
 **Data.** `results/td-actor-critic/doom/open_space/`; videos in the
 project's `reports/doom-td/videos_open/`.
 
+### D53. Open space it has not been to (2026-11-08)
+
+**Question.** (Phase 41.) Does steering the open-space instinct toward
+unvisited squares take the agent further?
+
+**Setup.** D52 with `open_novel=1` (among open columns, prefer the line of
+sight crossing the most unvisited squares); p = 0.5 and 0.2, 3 seeds.
+
+**Result.**
+- No exits. Unseen squares 56 (D52 50-53), deaths 38% and 49%.
+- One seed per arm explores widely; others stay in MAP05's spawn room.
+
+**Conclusion.** Little change; the seed spread dominates.
+
+**Data.** `results/td-actor-critic/doom/open_novel/`; videos in the
+project's `reports/doom-td/videos_novel/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

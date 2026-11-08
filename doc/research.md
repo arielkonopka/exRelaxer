@@ -4228,6 +4228,44 @@ seen. It does not find exits. Heading for open space is not the same as
 heading somewhere new: without a memory of where it has been, the agent
 wanders the open areas it reaches.
 
+## 79. Open space it has not been to
+
+**Question.** (Phase 41; Doom log D53.) §78's open-space instinct takes the
+agent out of rooms but then wanders the open areas it reaches. Does
+steering the instinct toward ground it has not visited this game take it
+further?
+
+**Setup.** §78 with `open_novel=1`: among the depth columns deeper than
+the median, the reflex heads for the one whose line of sight (points 128
+and 256 units ahead, from the agent's own position and heading, 90-degree
+field of view) crosses the most squares not visited this game; ties go to
+the deeper column. p = 0.5 and 0.2; seeds 1-3, 1500 games, 12 training
+levels with true depth; tests as before.
+
+**Results.** Tests averaged over 3 seeds:
+
+| arm | deaths, trained | deaths, unseen | doors, unseen | squares, unseen | squares MAP05 | reward, unseen |
+|---|---|---|---|---|---|---|
+| 12 levels + depth (§77) | 41% | 31% | 0.5 | 42 | 13 | -1.8 |
+| open space, p = 0.5 (§78) | 48% | 36% | 0.6 | 50 | 26 | +0.3 |
+| open space, p = 0.2 (§78) | 57% | 33% | 1.0 | 53 | 54 | -2.3 |
+| new open space, p = 0.5 | 48% | 38% | 0.5 | 56 | 33 | +0.9 |
+| new open space, p = 0.2 | 63% | 49% | 1.0 | 56 | 34 | -0.5 |
+
+- No exits on any level.
+- Squares on unseen levels rise a little (56 vs 50-53), within the seed
+  spread; with p = 0.2 deaths rise (49%).
+- The spread between seeds is wide: p = 0.5 seed 3 walks 81 squares on
+  unseen levels (78 on MAP05, reward +7.4 there), seeds 1-2 stay in MAP05's
+  spawn room; p = 0.2 seed 1 walks 109 squares on MAP06 (reward +8.9).
+- Recorded games (`open_novel/*_paths.png`, two games per agent and map): on MAP05 the agents cover the whole green outdoor yard west of the start, its western ledge and the alcoves along it; the pull-0.2 first seed sweeps it most widely (171 squares in its best game). Nobody crosses into the northern building where the exit is, although the yard is close to the exit by walking distance. On MAP02 the best game kills 14 and visits 147 squares; on MAP06 the best game opens 3 doors. Videos: `reports/doom-td/videos_novel/`.
+
+**What it means.** Pointing the instinct at unvisited ground changes little:
+the line-of-sight test is crude (it sees through walls beyond the deepest
+point) and the learned policy, not the reflex, still decides most steps.
+Wide seed spreads make arm differences of this size unreadable with three
+seeds.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4627,6 +4665,9 @@ wanders the open areas it reaches.
     (§78): when bored, heading for the deepest screen column (true depth)
     takes every seed out of MAP05's closed spawn room (42-73 squares with
     p = 0.2, vs 11-18 without) and keeps unseen deaths at 33-36%; no exits.
+73. **Steering the open-space instinct to unvisited ground adds little**
+    (§79): unseen squares 56 vs 50-53, deaths 38-49%, wide seed spread;
+    no exits.
 
 ## Open questions and next steps
 

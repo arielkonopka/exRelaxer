@@ -490,6 +490,12 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-08: open space it has not been to (phase 41)
+
+- `doom_td.py`: `open_novel=1` (the open-space reflex prefers lines of sight
+  into unvisited squares). Little change on unseen levels; no exits.
+  Research §79, Doom log D53.
+
 ### 2026-11-07: an instinct for open space (phase 40)
 
 - `doom_td.py`: `open_reflex=p` (a bored agent heads for the deepest screen
