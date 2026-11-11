@@ -183,6 +183,14 @@ DEFAULTS = {
     # ahead, from the agent's own position and heading) crosses the most squares it has not yet
     # visited this game; ties go to the deeper column.
     "open_novel": 0,
+    # Phase 42: open_door = 1 makes the open-space reflex seek doorways first: a closed door in
+    # view (a sector whose ceiling is down, line of sight to its centre not crossed by a wall,
+    # within 1024 units and the 90-degree field of view, centre not yet come within 96 units this
+    # game), nearest first; else a narrow deep gap in the depth picture (vision_offline.
+    # doorway_columns, 40 columns, deeper than both sides by 0.25 log units, at most 8 wide);
+    # else the open-space choice as before. Doors come from ViZDoom's sector info: a "door sense"
+    # oracle, like depth_oracle, that a learned detector could at best match.
+    "open_door": 0,
     # A killer instinct: attack_reflex=1 adds ATTACK to the chosen action whenever a monster's
     # centre is within the middle `attack_cone` of the screen width; kill_weight sets doom_rl's
     # w_kill (reward per kill, default 1).
@@ -413,6 +421,54 @@ class LearnedPlace:
 MONSTERS = {"Zombieman", "ShotgunGuy", "ChaingunGuy", "DoomImp", "Demon", "Spectre", "LostSoul", "Cacodemon",
             "BaronOfHell", "HellKnight", "Revenant", "Arachnotron", "Fatso", "PainElemental", "Archvile",
             "Cyberdemon", "SpiderMastermind", "WolfensteinSS", "MarineChainsawVzd"}
+
+
+def door_centres(state):
+    """{sector id: (x, y)} of closed doors: sectors whose ceiling is at most 8 units above the floor."""
+    return {sec.id: (float(np.mean([(ln.x1 + ln.x2) / 2 for ln in sec.lines])),
+                     float(np.mean([(ln.y1 + ln.y2) / 2 for ln in sec.lines])))
+            for sec in state.sectors if sec.lines and sec.ceiling_height - sec.floor_height <= 8.0}
+
+
+def door_in_view(state, pos, reached, reach=1024.0, fov=45.0):
+    """Angle (degrees, positive = to the left) to the nearest closed door whose centre is in the
+    field of view, within `reach`, not yet reached, and not hidden behind a blocking line; None."""
+    doors = door_centres(state)
+    if not doors:
+        return None
+    own = {}
+    walls = []
+    for sec in state.sectors:
+        for ln in sec.lines:
+            if ln.is_blocking:
+                walls.append((ln.x1, ln.y1, ln.x2, ln.y2, sec.id))
+    w = np.array([v[:4] for v in walls], dtype=np.float64) if walls else np.zeros((0, 4))
+    wsec = np.array([v[4] for v in walls]) if walls else np.zeros(0)
+    px, py = float(pos[0]), float(pos[1])
+    best = None
+    for d, (cx, cy) in doors.items():
+        if d in reached:
+            continue
+        dx, dy = cx - px, cy - py
+        dist = np.hypot(dx, dy)
+        if dist > reach:
+            continue
+        ang = (np.degrees(np.arctan2(dy, dx)) - pos[2] + 180.0) % 360.0 - 180.0
+        if abs(ang) > fov:
+            continue
+        m = wsec != d
+        if m.any():
+            x1, y1, x2, y2 = w[m].T
+            ex, ey = x2 - x1, y2 - y1
+            den = dx * ey - dy * ex
+            ok = np.abs(den) > 1e-9
+            t = np.where(ok, ((x1 - px) * ey - (y1 - py) * ex) / np.where(ok, den, 1), -1)
+            u = np.where(ok, ((x1 - px) * dy - (y1 - py) * dx) / np.where(ok, den, 1), -1)
+            if np.any(ok & (t > 0.0) & (t < 1.0 - 32.0 / dist) & (u >= 0.0) & (u <= 1.0)):
+                continue  # a wall stands between the agent and the door's face
+        if best is None or dist < best[0]:
+            best = (dist, float(ang))
+    return None if best is None else best[1]
 
 
 def monster_ahead(state, cone):
@@ -1057,6 +1113,8 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
     blocked, reflexes = False, 0
     pokes = 0
     opens = 0
+    door_aims = gap_aims = 0
+    doors_reached = set()  # door sectors whose centre the agent came near this game (open_door)
     retreat_left = retreats = 0
     back = names.index("MOVE_BACKWARD") if "MOVE_BACKWARD" in names else None
     fwd = names.index("MOVE_FORWARD") if "MOVE_FORWARD" in names else None
@@ -1101,7 +1159,20 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
             from vision_offline import depth_columns
             dcol = depth_columns(state.depth_buffer)
             deepest = int(np.argmax(dcol))
-            if learner.p["open_novel"] and pos is not None:
+            target = None  # degrees to turn (positive = left), when a doorway is in sight
+            if learner.p["open_door"] and pos is not None:
+                target = door_in_view(state, pos, doors_reached)
+                if target is not None:
+                    door_aims += 1
+                else:
+                    from vision_offline import doorway_columns
+                    gaps = doorway_columns(state.depth_buffer)
+                    if gaps:
+                        target = (0.5 - (gaps[0][0] + 0.5) / 40) * 90.0
+                        gap_aims += 1
+            if target is not None:
+                deepest = 4 if abs(target) <= 9.0 else (0 if target > 0 else 9)
+            elif learner.p["open_novel"] and pos is not None:
                 heading = np.radians(pos[2])
                 best = None
                 for c in np.where(dcol >= np.median(dcol))[0]:
@@ -1229,6 +1300,9 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
         pos = PlaceCells.read(game)
         blocked = a in moving and np.hypot(pos[0] - before_pos[0], pos[1] - before_pos[1]) < 1.0
         cells.add((int(pos[0] // 64), int(pos[1] // 64)))
+        if learner.p["open_door"] and state is not None:
+            doors_reached |= {d for d, (cx, cy) in door_centres(state).items()
+                              if (pos[0] - cx) ** 2 + (pos[1] - cy) ** 2 < 96.0 ** 2}
         if learn and learner.p["novelty"] > 0:
             bonus = learner.novelty_bonus(pos)
             r += bonus
@@ -1269,7 +1343,7 @@ def episode(game, learner, scale, learn, trace=False, shaper=None):
              novelty=novelty, curious=curious, viewed=viewed,
              views=learner.view_novelty.size if learner.view_novelty is not None else 0,
              curiosity_error=float(np.mean(learner.curiosity.errors)) if learner.curiosity is not None and learner.curiosity.errors else -1.0,
-             reflexes=reflexes, strikes=strikes, pokes=pokes, opens=opens, retreats=retreats,
+             reflexes=reflexes, strikes=strikes, pokes=pokes, opens=opens, door_aims=door_aims, gap_aims=gap_aims, retreats=retreats,
              danger_hurt=float(np.mean(learner.danger.hurt_p)) if learner.danger is not None and learner.danger.hurt_p else -1.0,
              danger_safe=float(np.mean(learner.danger.safe_p)) if learner.danger is not None and learner.danger.safe_p else -1.0,
              det_recall=det_hits / max(1, det_true), det_false=det_false / max(1, steps), fb_shots=fb_shots,

@@ -41,6 +41,34 @@ def depth_columns(depth, k=COLUMNS):
     return np.log1p(np.array([np.median(band[:, i * w // k:(i + 1) * w // k]) for i in range(k)]))
 
 
+def doorway_columns(depth, k=40, jump=0.25, widest=8):
+    """Narrow openings in view: runs of fine screen columns (k across, log median depth of rows
+    h/4..h/2, above the weapon sprite) deeper than the columns on both sides of the run by at least `jump` (log units)
+    and at most `widest` columns wide. Returns [(centre column 0..k-1, width, jump)], biggest
+    jump first; runs touching a screen edge are not openings (one side is unseen)."""
+    d = np.asarray(depth, dtype=np.float64)
+    h, w = d.shape
+    band = d[h // 4: h // 2]
+    col = np.log1p(np.array([np.median(band[:, i * w // k:(i + 1) * w // k]) for i in range(k)]))
+    out = []
+    i = 0
+    while i < k:
+        j = i
+        # a run: columns at least `jump` deeper than the column left of where it starts
+        if i > 0 and col[i] - col[i - 1] >= jump:
+            left = col[i - 1]
+            while j + 1 < k and col[j + 1] - left >= jump:
+                j += 1
+            if j + 1 < k and col[j] - col[j + 1] >= jump and j - i + 1 <= widest:
+                run = col[i:j + 1]
+                out.append(((i + j) / 2.0, j - i + 1, float(run.min() - max(left, col[j + 1]))))
+            i = j + 1
+        else:
+            i += 1
+    out.sort(key=lambda g: -g[2])
+    return out
+
+
 def collect_level(level, games, seed, minutes):
     p = dict(dt.DEFAULTS)
     p.update(features="both_pool", attack_reflex=1, orient_reflex=1, until_death=minutes, detector=1)
