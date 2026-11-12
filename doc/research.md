@@ -4266,6 +4266,54 @@ point) and the learned policy, not the reflex, still decides most steps.
 Wide seed spreads make arm differences of this size unreadable with three
 seeds.
 
+## 80. Seeking doorways
+
+**Question.** (Phase 42; Doom log D54.) In §78-§79 the agents sweep
+MAP05's outdoor yard but never enter the building that holds the exit.
+Does an instinct that aims at doorways, rather than at open space, take
+them inside?
+
+**Setup.** §79 with `open_door=1`: when the open-space reflex fires, it
+first aims at the nearest closed door in view (a sector whose ceiling is
+down, within 1024 units and the 90-degree field of view, with no wall
+across the line of sight, not yet come within 96 units this game; read
+from ViZDoom's sector info, a "door sense" oracle like the depth oracle).
+If none is in view, it aims at the centre of a narrow deep gap in the
+depth picture (`vision_offline.doorway_columns`: 40 columns of rows
+h/4-h/2, above the weapon, a run at most 8 columns wide that is at least
+0.25 log units deeper than both sides). Otherwise it chooses as in §79.
+Forward when the target is within 9 degrees, else a turn toward it; the
+door and poke reflexes open what it walks into. p = 0.5 and 0.2; seeds
+1-3, 1500 games, 12 training levels with true depth; tests as before.
+
+**Results.** Tests averaged over 3 seeds:
+
+| arm | deaths, trained | deaths, unseen | doors, unseen | squares, unseen | squares MAP05 | reward, unseen |
+|---|---|---|---|---|---|---|
+| new open space, p = 0.5 (§79) | 48% | 38% | 0.5 | 56 | 33 | +0.9 |
+| new open space, p = 0.2 (§79) | 63% | 49% | 1.0 | 56 | 34 | -0.5 |
+| doorways, p = 0.5 | 56% | 41% | 0.8 | 56 | 29 | 0.0 |
+| doorways, p = 0.2 | 55% | 51% | 0.8 | 58 | 57 | -0.3 |
+
+- No exits on any level.
+- The reflex aims at doors often (31-82 times per training game, depth
+  gaps 4-16), but doors opened on unseen levels stay at 0.8 per game:
+  MAP06 1.0-2.1, MAP05 0-1.0, MAP02 0-0.4.
+- p = 0.5 seed 1 still never leaves MAP05's spawn room (11 squares), with
+  a closed door straight ahead of the start.
+- Recorded games (`door_seek/*_paths.png`): on MAP05 the paths cover the
+  same western yard as in §79 and reach the foot of the northern building
+  but do not enter it; the best MAP05 game kills 10 and visits 136
+  squares, the best MAP06 game opens 3 doors. Videos:
+  `reports/doom-td/videos_door/`.
+
+**What it means.** Even a perfect door sense does not get the agent into
+new parts of a level: aiming happens only while bored, the learned policy
+turns away again, and a door in view is often not the door that leads
+on (or needs a key or a switch). Getting to an exit on an unseen level
+needs more than local instincts: some memory of which openings lead
+somewhere new, held long enough to walk there.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4668,6 +4716,10 @@ seeds.
 73. **Steering the open-space instinct to unvisited ground adds little**
     (§79): unseen squares 56 vs 50-53, deaths 38-49%, wide seed spread;
     no exits.
+74. **Even a perfect door sense does not lead the agent through doors**
+    (§80): aiming the bored reflex at closed doors in view (sector oracle)
+    or narrow depth gaps gives unseen doors 0.8 per game, squares 56-58,
+    deaths 41-51%; no exits.
 
 ## Open questions and next steps
 

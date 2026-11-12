@@ -490,6 +490,13 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-12: seeking doorways (phase 42)
+
+- `doom_td.py`: `open_door=1` (the open-space reflex aims at the nearest
+  closed door in view, from sector info, else at a narrow deep gap in the
+  depth picture, `vision_offline.doorway_columns`). No change on unseen
+  levels; no exits. Research §80, Doom log D54.
+
 ### 2026-11-08: open space it has not been to (phase 41)
 
 - `doom_td.py`: `open_novel=1` (the open-space reflex prefers lines of sight

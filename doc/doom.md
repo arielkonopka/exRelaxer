@@ -1779,6 +1779,24 @@ sight crossing the most unvisited squares); p = 0.5 and 0.2, 3 seeds.
 **Data.** `results/td-actor-critic/doom/open_novel/`; videos in the
 project's `reports/doom-td/videos_novel/`.
 
+### D54. Seeking doorways (2026-11-12)
+
+**Question.** (Phase 42.) Does aiming the bored reflex at doorways take
+the agent into new parts of unseen levels?
+
+**Setup.** D53 with `open_door=1`: nearest closed door in view (sector
+info oracle), else a narrow deep gap in the depth picture, else as D53;
+p = 0.5 and 0.2, 3 seeds.
+
+**Result.**
+- No exits. Unseen doors 0.8 per game, squares 56-58, deaths 41% and 51%.
+- On MAP05 the agents still sweep the yard and never enter the exit building.
+
+**Conclusion.** No change: a door in view is not a way on.
+
+**Data.** `results/td-actor-critic/doom/door_seek/`; videos in the
+project's `reports/doom-td/videos_door/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts
