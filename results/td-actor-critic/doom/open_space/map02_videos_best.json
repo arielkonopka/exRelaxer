@@ -1,0 +1,32 @@
+{
+ "kills": {
+  "run": "open5_s1",
+  "game": 1,
+  "kills": 8.0,
+  "seconds": 73.82857142857142,
+  "doors": 0.0,
+  "died": 1,
+  "game_reward": 7.339000000000024,
+  "visited": 79
+ },
+ "longest": {
+  "run": "open2_s2",
+  "game": 1,
+  "kills": 3.0,
+  "seconds": 300.0,
+  "doors": 0.0,
+  "died": 0,
+  "game_reward": -6.261999999999841,
+  "visited": 42
+ },
+ "doors": {
+  "run": "open5_s2",
+  "game": 0,
+  "kills": 3.0,
+  "seconds": 34.17142857142857,
+  "doors": 1.0,
+  "died": 1,
+  "game_reward": -2.192999999999988,
+  "visited": 18
+ }
+}

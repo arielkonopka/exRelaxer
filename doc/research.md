@@ -4144,6 +4144,176 @@ sense one seed in three became a real explorer. Stereo vision could add up
 to this much and no more; the missing piece is still how to leave a closed
 room (find and open its door) on a level never seen.
 
+## 77. Training on twelve levels
+
+**Question.** (Phase 39; Doom log D51.) §76 found that vision learned on 3
+levels does not transfer and vision learned on 12 does. The agent itself
+has only ever trained on 3. Does training it on 12 levels help it on unseen
+ones, with or without true depth?
+
+**Setup.** §71's strict-views agent trained on MAP01/03/04 and MAP07-15
+(`maps=`, 12 levels, about 125 games each in 1500), without and with
+`depth_oracle=1`; seeds 1-3; tested on the training levels and on the
+unseen MAP02/05/06 as in §67.
+
+**Results.** Tests averaged over 3 seeds (unseen: MAP02/05/06):
+
+| arm | deaths, trained | deaths, unseen | kills, unseen | doors, unseen | squares, unseen | squares MAP05 | reward, unseen |
+|---|---|---|---|---|---|---|---|
+| 3 levels (§71) | 33% | 49% | 3.9 | 0.9 | 52 | 47 | -2.0 |
+| 3 levels + depth (§76) | 20% | 33% | 3.8 | 0.5 | 63 | 50 | +0.2 |
+| 12 levels | 61% | 43% | 3.4 | 1.0 | 42 | 20 | -0.8 |
+| 12 levels + depth | 41% | 31% | 2.7 | 0.5 | 42 | 13 | -1.8 |
+
+- No exits on any level, trained or unseen.
+- The 12 levels are harder than the 3 (61% deaths on them); on unseen
+  levels the 12-level agent dies less, opens the most doors so far (1.0
+  per game; every seed opens MAP05's spawn-room door 0.8-1.0 times a game)
+  and has a better reward than the 3-level agent, but walks less.
+- With depth it dies least (31%), but every seed stays in or near MAP05's
+  spawn room (11-18 squares); on MAP06 it walks 76-87 squares with rewards
+  up to +4.6.
+- Recorded games (`many_levels/*_paths.png`): on MAP05 one plain agent
+  (seed 1) roams the whole outdoor area west of the exit building but never
+  finds its entrance; the others stay in the spawn room.
+
+**What it means.** More training levels make the agent's habits more
+general (more doors on new levels, fewer deaths), as they did for vision,
+but they do not add a way through a level: no agent finds an exit on any of
+15 levels. With depth the agent again turns its better sense of danger into
+caution. The missing piece is still a drive or skill that takes it out of
+a room and onward through an unknown level.
+
+## 78. An instinct for open space
+
+**Question.** (Phase 40; Doom log D52.) Every phase so far ends at the same
+missing skill: leaving a room and moving on through a level never seen.
+True depth helped most (§76-§77). Does an innate pull toward open space,
+read from depth, get the agent out of rooms on unseen levels?
+
+**Setup.** §77's 12-level agent with true depth plus `open_reflex=p`: each
+step, with probability p times the boredom level (the share of
+`boredom_steps` since the last new square), the actor's choice is replaced
+by a move toward the deepest of the 10 depth columns: forward when it is
+one of the middle two, otherwise a turn toward it. The reflex acts in tests
+too (an instinct, like the door and strike reflexes). p = 0.5 and 0.2;
+seeds 1-3, 1500 games; tests on the 12 training levels and on the unseen
+MAP02/05/06.
+
+**Results.** Tests averaged over 3 seeds:
+
+| arm | deaths, trained | deaths, unseen | doors, unseen | squares, unseen | squares MAP05 | reward, unseen |
+|---|---|---|---|---|---|---|
+| 12 levels (§77) | 61% | 43% | 1.0 | 42 | 20 | -0.8 |
+| 12 levels + depth (§77) | 41% | 31% | 0.5 | 42 | 13 | -1.8 |
+| + open space, p = 0.5 | 48% | 36% | 0.6 | 50 | 26 | +0.3 |
+| + open space, p = 0.2 | 57% | 33% | 1.0 | 53 | 54 | -2.3 |
+
+- No exits on any level.
+- In training the bored agents walk more squares per game (80-94 vs 62-71
+  for depth alone over the last 100 games); the reflex takes over 200-530
+  steps per game.
+- Every seed of both arms now leaves MAP05's closed spawn room; with
+  p = 0.2 they walk 42-73 squares there (depth alone 11-18).
+- MAP02 stays deadly (deaths up to 100% per seed); MAP06 goes well
+  (72-103 squares).
+- Recorded games (`open_space/*_paths.png`): on MAP05 four of six agents
+  leave the spawn room and sweep the outdoor area west of the exit
+  building, one reaching the corridor east of it, but none finds the way
+  into the building.
+
+**What it means.** A simple instinct does what learning did not: it takes
+the agent out of rooms it would otherwise sit in, on levels it has never
+seen. It does not find exits. Heading for open space is not the same as
+heading somewhere new: without a memory of where it has been, the agent
+wanders the open areas it reaches.
+
+## 79. Open space it has not been to
+
+**Question.** (Phase 41; Doom log D53.) §78's open-space instinct takes the
+agent out of rooms but then wanders the open areas it reaches. Does
+steering the instinct toward ground it has not visited this game take it
+further?
+
+**Setup.** §78 with `open_novel=1`: among the depth columns deeper than
+the median, the reflex heads for the one whose line of sight (points 128
+and 256 units ahead, from the agent's own position and heading, 90-degree
+field of view) crosses the most squares not visited this game; ties go to
+the deeper column. p = 0.5 and 0.2; seeds 1-3, 1500 games, 12 training
+levels with true depth; tests as before.
+
+**Results.** Tests averaged over 3 seeds:
+
+| arm | deaths, trained | deaths, unseen | doors, unseen | squares, unseen | squares MAP05 | reward, unseen |
+|---|---|---|---|---|---|---|
+| 12 levels + depth (§77) | 41% | 31% | 0.5 | 42 | 13 | -1.8 |
+| open space, p = 0.5 (§78) | 48% | 36% | 0.6 | 50 | 26 | +0.3 |
+| open space, p = 0.2 (§78) | 57% | 33% | 1.0 | 53 | 54 | -2.3 |
+| new open space, p = 0.5 | 48% | 38% | 0.5 | 56 | 33 | +0.9 |
+| new open space, p = 0.2 | 63% | 49% | 1.0 | 56 | 34 | -0.5 |
+
+- No exits on any level.
+- Squares on unseen levels rise a little (56 vs 50-53), within the seed
+  spread; with p = 0.2 deaths rise (49%).
+- The spread between seeds is wide: p = 0.5 seed 3 walks 81 squares on
+  unseen levels (78 on MAP05, reward +7.4 there), seeds 1-2 stay in MAP05's
+  spawn room; p = 0.2 seed 1 walks 109 squares on MAP06 (reward +8.9).
+- Recorded games (`open_novel/*_paths.png`, two games per agent and map): on MAP05 the agents cover the whole green outdoor yard west of the start, its western ledge and the alcoves along it; the pull-0.2 first seed sweeps it most widely (171 squares in its best game). Nobody crosses into the northern building where the exit is, although the yard is close to the exit by walking distance. On MAP02 the best game kills 14 and visits 147 squares; on MAP06 the best game opens 3 doors. Videos: `reports/doom-td/videos_novel/`.
+
+**What it means.** Pointing the instinct at unvisited ground changes little:
+the line-of-sight test is crude (it sees through walls beyond the deepest
+point) and the learned policy, not the reflex, still decides most steps.
+Wide seed spreads make arm differences of this size unreadable with three
+seeds.
+
+## 80. Seeking doorways
+
+**Question.** (Phase 42; Doom log D54.) In §78-§79 the agents sweep
+MAP05's outdoor yard but never enter the building that holds the exit.
+Does an instinct that aims at doorways, rather than at open space, take
+them inside?
+
+**Setup.** §79 with `open_door=1`: when the open-space reflex fires, it
+first aims at the nearest closed door in view (a sector whose ceiling is
+down, within 1024 units and the 90-degree field of view, with no wall
+across the line of sight, not yet come within 96 units this game; read
+from ViZDoom's sector info, a "door sense" oracle like the depth oracle).
+If none is in view, it aims at the centre of a narrow deep gap in the
+depth picture (`vision_offline.doorway_columns`: 40 columns of rows
+h/4-h/2, above the weapon, a run at most 8 columns wide that is at least
+0.25 log units deeper than both sides). Otherwise it chooses as in §79.
+Forward when the target is within 9 degrees, else a turn toward it; the
+door and poke reflexes open what it walks into. p = 0.5 and 0.2; seeds
+1-3, 1500 games, 12 training levels with true depth; tests as before.
+
+**Results.** Tests averaged over 3 seeds:
+
+| arm | deaths, trained | deaths, unseen | doors, unseen | squares, unseen | squares MAP05 | reward, unseen |
+|---|---|---|---|---|---|---|
+| new open space, p = 0.5 (§79) | 48% | 38% | 0.5 | 56 | 33 | +0.9 |
+| new open space, p = 0.2 (§79) | 63% | 49% | 1.0 | 56 | 34 | -0.5 |
+| doorways, p = 0.5 | 56% | 41% | 0.8 | 56 | 29 | 0.0 |
+| doorways, p = 0.2 | 55% | 51% | 0.8 | 58 | 57 | -0.3 |
+
+- No exits on any level.
+- The reflex aims at doors often (31-82 times per training game, depth
+  gaps 4-16), but doors opened on unseen levels stay at 0.8 per game:
+  MAP06 1.0-2.1, MAP05 0-1.0, MAP02 0-0.4.
+- p = 0.5 seed 1 still never leaves MAP05's spawn room (11 squares), with
+  a closed door straight ahead of the start.
+- Recorded games (`door_seek/*_paths.png`): on MAP05 the paths cover the
+  same western yard as in §79 and reach the foot of the northern building
+  but do not enter it; the best MAP05 game kills 10 and visits 136
+  squares, the best MAP06 game opens 3 doors. Videos:
+  `reports/doom-td/videos_door/`.
+
+**What it means.** Even a perfect door sense does not get the agent into
+new parts of a level: aiming happens only while bored, the learned policy
+turns away again, and a door in view is often not the door that leads
+on (or needs a key or a switch). Getting to an exit on an unseen level
+needs more than local instincts: some memory of which openings lead
+somewhere new, held long enough to walk there.
+
 ## Conclusions
 
 1. **E-R was the main obstacle to learning**, through its eligibility rule.
@@ -4534,6 +4704,22 @@ room (find and open its door) on a level never seen.
     depth, the upper bound of stereo, gives the best unseen-level average
     (33% deaths, 63 squares, reward +0.2) through one bold seed of three.
     No exits.
+71. **Twelve training levels make habits more general but find no exits**
+    (§77): trained on 12 levels the agent opens more doors on unseen
+    levels (1.0 per game) and dies less (43% vs 49%); with true depth it
+    dies least (31%) but stays near MAP05's spawn room. No exits on any of
+    15 levels.
+72. **An instinct for open space gets the agent out of rooms on new levels**
+    (§78): when bored, heading for the deepest screen column (true depth)
+    takes every seed out of MAP05's closed spawn room (42-73 squares with
+    p = 0.2, vs 11-18 without) and keeps unseen deaths at 33-36%; no exits.
+73. **Steering the open-space instinct to unvisited ground adds little**
+    (§79): unseen squares 56 vs 50-53, deaths 38-49%, wide seed spread;
+    no exits.
+74. **Even a perfect door sense does not lead the agent through doors**
+    (§80): aiming the bored reflex at closed doors in view (sector oracle)
+    or narrow depth gaps gives unseen doors 0.8 per game, squares 56-58,
+    deaths 41-51%; no exits.
 
 ## Open questions and next steps
 

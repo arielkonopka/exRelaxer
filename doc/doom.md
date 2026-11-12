@@ -1721,6 +1721,82 @@ is still the missing skill.
 `results/td-actor-critic/doom/depth_oracle/`; videos in the project's
 `reports/doom-td/videos_vision/` and `videos_depth/`.
 
+### D51. Training on twelve levels (2026-11-07)
+
+**Question.** (Phase 39.) Does training the agent on 12 levels instead of 3
+help it on unseen ones, with or without true depth?
+
+**Setup.** D46's strict-views agent, `maps=` MAP01/03/04 and MAP07-15,
+alone or with `depth_oracle=1`; 3 seeds, 1500 games; tests on MAP02/05/06.
+
+**Result.**
+- No exits on any level.
+- Unseen deaths: 12 levels 43%, with depth 31% (3 levels 49%, with depth
+  33%); doors 1.0 and 0.5 per game; reward -0.8 and -1.8.
+- With depth every seed stays near MAP05's spawn room.
+
+**Conclusion.** More levels give more general habits, not a way through a
+level.
+
+**Data.** `results/td-actor-critic/doom/many_levels/`; videos in the
+project's `reports/doom-td/videos_many/`.
+
+### D52. An instinct for open space (2026-11-07)
+
+**Question.** (Phase 40.) Does an innate pull toward open space get the
+agent out of rooms on unseen levels?
+
+**Setup.** D51's 12-level agent with true depth plus `open_reflex=p`: when
+bored (no new square for a while) it sometimes heads for the deepest screen
+column; p = 0.5 and 0.2, 3 seeds, 1500 games.
+
+**Result.**
+- No exits.
+- Unseen deaths 36% and 33%; squares 50 and 53 (depth alone 31%, 42).
+- Every seed leaves MAP05's spawn room (p = 0.2: 42-73 squares; before
+  11-18).
+
+**Conclusion.** The instinct gets the agent out of rooms; finding the exit
+still needs a sense of where it has not been.
+
+**Data.** `results/td-actor-critic/doom/open_space/`; videos in the
+project's `reports/doom-td/videos_open/`.
+
+### D53. Open space it has not been to (2026-11-08)
+
+**Question.** (Phase 41.) Does steering the open-space instinct toward
+unvisited squares take the agent further?
+
+**Setup.** D52 with `open_novel=1` (among open columns, prefer the line of
+sight crossing the most unvisited squares); p = 0.5 and 0.2, 3 seeds.
+
+**Result.**
+- No exits. Unseen squares 56 (D52 50-53), deaths 38% and 49%.
+- One seed per arm explores widely; others stay in MAP05's spawn room.
+
+**Conclusion.** Little change; the seed spread dominates.
+
+**Data.** `results/td-actor-critic/doom/open_novel/`; videos in the
+project's `reports/doom-td/videos_novel/`.
+
+### D54. Seeking doorways (2026-11-12)
+
+**Question.** (Phase 42.) Does aiming the bored reflex at doorways take
+the agent into new parts of unseen levels?
+
+**Setup.** D53 with `open_door=1`: nearest closed door in view (sector
+info oracle), else a narrow deep gap in the depth picture, else as D53;
+p = 0.5 and 0.2, 3 seeds.
+
+**Result.**
+- No exits. Unseen doors 0.8 per game, squares 56-58, deaths 41% and 51%.
+- On MAP05 the agents still sweep the yard and never enter the exit building.
+
+**Conclusion.** No change: a door in view is not a way on.
+
+**Data.** `results/td-actor-critic/doom/door_seek/`; videos in the
+project's `reports/doom-td/videos_door/`.
+
 ## Open questions
 
 - **Features.** Every hidden layer is frozen and random; only 8 readouts

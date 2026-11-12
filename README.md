@@ -490,6 +490,31 @@ suite passes for `baseline_threshold` from 0.05 to 1.0.
 
 ## Changelog
 
+### 2026-11-12: seeking doorways (phase 42)
+
+- `doom_td.py`: `open_door=1` (the open-space reflex aims at the nearest
+  closed door in view, from sector info, else at a narrow deep gap in the
+  depth picture, `vision_offline.doorway_columns`). No change on unseen
+  levels; no exits. Research §80, Doom log D54.
+
+### 2026-11-08: open space it has not been to (phase 41)
+
+- `doom_td.py`: `open_novel=1` (the open-space reflex prefers lines of sight
+  into unvisited squares). Little change on unseen levels; no exits.
+  Research §79, Doom log D53.
+
+### 2026-11-07: an instinct for open space (phase 40)
+
+- `doom_td.py`: `open_reflex=p` (a bored agent heads for the deepest screen
+  column, true depth). Every agent now leaves MAP05's closed spawn room;
+  unseen deaths 33-36%; no exits. Research §78, Doom log D52.
+
+### 2026-11-07: training on twelve levels (phase 39)
+
+- The agent trained on 12 levels (MAP01/03/04, MAP07-15) opens more doors
+  and dies less on unseen levels; with true depth it dies least but stays
+  near the spawn room; no exits. Research §77, Doom log D51.
+
 ### 2026-11-07: vision learned offline, and true depth (phase 38)
 
 - `vision_offline.py` (records random games with labels and depth, fits an
